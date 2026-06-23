@@ -1,0 +1,8 @@
+{
+  "name": "ToolSnap MCP",
+  "description": "Context-efficient microtools for AI agents. Flagship: fetch_extract with 98.1% median token reduction (53,820 → 2,001 tokens). Saves ~$0.156/call at Sonnet pricing. Costs $0.02 USDC on Base via x402 protocol. First call free per wallet. 10 free utility tools (UUID, hash, Base64, URL encode/decode, JSON, timestamps, text stats).",
+  "categories": ["developer-tools", "web-scraping", "paid"],
+  "transport": "streamable-http",
+  "homepage": "https://toolsnap.app/agents",
+  "endpoint": "https://mcp.toolsnap.app/mcp"
+}
