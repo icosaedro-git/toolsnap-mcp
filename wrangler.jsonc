@@ -5,5 +5,7 @@
   "compatibility_date": "2026-06-01",
   "workers_dev": false,
   "observability": { "enabled": true },
-  "routes": [{ "pattern": "mcp.toolsnap.app", "custom_domain": true }]
+  "routes": [{ "pattern": "mcp.toolsnap.app", "custom_domain": true }],
+  "vars": { "X402_NETWORK": "base" }
+  // X402_PAY_TO_ADDRESS is a secret — upload via: wrangler secret put X402_PAY_TO_ADDRESS
 }

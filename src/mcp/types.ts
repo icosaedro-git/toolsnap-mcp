@@ -63,4 +63,5 @@ export interface InitializeParams {
 export interface ToolsCallParams {
   name: string;
   arguments?: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
 }

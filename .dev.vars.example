@@ -1,6 +1,4 @@
-# Phase 2 (payments) — not used yet.
-# These variables will be needed when x402 payment gating is added to paid tools.
-# Copy this file to .dev.vars and fill in real values at that point.
-#
-# X402_PAY_TO_ADDRESS=0xYourPublicWalletAddressHere
-# X402_NETWORK=base
+# x402 payment configuration.
+# Copy this file to .dev.vars and fill in real values for local development.
+X402_PAY_TO_ADDRESS=0xYourPublicWalletAddressHere
+X402_NETWORK=base

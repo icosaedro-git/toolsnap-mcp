@@ -6,6 +6,7 @@ import { urlEncodeTool, urlDecodeTool } from "./url.js";
 import { jsonFormatTool } from "./json.js";
 import { timestampConvertTool } from "./timestamp.js";
 import { textStatsTool } from "./text-stats.js";
+import { fetchExtractTool } from "./fetch-extract.js";
 
 export const tools: McpTool[] = [
   uuidTool,
@@ -17,6 +18,7 @@ export const tools: McpTool[] = [
   jsonFormatTool,
   timestampConvertTool,
   textStatsTool,
+  fetchExtractTool,
 ];
 
 /** Returns the tool list for tools/list responses (no run function). */
