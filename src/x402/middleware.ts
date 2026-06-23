@@ -464,7 +464,11 @@ export async function settlePayment(
 ): Promise<{ txHash: string }> {
   const { from, to, value, validAfter, validBefore, nonce } = authorization;
 
-  const account = privateKeyToAccount(env.RELAYER_PRIVATE_KEY as Hex);
+  // Normalise the relayer key: trim whitespace and ensure 0x prefix.
+  // (viem's privateKeyToAccount requires a 0x-prefixed 32-byte hex string.)
+  const rawKey = env.RELAYER_PRIVATE_KEY.trim();
+  const hexKey = (rawKey.startsWith("0x") ? rawKey : `0x${rawKey}`) as Hex;
+  const account = privateKeyToAccount(hexKey);
 
   const walletClient = createWalletClient({
     account,

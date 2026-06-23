@@ -9,7 +9,7 @@
   "vars": {
     "X402_NETWORK": "base",
     "X402_PRICE_USDC": "0.02",
-    "BASE_RPC_URL": "https://mainnet.base.org"
+    "BASE_RPC_URL": "https://base-rpc.publicnode.com"
   },
   // KV namespace for x402 nonce replay-protection (created 2026-06-23).
   "kv_namespaces": [
