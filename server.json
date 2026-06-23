@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "app.toolsnap/toolsnap-mcp",
+  "title": "ToolSnap MCP",
+  "description": "AI agent microtools. fetch_extract: 98.1% token reduction. $0.02 USDC on Base. 10 free tools.",
+  "version": "1.0.0",
+  "websiteUrl": "https://toolsnap.app/agents",
+  "repository": {
+    "url": "https://github.com/icosaedro-git/toolsnap-mcp",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.toolsnap.app/mcp"
+    }
+  ]
+}

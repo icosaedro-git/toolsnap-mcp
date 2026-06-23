@@ -1,0 +1,50 @@
+# Smithery registry entry — https://smithery.ai
+# Submit via: https://smithery.ai/new or GitHub PR to smithery-ai/registry
+# This file is for reference; fill the web form with these values.
+
+name: toolsnap-mcp
+displayName: "ToolSnap MCP — Context-Efficient Microtools"
+description: |
+  MCP server with microtools for AI agents. Flagship fetch_extract reduces token
+  usage by a median 98.1% (53 820 → 2 001 tokens, 11 real pages). Saves ~$0.156/call
+  at Sonnet pricing. Costs $0.02 USDC on Base via x402. First call free per wallet.
+  10 free utility tools included: UUID, hash, Base64, URL encode/decode, JSON format,
+  timestamp convert, text stats.
+
+homepage: https://toolsnap.app/agents
+repository: https://github.com/icosaedro-git/toolsnap-mcp
+
+transport:
+  type: streamable-http
+  url: https://mcp.toolsnap.app/mcp
+
+serverCard: https://mcp.toolsnap.app/.well-known/mcp.json
+pricingEndpoint: https://mcp.toolsnap.app/.well-known/pricing.json
+
+categories:
+  - developer-tools
+  - web-scraping
+  - ai-agents
+  - paid
+
+pricing:
+  model: per-call
+  currency: USDC
+  network: base
+  pricePerCall: 0.02
+  freeTools: 10
+  firstCallFree: true
+
+tags:
+  - mcp
+  - x402
+  - usdc
+  - base
+  - fetch
+  - token-reduction
+  - context-efficient
+  - cloudflare-workers
+
+author:
+  name: Icosaedro.one
+  url: https://toolsnap.app
