@@ -2,8 +2,17 @@ import { handleMcpRequest } from "./mcp/server.js";
 import { tools } from "./tools/index.js";
 
 export interface Env {
-  X402_PAY_TO_ADDRESS: string;
+  // x402 payment config (vars in wrangler.jsonc)
   X402_NETWORK: string;
+  X402_PRICE_USDC: string;
+  BASE_RPC_URL: string;
+
+  // x402 secrets (set via: wrangler secret put <NAME>)
+  X402_PAY_TO_ADDRESS: string;
+  RELAYER_PRIVATE_KEY: string;
+
+  // KV namespace for nonce replay-protection
+  X402_NONCES: KVNamespace;
 }
 
 const CORS_HEADERS: Record<string, string> = {

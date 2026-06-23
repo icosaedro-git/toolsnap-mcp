@@ -10,8 +10,15 @@ import {
   requiresPayment,
   buildPaymentRequiredResponse,
   verifyPayment,
+  settlePayment,
   type PaymentConfig,
 } from "../x402/middleware.js";
+
+/** x402 MCP meta key (per x402 v2 MCP transport spec). */
+const MCP_PAYMENT_META_KEY = "x402/payment";
+
+/** x402 MCP meta key for the settlement response. */
+const MCP_PAYMENT_RESPONSE_META_KEY = "x402/payment-response";
 
 function successResponse(id: string | number | null, result: unknown): JsonRpcResponse {
   return { jsonrpc: "2.0", id, result };
@@ -75,21 +82,91 @@ export async function dispatch(
         });
       }
 
-      // x402 payment gate: check paid tools before execution.
+      // -----------------------------------------------------------------------
+      // x402 payment gate
+      // -----------------------------------------------------------------------
       if (requiresPayment(toolName)) {
-        const receipt = (params._meta?.x402Receipt as string | null) ?? null;
         const config: PaymentConfig = {
           payToAddress: env.X402_PAY_TO_ADDRESS,
           network: env.X402_NETWORK,
-          priceUSDC: "0.001",
+          priceUSDC: env.X402_PRICE_USDC ?? "0.02",
           resource: toolName,
         };
-        const paid = await verifyPayment(receipt, config);
-        if (!paid) {
+
+        // Step 1: read _meta["x402/payment"]
+        const paymentPayload = (params._meta ?? {})[MCP_PAYMENT_META_KEY] ?? null;
+
+        if (paymentPayload === null || paymentPayload === undefined) {
           return buildPaymentRequiredResponse(config, id) as JsonRpcResponse;
         }
+
+        // Step 2: off-chain verification
+        const verifyResult = await verifyPayment(paymentPayload, config, env);
+        if (!verifyResult.ok) {
+          return buildPaymentRequiredResponse(
+            config,
+            id,
+            verifyResult.reason
+          ) as JsonRpcResponse;
+        }
+
+        // Step 3: execute the tool FIRST — do not charge on failure
+        let toolResult: string;
+        try {
+          toolResult = await callTool(toolName, toolArgs);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          // Tool failed → do NOT settle, return error without charging
+          return successResponse(id, {
+            content: [{ type: "text", text: message }],
+            isError: true,
+          });
+        }
+
+        // Step 4: settle on-chain (only if tool succeeded)
+        let settlement: { txHash: string } | null = null;
+        try {
+          settlement = await settlePayment(
+            verifyResult.authorization!,
+            verifyResult.signature!,
+            env
+          );
+        } catch (err) {
+          // Settlement failure after execution: log but still return the tool result.
+          // The nonce has NOT been written to KV, so the client could retry settlement,
+          // but we surface the error in _meta so the caller is aware.
+          const settleErr = err instanceof Error ? err.message : String(err);
+          return successResponse(id, {
+            content: [{ type: "text", text: toolResult }],
+            _meta: {
+              [MCP_PAYMENT_RESPONSE_META_KEY]: {
+                success: false,
+                network: "eip155:8453",
+                transaction: "",
+                errorReason: `Settlement failed after tool execution: ${settleErr}`,
+                payer: verifyResult.payer,
+              },
+            },
+          });
+        }
+
+        // Step 6: return tool result with settlement metadata
+        return successResponse(id, {
+          content: [{ type: "text", text: toolResult }],
+          _meta: {
+            [MCP_PAYMENT_RESPONSE_META_KEY]: {
+              success: true,
+              transaction: settlement.txHash,
+              network: "eip155:8453",
+              payer: verifyResult.payer,
+            },
+          },
+        });
       }
 
+      // -----------------------------------------------------------------------
+      // Free tool path
+      // -----------------------------------------------------------------------
       try {
         const result = await callTool(toolName, toolArgs);
         return successResponse(id, {

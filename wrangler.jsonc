@@ -6,6 +6,16 @@
   "workers_dev": false,
   "observability": { "enabled": true },
   "routes": [{ "pattern": "mcp.toolsnap.app", "custom_domain": true }],
-  "vars": { "X402_NETWORK": "base" }
-  // X402_PAY_TO_ADDRESS is a secret — upload via: wrangler secret put X402_PAY_TO_ADDRESS
+  "vars": {
+    "X402_NETWORK": "base",
+    "X402_PRICE_USDC": "0.02",
+    "BASE_RPC_URL": "https://mainnet.base.org"
+  },
+  // KV namespace for x402 nonce replay-protection (created 2026-06-23).
+  "kv_namespaces": [
+    { "binding": "X402_NONCES", "id": "2d9952d84d604b66863c96766a2c58c4" }
+  ]
+  // Secrets (never stored here — upload via wrangler secret put):
+  //   wrangler secret put X402_PAY_TO_ADDRESS   (already done)
+  //   wrangler secret put RELAYER_PRIVATE_KEY    (NEW — required before deploy)
 }
