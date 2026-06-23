@@ -4,7 +4,14 @@ import type {
   InitializeParams,
   ToolsCallParams,
 } from "./types.js";
+import type { Env } from "../index.js";
 import { listTools, callTool } from "../tools/index.js";
+import {
+  requiresPayment,
+  buildPaymentRequiredResponse,
+  verifyPayment,
+  type PaymentConfig,
+} from "../x402/middleware.js";
 
 function successResponse(id: string | number | null, result: unknown): JsonRpcResponse {
   return { jsonrpc: "2.0", id, result };
@@ -23,7 +30,8 @@ function errorResponse(
  * Returns either a JsonRpcResponse object, or null for notifications (→ 202 empty body).
  */
 export async function dispatch(
-  request: JsonRpcRequest
+  request: JsonRpcRequest,
+  env: Env
 ): Promise<JsonRpcResponse | null> {
   const id: string | number | null =
     request.id !== undefined ? (request.id ?? null) : null;
@@ -67,6 +75,21 @@ export async function dispatch(
         });
       }
 
+      // x402 payment gate: check paid tools before execution.
+      if (requiresPayment(toolName)) {
+        const receipt = (params._meta?.x402Receipt as string | null) ?? null;
+        const config: PaymentConfig = {
+          payToAddress: env.X402_PAY_TO_ADDRESS,
+          network: env.X402_NETWORK,
+          priceUSDC: "0.001",
+          resource: toolName,
+        };
+        const paid = await verifyPayment(receipt, config);
+        if (!paid) {
+          return buildPaymentRequiredResponse(config, id) as JsonRpcResponse;
+        }
+      }
+
       try {
         const result = await callTool(toolName, toolArgs);
         return successResponse(id, {
@@ -91,7 +114,8 @@ export async function dispatch(
  * Returns { response, status } where status is 200, 202, or 400.
  */
 export async function handleMcpRequest(
-  body: string
+  body: string,
+  env: Env
 ): Promise<{ response: string | null; status: number }> {
   let request: JsonRpcRequest;
   try {
@@ -101,7 +125,7 @@ export async function handleMcpRequest(
     return { response: JSON.stringify(err), status: 400 };
   }
 
-  const result = await dispatch(request);
+  const result = await dispatch(request, env);
 
   if (result === null) {
     // Notification — no response body

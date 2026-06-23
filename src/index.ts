@@ -1,6 +1,11 @@
 import { handleMcpRequest } from "./mcp/server.js";
 import { tools } from "./tools/index.js";
 
+export interface Env {
+  X402_PAY_TO_ADDRESS: string;
+  X402_NETWORK: string;
+}
+
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -30,7 +35,7 @@ function jsonResponse(data: unknown, status = 200): Response {
 }
 
 export default {
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const method = request.method.toUpperCase();
 
@@ -48,7 +53,7 @@ export default {
         return jsonResponse({ error: "Failed to read request body." }, 400);
       }
 
-      const { response, status } = await handleMcpRequest(body);
+      const { response, status } = await handleMcpRequest(body, env);
 
       if (response === null) {
         // Notification — 202 empty body with CORS
