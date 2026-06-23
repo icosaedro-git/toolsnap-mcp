@@ -3,7 +3,7 @@
   "name": "toolsnap-mcp",
   "main": "src/index.ts",
   "compatibility_date": "2026-06-01",
-  "observability": { "enabled": true }
-  // Custom domain (added after Cloudflare DNS is set up — do not enable yet):
-  // "routes": [{ "pattern": "mcp.toolsnap.app", "custom_domain": true }]
+  "workers_dev": false,
+  "observability": { "enabled": true },
+  "routes": [{ "pattern": "mcp.toolsnap.app", "custom_domain": true }]
 }
