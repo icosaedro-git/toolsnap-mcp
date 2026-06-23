@@ -7,6 +7,9 @@ import { jsonFormatTool } from "./json.js";
 import { timestampConvertTool } from "./timestamp.js";
 import { textStatsTool } from "./text-stats.js";
 import { fetchExtractTool } from "./fetch-extract.js";
+import { htmlToMarkdownTool } from "./html-to-markdown.js";
+import { extractStructuredTool } from "./extract-structured.js";
+import { diffTextTool } from "./diff-text.js";
 
 export const tools: McpTool[] = [
   uuidTool,
@@ -19,6 +22,9 @@ export const tools: McpTool[] = [
   timestampConvertTool,
   textStatsTool,
   fetchExtractTool,
+  htmlToMarkdownTool,
+  extractStructuredTool,
+  diffTextTool,
 ];
 
 /** Returns the tool list for tools/list responses (no run function). */
