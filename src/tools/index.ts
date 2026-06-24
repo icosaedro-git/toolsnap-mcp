@@ -13,6 +13,9 @@ import { diffTextTool } from "./diff-text.js";
 import { csvQueryTool } from "./csv-query.js";
 import { jsonQueryTool } from "./json-query.js";
 import { pdfTextExtractTool } from "./pdf-text-extract.js";
+import { regexExtractTool } from "./regex-extract.js";
+import { webpageMetadataTool } from "./webpage-metadata.js";
+import { countTokensTool } from "./count-tokens.js";
 
 export const tools: McpTool[] = [
   uuidTool,
@@ -31,6 +34,9 @@ export const tools: McpTool[] = [
   csvQueryTool,
   jsonQueryTool,
   pdfTextExtractTool,
+  regexExtractTool,
+  webpageMetadataTool,
+  countTokensTool,
 ];
 
 /** Returns the tool list for tools/list responses (no run function). */
