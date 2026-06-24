@@ -1,5 +1,6 @@
 import { handleMcpRequest } from "./mcp/server.js";
 import { tools } from "./tools/index.js";
+import { PRICING_DATA } from "./tools/pricing.js";
 
 export interface Env {
   // x402 payment config (vars in wrangler.jsonc)
@@ -11,7 +12,7 @@ export interface Env {
   X402_PAY_TO_ADDRESS: string;
   RELAYER_PRIVATE_KEY: string;
 
-  // KV namespace for nonce replay-protection
+  // KV namespace for nonce replay-protection + first-call-free tracking
   X402_NONCES: KVNamespace;
 }
 
@@ -82,9 +83,10 @@ export default {
       return jsonResponse({
         name: "toolsnap-mcp",
         description:
-          "An MCP server exposing free, deterministic utility tools for AI agents over Streamable HTTP.",
+          "MCP server selling context-efficient microtools to AI agents via x402 (USDC on Base). Flagship: fetch_extract — median 98.1% token reduction, saves ~$0.156/call at Sonnet pricing. First call free per wallet.",
         mcp_endpoint: "/mcp",
         well_known: "/.well-known/mcp.json",
+        pricing: "/.well-known/pricing.json",
         tools: tools.length,
         docs: "https://toolsnap.app/agents",
       });
@@ -96,11 +98,31 @@ export default {
         name: "toolsnap-mcp",
         version: "0.1.0",
         description:
-          "Free, deterministic MCP utility tools: UUID generation, hashing, Base64, URL encoding, JSON formatting, timestamp conversion, and text statistics.",
+          "Context-efficient microtools for AI agents. Flagship tool fetch_extract: median 98.1% token reduction vs raw HTML (53 820 → 2 001 tokens, 11 real pages). Saves ~$0.156/call at Sonnet pricing. Costs $0.02 USDC on Base — 7.8× ROI on a typical page. First call free per wallet. 10 free utility tools included (UUID, hash, Base64, URL encode/decode, JSON, timestamps, text stats).",
         transport: "streamable-http",
         endpoint: "/mcp",
-        tools: tools.map(({ name, description }) => ({ name, description })),
+        pricing_endpoint: "/.well-known/pricing.json",
+        payment: {
+          method: "x402 v2",
+          network: "eip155:8453",
+          asset: "USDC",
+          first_call_free: true,
+        },
+        tools: tools.map(({ name, description }) => {
+          const paid = name === "fetch_extract";
+          return {
+            name,
+            description,
+            ...(paid ? { tier: "paid", price_usdc: 0.02 } : { tier: "free" }),
+          };
+        }),
+        docs: "https://toolsnap.app/agents",
       });
+    }
+
+    // Pricing menu (machine-readable)
+    if (method === "GET" && url.pathname === "/.well-known/pricing.json") {
+      return jsonResponse(PRICING_DATA);
     }
 
     // 404

@@ -18,8 +18,11 @@ import { webpageMetadataTool } from "./webpage-metadata.js";
 import { countTokensTool } from "./count-tokens.js";
 import { rssParseTool } from "./rss-parse.js";
 import { sitemapParseTool } from "./sitemap-parse.js";
+import { pricingTool } from "./pricing.js";
 
 export const tools: McpTool[] = [
+  pricingTool,
+  fetchExtractTool,
   uuidTool,
   hashTool,
   base64EncodeTool,
@@ -29,7 +32,6 @@ export const tools: McpTool[] = [
   jsonFormatTool,
   timestampConvertTool,
   textStatsTool,
-  fetchExtractTool,
   htmlToMarkdownTool,
   extractStructuredTool,
   diffTextTool,

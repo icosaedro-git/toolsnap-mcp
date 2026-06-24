@@ -110,20 +110,44 @@ export async function dispatch(
           ) as JsonRpcResponse;
         }
 
-        // Step 3: execute the tool FIRST — do not charge on failure
+        // Step 3: check first-call-free (per payer address)
+        const payer = verifyResult.payer!;
+        const freeCallKey = `first_free:${payer.toLowerCase()}`;
+        const hasUsedFreeCall = await env.X402_NONCES.get(freeCallKey);
+        const isFreeCall = hasUsedFreeCall === null;
+
+        // Step 4: execute the tool FIRST — do not charge on failure
         let toolResult: string;
         try {
           toolResult = await callTool(toolName, toolArgs);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          // Tool failed → do NOT settle, return error without charging
+          // Tool failed → do NOT settle or consume free call, return error
           return successResponse(id, {
             content: [{ type: "text", text: message }],
             isError: true,
           });
         }
 
-        // Step 4: settle on-chain (only if tool succeeded)
+        // Step 5: handle free call — mark used, skip settlement
+        if (isFreeCall) {
+          await env.X402_NONCES.put(freeCallKey, new Date().toISOString());
+          return successResponse(id, {
+            content: [{ type: "text", text: toolResult }],
+            _meta: {
+              [MCP_PAYMENT_RESPONSE_META_KEY]: {
+                success: true,
+                free: true,
+                transaction: null,
+                network: "eip155:8453",
+                payer,
+                note: "First call free — no charge this time. Subsequent calls cost $0.02 USDC.",
+              },
+            },
+          });
+        }
+
+        // Step 6: settle on-chain (only if tool succeeded and not a free call)
         let settlement: { txHash: string } | null = null;
         try {
           settlement = await settlePayment(
@@ -144,13 +168,13 @@ export async function dispatch(
                 network: "eip155:8453",
                 transaction: "",
                 errorReason: `Settlement failed after tool execution: ${settleErr}`,
-                payer: verifyResult.payer,
+                payer,
               },
             },
           });
         }
 
-        // Step 6: return tool result with settlement metadata
+        // Step 7: return tool result with settlement metadata
         return successResponse(id, {
           content: [{ type: "text", text: toolResult }],
           _meta: {
@@ -158,7 +182,7 @@ export async function dispatch(
               success: true,
               transaction: settlement.txHash,
               network: "eip155:8453",
-              payer: verifyResult.payer,
+              payer,
             },
           },
         });
