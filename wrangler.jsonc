@@ -9,11 +9,27 @@
   "vars": {
     "X402_NETWORK": "base",
     "X402_PRICE_USDC": "0.02",
+    // Prepaid (deposited balance) per-call price. 50% off pay-per-call.
+    "X402_PREPAID_PRICE_USDC": "0.01",
+    // Minimum x402 deposit to open / top up a prepaid balance.
+    "X402_MIN_DEPOSIT_USDC": "0.50",
     "BASE_RPC_URL": "https://base-rpc.publicnode.com"
   },
   // KV namespace for x402 nonce replay-protection (created 2026-06-23).
+  // Also holds prepaid spend-authorization nonces (single-use) and
+  // first_free:{address} markers.
   "kv_namespaces": [
     { "binding": "X402_NONCES", "id": "2d9952d84d604b66863c96766a2c58c4" }
+  ],
+  // D1 database for prepaid balances + append-only money ledger (Fase 8).
+  // Created 2026-06-24. Strongly-consistent: atomic conditional debit
+  // (UPDATE ... WHERE balance >= price) prevents double-spend / negatives.
+  "d1_databases": [
+    {
+      "binding": "PREPAID_DB",
+      "database_name": "toolsnap-prepaid",
+      "database_id": "f56a06a9-add9-4394-9a7c-727c7610d9e2"
+    }
   ]
   // Secrets (never stored here — upload via wrangler secret put):
   //   wrangler secret put X402_PAY_TO_ADDRESS   (already done)

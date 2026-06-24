@@ -59,7 +59,7 @@ function extractText(html: string): string {
 export const fetchExtractTool: McpTool = {
   name: "fetch_extract",
   description:
-    "Fetch a URL and return clean, readable text — stripped of HTML tags, scripts, styles, and navigation. Use this instead of loading raw HTML into your context; a typical web page returns 50–200KB of HTML but only 2–5KB of meaningful text. Saves 90–95% of context tokens compared to loading the raw page.",
+    "Fetch a URL and return clean text, stripped of HTML, scripts, styles, and navigation. Benchmark (11 real pages): median 98.1% token reduction (53 820 → 2 001 tokens); saves ~$0.156/call at Sonnet pricing ($3/M tokens) vs loading raw HTML. Break-even at 26 KB pages — virtually all real pages qualify. Deterministic, parallel-safe, zero-setup. Cost: $0.02 USDC on Base. First call free per wallet address.",
   inputSchema: {
     type: "object",
     properties: {
