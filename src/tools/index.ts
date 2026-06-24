@@ -10,6 +10,9 @@ import { fetchExtractTool } from "./fetch-extract.js";
 import { htmlToMarkdownTool } from "./html-to-markdown.js";
 import { extractStructuredTool } from "./extract-structured.js";
 import { diffTextTool } from "./diff-text.js";
+import { csvQueryTool } from "./csv-query.js";
+import { jsonQueryTool } from "./json-query.js";
+import { pdfTextExtractTool } from "./pdf-text-extract.js";
 
 export const tools: McpTool[] = [
   uuidTool,
@@ -25,6 +28,9 @@ export const tools: McpTool[] = [
   htmlToMarkdownTool,
   extractStructuredTool,
   diffTextTool,
+  csvQueryTool,
+  jsonQueryTool,
+  pdfTextExtractTool,
 ];
 
 /** Returns the tool list for tools/list responses (no run function). */
