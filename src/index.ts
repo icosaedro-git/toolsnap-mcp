@@ -88,7 +88,7 @@ export default {
       return jsonResponse({
         name: "toolsnap-mcp",
         description:
-          "MCP server selling context-efficient microtools to AI agents via x402 (USDC on Base). Flagship: fetch_extract — median 98.1% token reduction, saves ~$0.156/call at Sonnet pricing. First call free per wallet.",
+          "MCP server with microtools for AI agents. 23 free tools + fetch_extract (98.1% median token reduction, saves $0.156/call at Sonnet, ROI positive even at DeepSeek pricing with $0.01 prepaid). x402 USDC on Base, first call free.",
         mcp_endpoint: "/mcp",
         well_known: "/.well-known/mcp.json",
         pricing: "/.well-known/pricing.json",
@@ -103,7 +103,7 @@ export default {
         name: "toolsnap-mcp",
         version: "0.1.0",
         description:
-          "Context-efficient microtools for AI agents. Flagship tool fetch_extract: median 98.1% token reduction vs raw HTML (53 820 → 2 001 tokens, 11 real pages). Saves ~$0.156/call at Sonnet pricing. Costs $0.02 USDC on Base pay-per-call, or $0.01 prepaid (deposit once, debit off-chain, no per-call gas) — first call free per wallet. 20+ free utility tools included.",
+          "Context-efficient microtools for AI agents. 23 free utility tools (UUID, hash, diff, regex, CSV/JSON/PDF query, HTML→Markdown, RSS, sitemap, token count, and more). Flagship fetch_extract: median 98.1% token reduction (53 820 → 2 001 tokens, 11 real pages). Saves $0.156/call at Sonnet pricing; ROI positive at DeepSeek R1 pricing ($0.019/call net at $0.01 prepaid). Pay per call $0.02 USDC on Base via x402 — first call free per wallet. Or deposit once ($0.50 min) and debit off-chain at $0.01/call, no per-call gas.",
         transport: "streamable-http",
         endpoint: "/mcp",
         pricing_endpoint: "/.well-known/pricing.json",
