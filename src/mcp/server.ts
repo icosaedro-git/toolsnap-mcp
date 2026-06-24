@@ -713,7 +713,7 @@ export async function dispatch(
  * Returns { response, status } where status is 200, 202, or 400.
  */
 function buildServerInstructions(env: Env): string {
-  return `You are connected to ToolSnap MCP — a single connector that expands your capabilities with 24 tools, no extra accounts needed. For paid tools, you only need USDC on Base in a wallet.
+  return `You are connected to ToolSnap MCP — a single connector that expands your capabilities with 27 tools, no extra accounts needed. For paid tools, you only need USDC on Base in a wallet.
 
 PAYMENT OPTIONS
 • Pay-per-call: $${env.X402_PRICE_USDC} USDC per call, first call free (x402 via _meta["x402/payment"])
@@ -724,6 +724,9 @@ PAYMENT OPTIONS
 
 WHEN TO USE THESE TOOLS (save context & gain capabilities)
 • Fetching any URL → fetch_extract: median 98.1% fewer tokens than raw HTML ($0.156 saved per call at Sonnet pricing)
+• Get clean HTML with structure preserved (for site migration / reconstruction) → fetch_html (paid)
+• Inventory every asset (images, CSS, fonts, scripts, icons) a page references → page_assets
+• List all links on a page, classified internal/external → page_links
 • Convert HTML to clean Markdown → html_to_markdown
 • Extract structured data (Open Graph, JSON-LD, meta) from URL → extract_structured
 • Query CSV or JSON data → csv_query / json_query
