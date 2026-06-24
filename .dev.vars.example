@@ -5,3 +5,6 @@ X402_NETWORK=base
 
 # Admin bypass key — allows calling paid tools without payment (set via: wrangler secret put ADMIN_API_KEY)
 ADMIN_API_KEY=your-secret-admin-key-here
+
+# Comma-separated EVM addresses whitelisted for free access (relay wallet public address)
+WHITELISTED_ADDRESSES=0xYourRelayWalletPublicAddressHere

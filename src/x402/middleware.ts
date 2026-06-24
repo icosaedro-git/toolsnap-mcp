@@ -187,6 +187,65 @@ export function requiresPayment(toolName: string): boolean {
   return PAID_TOOLS.has(toolName);
 }
 
+/**
+ * Check if an x402 payment payload was signed by a whitelisted wallet.
+ * Only verifies the EIP-712 signature — no balance check, no settlement.
+ * Returns the verified payer address (lowercase) if whitelisted, or null.
+ */
+export async function isWhitelistedPayer(
+  paymentPayload: unknown,
+  whitelistedAddresses: string[]
+): Promise<string | null> {
+  if (!whitelistedAddresses.length) return null;
+  if (!paymentPayload || typeof paymentPayload !== "object") return null;
+
+  const p = paymentPayload as Record<string, unknown>;
+  const inner = p["payload"] as Record<string, unknown> | undefined;
+  if (!inner) return null;
+
+  const signature = inner["signature"] as string | undefined;
+  const auth = inner["authorization"] as Record<string, unknown> | undefined;
+  if (!signature || !auth) return null;
+
+  const from = String(auth["from"] ?? "");
+  const to = String(auth["to"] ?? "");
+  const value = String(auth["value"] ?? "0");
+  const validAfter = String(auth["validAfter"] ?? "0");
+  const validBefore = String(auth["validBefore"] ?? "0");
+  const nonce = String(auth["nonce"] ?? "");
+
+  try {
+    const recovered = await recoverTypedDataAddress({
+      domain: {
+        name: USDC_EIP712_NAME,
+        version: USDC_EIP712_VERSION,
+        chainId: 8453,
+        verifyingContract: USDC_ADDRESS,
+      },
+      types: AUTHORIZATION_TYPES,
+      primaryType: "TransferWithAuthorization",
+      message: {
+        from: getAddress(from) as Address,
+        to: getAddress(to) as Address,
+        value: BigInt(value),
+        validAfter: BigInt(validAfter),
+        validBefore: BigInt(validBefore),
+        nonce: nonce as Hex,
+      },
+      signature: signature as Hex,
+    });
+
+    const recoveredLower = recovered.toLowerCase();
+    if (whitelistedAddresses.some((a) => a.toLowerCase() === recoveredLower)) {
+      return recoveredLower;
+    }
+  } catch {
+    // Invalid signature or payload — not a whitelisted payer
+  }
+
+  return null;
+}
+
 /** Split a 65-byte hex signature into { v, r, s } components. */
 function splitSignature(sig: string): { v: number; r: Hex; s: Hex } {
   const clean = sig.startsWith("0x") ? sig.slice(2) : sig;

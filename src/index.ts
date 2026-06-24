@@ -19,6 +19,9 @@ export interface Env {
   // Admin bypass key (set via: wrangler secret put ADMIN_API_KEY)
   ADMIN_API_KEY?: string;
 
+  // Comma-separated EVM addresses whitelisted for free tool access via wallet signature
+  WHITELISTED_ADDRESSES?: string;
+
   // KV namespace for nonce replay-protection + first-call-free tracking
   X402_NONCES: KVNamespace;
 
