@@ -1,18 +1,24 @@
 import { handleMcpRequest } from "./mcp/server.js";
 import { tools } from "./tools/index.js";
+import { PRICING_DATA } from "./tools/pricing.js";
 
 export interface Env {
   // x402 payment config (vars in wrangler.jsonc)
   X402_NETWORK: string;
   X402_PRICE_USDC: string;
+  X402_PREPAID_PRICE_USDC: string;
+  X402_MIN_DEPOSIT_USDC: string;
   BASE_RPC_URL: string;
 
   // x402 secrets (set via: wrangler secret put <NAME>)
   X402_PAY_TO_ADDRESS: string;
   RELAYER_PRIVATE_KEY: string;
 
-  // KV namespace for nonce replay-protection
+  // KV namespace for nonce replay-protection + first-call-free tracking
   X402_NONCES: KVNamespace;
+
+  // D1 database for prepaid balances + money ledger (Fase 8)
+  PREPAID_DB: D1Database;
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -82,9 +88,10 @@ export default {
       return jsonResponse({
         name: "toolsnap-mcp",
         description:
-          "An MCP server exposing free, deterministic utility tools for AI agents over Streamable HTTP.",
+          "MCP server selling context-efficient microtools to AI agents via x402 (USDC on Base). Flagship: fetch_extract — median 98.1% token reduction, saves ~$0.156/call at Sonnet pricing. First call free per wallet.",
         mcp_endpoint: "/mcp",
         well_known: "/.well-known/mcp.json",
+        pricing: "/.well-known/pricing.json",
         tools: tools.length,
         docs: "https://toolsnap.app/agents",
       });
@@ -96,11 +103,41 @@ export default {
         name: "toolsnap-mcp",
         version: "0.1.0",
         description:
-          "Free, deterministic MCP utility tools: UUID generation, hashing, Base64, URL encoding, JSON formatting, timestamp conversion, and text statistics.",
+          "Context-efficient microtools for AI agents. Flagship tool fetch_extract: median 98.1% token reduction vs raw HTML (53 820 → 2 001 tokens, 11 real pages). Saves ~$0.156/call at Sonnet pricing. Costs $0.02 USDC on Base pay-per-call, or $0.01 prepaid (deposit once, debit off-chain, no per-call gas) — first call free per wallet. 20+ free utility tools included.",
         transport: "streamable-http",
         endpoint: "/mcp",
-        tools: tools.map(({ name, description }) => ({ name, description })),
+        pricing_endpoint: "/.well-known/pricing.json",
+        payment: {
+          method: "x402 v2",
+          network: "eip155:8453",
+          asset: "USDC",
+          pay_per_call: { price_usdc: 0.02, first_call_free: true },
+          prepaid: {
+            price_usdc: 0.01,
+            min_deposit_usdc: 0.5,
+            non_refundable: true,
+            deposit_tool: "account_deposit",
+            balance_tool: "account_balance",
+            spend_meta_key: "x402/prepaid-spend",
+          },
+        },
+        tools: tools.map(({ name, description }) => {
+          const paid = name === "fetch_extract";
+          return {
+            name,
+            description,
+            ...(paid
+              ? { tier: "paid", price_usdc: 0.02, prepaid_price_usdc: 0.01 }
+              : { tier: "free" }),
+          };
+        }),
+        docs: "https://toolsnap.app/agents",
       });
+    }
+
+    // Pricing menu (machine-readable)
+    if (method === "GET" && url.pathname === "/.well-known/pricing.json") {
+      return jsonResponse(PRICING_DATA);
     }
 
     // 404

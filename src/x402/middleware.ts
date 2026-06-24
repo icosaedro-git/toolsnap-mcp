@@ -273,7 +273,8 @@ export function buildPaymentRequiredResponse(
 export async function verifyPayment(
   paymentPayload: unknown,
   config: PaymentConfig,
-  env: X402Env
+  env: X402Env,
+  minValueMicro: bigint = PRICE_MICRO_USDC
 ): Promise<VerifyResult> {
   // --- 1. Parse payload ---
   if (!paymentPayload || typeof paymentPayload !== "object") {
@@ -367,10 +368,10 @@ export async function verifyPayment(
   } catch {
     return { ok: false, reason: `Invalid authorization.value: ${value}` };
   }
-  if (valueBigInt < PRICE_MICRO_USDC) {
+  if (valueBigInt < minValueMicro) {
     return {
       ok: false,
-      reason: `Insufficient payment: got ${value}, required ${PRICE_MICRO_USDC_STR}`,
+      reason: `Insufficient payment: got ${value}, required ${minValueMicro}`,
     };
   }
 
