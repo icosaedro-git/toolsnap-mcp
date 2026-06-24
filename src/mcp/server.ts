@@ -25,6 +25,7 @@ import {
   getBalanceMicro,
   creditDeposit,
 } from "../x402/prepaid.js";
+import { writeEvent } from "../analytics/logger.js";
 
 /** x402 MCP meta key (per x402 v2 MCP transport spec). */
 const MCP_PAYMENT_META_KEY = "x402/payment";
@@ -155,11 +156,19 @@ async function handleAccountDeposit(
   }
 
   // Settle on-chain ONCE for the whole deposit.
+  const depositStart = Date.now();
   let settlement: { txHash: string };
   try {
     settlement = await settlePayment(v.authorization!, v.signature!, env);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    writeEvent(env, {
+      toolName: "account_deposit",
+      paymentType: "deposit_failed",
+      payer: v.payer ?? "anon",
+      revenueUsdc: 0,
+      latencyMs: Date.now() - depositStart,
+    });
     return successResponse(id, {
       content: [{ type: "text", text: `Deposit settlement failed (not charged): ${msg}` }],
       isError: true,
@@ -180,6 +189,13 @@ async function handleAccountDeposit(
   } catch (err) {
     // Settled on-chain but crediting failed: surface the tx hash for recovery.
     const msg = err instanceof Error ? err.message : String(err);
+    writeEvent(env, {
+      toolName: "account_deposit",
+      paymentType: "deposit_failed",
+      payer: v.payer ?? "anon",
+      revenueUsdc: Number(creditMicro) / 1_000_000,
+      latencyMs: Date.now() - depositStart,
+    });
     return successResponse(id, {
       content: [
         {
@@ -199,6 +215,14 @@ async function handleAccountDeposit(
       },
     });
   }
+
+  writeEvent(env, {
+    toolName: "account_deposit",
+    paymentType: "deposit_success",
+    payer: v.payer ?? "anon",
+    revenueUsdc: Number(creditMicro) / 1_000_000,
+    latencyMs: Date.now() - depositStart,
+  });
 
   return successResponse(id, {
     content: [
@@ -305,6 +329,8 @@ export async function dispatch(
       // x402 payment gate
       // -----------------------------------------------------------------------
       if (requiresPayment(toolName)) {
+        const t0 = Date.now();
+
         // ---------------------------------------------------------------------
         // PATH A — prepaid debit (deposited balance, off-chain, no gas/402)
         // ---------------------------------------------------------------------
@@ -314,6 +340,13 @@ export async function dispatch(
 
           const v = await verifySpendAuthorization(prepaidProof, toolName, prepaidPriceMicro);
           if (!v.ok) {
+            writeEvent(env, {
+              toolName,
+              paymentType: "prepaid_rejected",
+              payer: "anon",
+              revenueUsdc: 0,
+              latencyMs: Date.now() - t0,
+            });
             return successResponse(id, {
               content: [{ type: "text", text: `Prepaid authorization rejected: ${v.reason}` }],
               isError: true,
@@ -331,12 +364,26 @@ export async function dispatch(
           if (!debit.ok) {
             if (debit.reason === "insufficient") {
               const bal = await getBalanceMicro(env.PREPAID_DB, v.payer!);
+              writeEvent(env, {
+                toolName,
+                paymentType: "prepaid_insufficient",
+                payer: v.payer ?? "anon",
+                revenueUsdc: 0,
+                latencyMs: Date.now() - t0,
+              });
               return buildDepositRequiredResponse(
                 id,
                 env,
                 `Insufficient prepaid balance: have ${microToUsdc(bal)} USDC, need ${env.X402_PREPAID_PRICE_USDC}. Top up with account_deposit.`
               );
             }
+            writeEvent(env, {
+              toolName,
+              paymentType: "prepaid_rejected",
+              payer: v.payer ?? "anon",
+              revenueUsdc: 0,
+              latencyMs: Date.now() - t0,
+            });
             return successResponse(id, {
               content: [
                 {
@@ -355,6 +402,13 @@ export async function dispatch(
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             const bal = await refundDebit(env.PREPAID_DB, v.payer!, prepaidPriceMicro, toolName, v.nonce!);
+            writeEvent(env, {
+              toolName,
+              paymentType: "tool_error",
+              payer: v.payer ?? "anon",
+              revenueUsdc: 0,
+              latencyMs: Date.now() - t0,
+            });
             return successResponse(id, {
               content: [{ type: "text", text: message }],
               isError: true,
@@ -370,6 +424,14 @@ export async function dispatch(
               },
             });
           }
+
+          writeEvent(env, {
+            toolName,
+            paymentType: "prepaid",
+            payer: v.payer ?? "anon",
+            revenueUsdc: Number(prepaidPriceMicro) / 1_000_000,
+            latencyMs: Date.now() - t0,
+          });
 
           return successResponse(id, {
             content: [{ type: "text", text: prepaidResult }],
@@ -400,12 +462,26 @@ export async function dispatch(
         const paymentPayload = (params._meta ?? {})[MCP_PAYMENT_META_KEY] ?? null;
 
         if (paymentPayload === null || paymentPayload === undefined) {
+          writeEvent(env, {
+            toolName,
+            paymentType: "402_rejected",
+            payer: "anon",
+            revenueUsdc: 0,
+            latencyMs: Date.now() - t0,
+          });
           return buildPaymentRequiredResponse(config, id) as JsonRpcResponse;
         }
 
         // Step 2: off-chain verification
         const verifyResult = await verifyPayment(paymentPayload, config, env);
         if (!verifyResult.ok) {
+          writeEvent(env, {
+            toolName,
+            paymentType: "402_rejected",
+            payer: "anon",
+            revenueUsdc: 0,
+            latencyMs: Date.now() - t0,
+          });
           return buildPaymentRequiredResponse(
             config,
             id,
@@ -426,6 +502,13 @@ export async function dispatch(
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           // Tool failed → do NOT settle or consume free call, return error
+          writeEvent(env, {
+            toolName,
+            paymentType: "tool_error",
+            payer,
+            revenueUsdc: 0,
+            latencyMs: Date.now() - t0,
+          });
           return successResponse(id, {
             content: [{ type: "text", text: message }],
             isError: true,
@@ -435,6 +518,13 @@ export async function dispatch(
         // Step 5: handle free call — mark used, skip settlement
         if (isFreeCall) {
           await env.X402_NONCES.put(freeCallKey, new Date().toISOString());
+          writeEvent(env, {
+            toolName,
+            paymentType: "x402_free_first",
+            payer,
+            revenueUsdc: 0,
+            latencyMs: Date.now() - t0,
+          });
           return successResponse(id, {
             content: [{ type: "text", text: toolResult }],
             _meta: {
@@ -463,6 +553,13 @@ export async function dispatch(
           // The nonce has NOT been written to KV, so the client could retry settlement,
           // but we surface the error in _meta so the caller is aware.
           const settleErr = err instanceof Error ? err.message : String(err);
+          writeEvent(env, {
+            toolName,
+            paymentType: "tool_error",
+            payer,
+            revenueUsdc: 0,
+            latencyMs: Date.now() - t0,
+          });
           return successResponse(id, {
             content: [{ type: "text", text: toolResult }],
             _meta: {
@@ -476,6 +573,14 @@ export async function dispatch(
             },
           });
         }
+
+        writeEvent(env, {
+          toolName,
+          paymentType: "x402_paid",
+          payer,
+          revenueUsdc: Number(env.X402_PRICE_USDC ?? "0.02"),
+          latencyMs: Date.now() - t0,
+        });
 
         // Step 7: return tool result with settlement metadata
         return successResponse(id, {
@@ -494,17 +599,34 @@ export async function dispatch(
       // -----------------------------------------------------------------------
       // Free tool path
       // -----------------------------------------------------------------------
-      try {
-        const result = await callTool(toolName, toolArgs);
-        return successResponse(id, {
-          content: [{ type: "text", text: result }],
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return successResponse(id, {
-          content: [{ type: "text", text: message }],
-          isError: true,
-        });
+      {
+        const t0 = Date.now();
+        try {
+          const result = await callTool(toolName, toolArgs);
+          writeEvent(env, {
+            toolName,
+            paymentType: "free_tool",
+            payer: "anon",
+            revenueUsdc: 0,
+            latencyMs: Date.now() - t0,
+          });
+          return successResponse(id, {
+            content: [{ type: "text", text: result }],
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeEvent(env, {
+            toolName,
+            paymentType: "tool_error",
+            payer: "anon",
+            revenueUsdc: 0,
+            latencyMs: Date.now() - t0,
+          });
+          return successResponse(id, {
+            content: [{ type: "text", text: message }],
+            isError: true,
+          });
+        }
       }
     }
 
