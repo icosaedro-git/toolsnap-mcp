@@ -143,6 +143,22 @@ export default {
       return jsonResponse(PRICING_DATA);
     }
 
+    // Glama connector claim file
+    if (method === "GET" && url.pathname === "/.well-known/glama.json") {
+      return jsonResponse({
+        $schema: "https://glama.ai/mcp/schemas/connector.json",
+        name: "ToolSnap MCP",
+        description:
+          "Context-efficient microtools for AI agents. Flagship: fetch_extract converts raw HTML to clean text with a median 98.1% token reduction (53,820 → 2,001 tokens, 11 real pages) — saving ~$0.156/call at Sonnet pricing. 23 free utility tools included. Pay-per-call $0.02 USDC on Base via x402, first call free. Prepaid: deposit once ($0.50 min), debit at $0.01/call off-chain.",
+        categories: ["developer-tools", "web-scraping", "data-extraction", "paid"],
+        transport: "streamable-http",
+        homepage: "https://toolsnap.app/agents",
+        endpoint: "https://mcp.toolsnap.app/mcp",
+        pricing_endpoint: "https://mcp.toolsnap.app/.well-known/pricing.json",
+        maintainers: [{ email: "icosaedro.one@proton.me" }],
+      });
+    }
+
     // Analytics dashboard (Fase 9)
     // Protected externally via Cloudflare Access (mcp.toolsnap.app/analytics*)
     // Setup: https://one.dash.cloudflare.com → Access → Applications → add app for /analytics*
