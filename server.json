@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "app.toolsnap/toolsnap-mcp",
   "title": "ToolSnap MCP",
-  "description": "AI agent microtools. fetch_extract: 98.1% token reduction. $0.02 USDC on Base. 10 free tools.",
+  "description": "MCP server for AI agents. 23 free tools + fetch_extract (98.1% token reduction, saves $0.156/call at Sonnet, ROI positive at DeepSeek pricing with $0.01 prepaid). x402 USDC on Base, first call free.",
   "version": "1.0.0",
   "websiteUrl": "https://toolsnap.app/agents",
   "repository": {
