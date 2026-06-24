@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>toolsnap-mcp · prepaid deposit &amp; spend</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#0f1117; --surface:#1a1d27; --border:#2a2d3a; --text:#e2e4ed; --muted:#7c7f94;
+      --accent:#6c63ff; --accent-h:#5a52e0; --success:#22c55e; --error:#ef4444; --warn:#f59e0b;
+      --radius:10px; --mono:'SF Mono','Fira Code','Cascadia Code',monospace;
+    }
+    body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+      font-size:15px; line-height:1.6; min-height:100vh; padding:2rem 1rem; }
+    .container { max-width:680px; margin:0 auto; }
+    header { margin-bottom:2rem; }
+    h1 { font-size:1.5rem; font-weight:700; letter-spacing:-0.02em; color:#fff; }
+    h1 span { color:var(--accent); }
+    .tagline { color:var(--muted); font-size:0.9rem; margin-top:0.4rem; }
+    section { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:1.25rem 1.5rem; margin-bottom:1.25rem; }
+    section h2 { font-size:0.75rem; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted); margin-bottom:1rem; }
+    #wallet-list { display:flex; flex-wrap:wrap; gap:0.6rem; }
+    .wallet-btn { display:flex; align-items:center; gap:0.5rem; padding:0.5rem 0.9rem; border:1px solid var(--border); border-radius:8px;
+      background:var(--bg); color:var(--text); cursor:pointer; font-size:0.875rem; transition:border-color .15s,background .15s; }
+    .wallet-btn:hover,.wallet-btn.active { border-color:var(--accent); background:#1e1f2e; }
+    .wallet-btn img { width:22px; height:22px; border-radius:5px; object-fit:contain; }
+    #no-wallet { color:var(--warn); font-size:0.875rem; display:none; }
+    #address-row { display:none; align-items:center; gap:0.5rem; font-size:0.85rem; margin-top:0.75rem; }
+    .dot { width:8px; height:8px; border-radius:50%; background:var(--success); flex-shrink:0; }
+    #payer-address { font-family:var(--mono); color:var(--success); word-break:break-all; }
+    .act-btn { display:block; width:100%; padding:0.8rem 1.25rem; background:var(--accent); color:#fff; border:none; border-radius:var(--radius);
+      font-size:1rem; font-weight:600; cursor:pointer; transition:background .15s,opacity .15s; margin-bottom:0.6rem; }
+    .act-btn:hover:not(:disabled) { background:var(--accent-h); }
+    .act-btn:disabled { opacity:0.4; cursor:not-allowed; }
+    .act-btn.secondary { background:#2a2d3a; }
+    .act-btn.secondary:hover:not(:disabled) { background:#343848; }
+    #balance-box { font-family:var(--mono); font-size:1.1rem; color:var(--success); padding:0.5rem 0; }
+    #status-log { list-style:none; }
+    #status-log li { display:flex; align-items:flex-start; gap:0.5rem; font-size:0.875rem; padding:0.3rem 0; border-bottom:1px solid var(--border); }
+    #status-log li:last-child { border-bottom:none; }
+    .step-icon { flex-shrink:0; margin-top:2px; }
+    .step-ok{color:var(--success);} .step-err{color:var(--error);} .step-spin{color:var(--accent);} .step-info{color:var(--muted);}
+    #result-section { display:none; }
+    #outcome-banner { padding:0.75rem 1rem; border-radius:8px; font-weight:600; margin-bottom:1rem; }
+    .banner-ok{ background:rgba(34,197,94,.15); color:var(--success); border:1px solid rgba(34,197,94,.3); }
+    .banner-err{ background:rgba(239,68,68,.15); color:var(--error); border:1px solid rgba(239,68,68,.3); }
+    #tx-link { display:inline-block; margin-top:0.4rem; font-size:0.85rem; color:var(--accent); text-decoration:none; font-family:var(--mono); }
+    #tx-link:hover { text-decoration:underline; }
+    pre#response-pre { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:1rem; overflow-x:auto;
+      font-family:var(--mono); font-size:0.78rem; line-height:1.5; color:#a8b0cc; max-height:420px; white-space:pre-wrap; word-break:break-all; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>toolsnap-mcp · <span>prepaid deposit &amp; spend</span></h1>
+    <p class="tagline">Deposit $0.50 USDC on Base (one on-chain settle), then spend $0.01 off-chain — proves the full Fase 8 loop. Gasless for you; you only need USDC.</p>
+  </header>
+
+  <section id="wallet-section">
+    <h2>① Connect wallet (must hold ≥ $0.50 USDC on Base)</h2>
+    <div id="wallet-list"><span style="color:var(--muted);font-size:.875rem">Discovering wallets…</span></div>
+    <p id="no-wallet">No injected wallet detected. Install MetaMask, Brave Wallet, Coinbase Wallet, or another EIP-6963 wallet.</p>
+    <div id="address-row"><span class="dot"></span><span id="payer-address"></span></div>
+  </section>
+
+  <section>
+    <h2>② Deposit &amp; spend</h2>
+    <button id="deposit-btn" class="act-btn" disabled>Deposit $0.50 → account_deposit</button>
+    <button id="spend-btn" class="act-btn secondary" disabled>Spend $0.01 (prepaid) → fetch_extract</button>
+    <button id="balance-btn" class="act-btn secondary" disabled>Check balance → account_balance</button>
+    <div id="balance-box">balance: —</div>
+  </section>
+
+  <section>
+    <h2>③ Status</h2>
+    <ul id="status-log"><li><span class="step-icon step-info">○</span><span>Waiting to start…</span></li></ul>
+  </section>
+
+  <section id="result-section">
+    <h2>④ Last response</h2>
+    <div id="outcome-banner"></div>
+    <a id="tx-link" href="#" target="_blank" rel="noopener" style="display:none">View on BaseScan ↗</a>
+    <pre id="response-pre"></pre>
+  </section>
+</div>
+
+<script>
+  // ─── Constants ────────────────────────────────────────────────────────────
+  const PAY_TO        = "0xd5F96b537A05f196091502bCde038C572f88efba";
+  const USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+  const CHAIN_ID      = 8453;
+  const DEPOSIT_AMOUNT= "500000"; // $0.50 in micro-USDC
+  const PREPAID_MAX   = "10000";  // $0.01 — max authorised per prepaid call
+  const MCP_URL       = "https://mcp.toolsnap.app/mcp";
+  const FETCH_URL     = "https://example.com";
+
+  let activeProvider = null, payerAddress = null;
+  const providers = new Map();
+
+  // ─── EIP-6963 wallet discovery ────────────────────────────────────────────
+  function renderWalletList() {
+    const list = document.getElementById("wallet-list");
+    list.innerHTML = "";
+    providers.forEach(({ info, provider }, rdns) => {
+      const btn = document.createElement("button");
+      btn.className = "wallet-btn"; btn.dataset.rdns = rdns;
+      if (info.icon) { const img = document.createElement("img"); img.src = info.icon; img.alt = info.name; btn.appendChild(img); }
+      const label = document.createElement("span"); label.textContent = info.name; btn.appendChild(label);
+      btn.addEventListener("click", () => connectWallet(provider, btn));
+      list.appendChild(btn);
+    });
+  }
+  window.addEventListener("eip6963:announceProvider", (e) => { providers.set(e.detail.info.rdns, e.detail); renderWalletList(); });
+  window.dispatchEvent(new Event("eip6963:requestProvider"));
+  setTimeout(() => {
+    if (providers.size === 0) {
+      if (window.ethereum) { providers.set("window.ethereum", { info:{rdns:"window.ethereum",name:"Browser Wallet",icon:""}, provider:window.ethereum }); renderWalletList(); }
+      else { document.getElementById("wallet-list").innerHTML = ""; document.getElementById("no-wallet").style.display = "block"; }
+    }
+  }, 400);
+
+  async function connectWallet(provider, btn) {
+    try {
+      const accounts = await provider.request({ method: "eth_requestAccounts" });
+      if (!accounts || !accounts.length) { logStep("error", "No accounts returned."); return; }
+      activeProvider = provider; payerAddress = accounts[0];
+      document.querySelectorAll(".wallet-btn").forEach(b => b.classList.remove("active")); btn.classList.add("active");
+      document.getElementById("payer-address").textContent = payerAddress;
+      document.getElementById("address-row").style.display = "flex";
+      document.getElementById("deposit-btn").disabled = false;
+      document.getElementById("spend-btn").disabled = false;
+      document.getElementById("balance-btn").disabled = false;
+      logStep("ok", "Wallet connected: " + shortAddr(payerAddress));
+    } catch (err) { logStep("error", "Connect failed: " + (err.message || err)); }
+  }
+
+  function randNonce() {
+    const b = new Uint8Array(32); crypto.getRandomValues(b);
+    return "0x" + Array.from(b).map(x => x.toString(16).padStart(2, "0")).join("");
+  }
+
+  async function rpc(body) {
+    const res = await fetch(MCP_URL, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body) });
+    return res.json();
+  }
+
+  // ─── ② Deposit (EIP-3009 transfer, on-chain settle) ───────────────────────
+  document.getElementById("deposit-btn").addEventListener("click", async () => {
+    if (!activeProvider) return;
+    clearLog();
+    try {
+      const nonce = randNonce();
+      const now = Math.floor(Date.now()/1000);
+      const validAfter = String(now - 10), validBefore = String(now + 300);
+      const typedData = {
+        types: {
+          EIP712Domain: [
+            { name:"name", type:"string" }, { name:"version", type:"string" },
+            { name:"chainId", type:"uint256" }, { name:"verifyingContract", type:"address" }
+          ],
+          TransferWithAuthorization: [
+            { name:"from", type:"address" }, { name:"to", type:"address" }, { name:"value", type:"uint256" },
+            { name:"validAfter", type:"uint256" }, { name:"validBefore", type:"uint256" }, { name:"nonce", type:"bytes32" }
+          ]
+        },
+        domain: { name:"USD Coin", version:"2", chainId:CHAIN_ID, verifyingContract:USDC_CONTRACT },
+        primaryType: "TransferWithAuthorization",
+        message: { from:payerAddress, to:PAY_TO, value:DEPOSIT_AMOUNT, validAfter, validBefore, nonce }
+      };
+      logStep("spin", "Sign $0.50 USDC deposit authorisation…");
+      const signature = await activeProvider.request({ method:"eth_signTypedData_v4", params:[payerAddress, JSON.stringify(typedData)] });
+      logStep("ok", "Signed. Submitting deposit…");
+      const response = await rpc({
+        jsonrpc:"2.0", id:1, method:"tools/call",
+        params: { name:"account_deposit", arguments:{}, _meta:{ "x402/payment":{
+          x402Version:2,
+          accepted:{ scheme:"exact", network:"eip155:8453", amount:DEPOSIT_AMOUNT, asset:USDC_CONTRACT, payTo:PAY_TO, maxTimeoutSeconds:300,
+            extra:{ name:"USD Coin", version:"2", assetTransferMethod:"eip3009" } },
+          payload:{ signature, authorization:{ from:payerAddress, to:PAY_TO, value:DEPOSIT_AMOUNT, validAfter, validBefore, nonce } }
+        } } }
+      });
+      showResult(response, "deposit");
+      refreshBalance();
+    } catch (err) { logStep("error", "Deposit failed: " + (err.message || err)); }
+  });
+
+  // ─── ② Spend (off-chain SpendAuthorization, no gas) ───────────────────────
+  document.getElementById("spend-btn").addEventListener("click", async () => {
+    if (!activeProvider) return;
+    clearLog();
+    try {
+      const nonce = randNonce();
+      const validBefore = String(Math.floor(Date.now()/1000) + 120);
+      // ToolSnap Prepaid domain — NO verifyingContract → cannot move on-chain funds.
+      const typedData = {
+        types: {
+          EIP712Domain: [ { name:"name", type:"string" }, { name:"version", type:"string" }, { name:"chainId", type:"uint256" } ],
+          SpendAuthorization: [
+            { name:"address", type:"address" }, { name:"tool", type:"string" }, { name:"maxAmount", type:"uint256" },
+            { name:"nonce", type:"bytes32" }, { name:"validBefore", type:"uint256" }
+          ]
+        },
+        domain: { name:"ToolSnap Prepaid", version:"1", chainId:CHAIN_ID },
+        primaryType: "SpendAuthorization",
+        message: { address:payerAddress, tool:"fetch_extract", maxAmount:PREPAID_MAX, nonce, validBefore }
+      };
+      logStep("spin", "Sign prepaid spend authorisation (off-chain, no funds move)…");
+      const signature = await activeProvider.request({ method:"eth_signTypedData_v4", params:[payerAddress, JSON.stringify(typedData)] });
+      logStep("ok", "Signed. Calling fetch_extract via prepaid balance…");
+      const response = await rpc({
+        jsonrpc:"2.0", id:1, method:"tools/call",
+        params: { name:"fetch_extract", arguments:{ url:FETCH_URL, maxChars:400 },
+          _meta:{ "x402/prepaid-spend":{ authorization:{ address:payerAddress, tool:"fetch_extract", maxAmount:PREPAID_MAX, nonce, validBefore }, signature } } }
+      });
+      showResult(response, "spend");
+      refreshBalance();
+    } catch (err) { logStep("error", "Spend failed: " + (err.message || err)); }
+  });
+
+  document.getElementById("balance-btn").addEventListener("click", refreshBalance);
+
+  async function refreshBalance() {
+    if (!payerAddress) return;
+    const r = await rpc({ jsonrpc:"2.0", id:1, method:"tools/call", params:{ name:"account_balance", arguments:{ address:payerAddress } } });
+    try {
+      const data = JSON.parse(r.result.content[0].text);
+      document.getElementById("balance-box").textContent = `balance: $${data.balance_usdc} (${data.calls_remaining} prepaid calls left)`;
+    } catch { document.getElementById("balance-box").textContent = "balance: (error)"; }
+  }
+
+  // ─── Result rendering ─────────────────────────────────────────────────────
+  function showResult(response, kind) {
+    const section = document.getElementById("result-section");
+    const banner = document.getElementById("outcome-banner");
+    const txLink = document.getElementById("tx-link");
+    const pre = document.getElementById("response-pre");
+    section.style.display = "block";
+    pre.textContent = JSON.stringify(response, null, 2);
+    txLink.style.display = "none";
+
+    const meta = response.result && response.result._meta;
+    const payResp = meta && meta["x402/payment-response"];
+
+    if (response.error) {
+      banner.className = "outcome-banner banner-err";
+      banner.textContent = "Error " + (response.error.code || "") + ": " + (response.error.message || "");
+      logStep("error", "Server error: " + (response.error.message || ""));
+      return;
+    }
+    if (kind === "deposit") {
+      if (payResp && payResp.success === true) {
+        banner.className = "outcome-banner banner-ok";
+        banner.textContent = "Deposit settled on-chain and credited. Verify the tx on BaseScan didn't revert.";
+        logStep("ok", "Deposit credited.");
+        if (payResp.transaction) { txLink.href = "https://basescan.org/tx/" + payResp.transaction; txLink.textContent = "View deposit tx: " + payResp.transaction; txLink.style.display = "inline-block"; }
+      } else {
+        banner.className = "outcome-banner banner-err";
+        banner.textContent = "Deposit not credited — see JSON. Reason: " + ((payResp && payResp.errorReason) || "unknown");
+        logStep("error", "Deposit failed.");
+      }
+    } else { // spend
+      if (payResp && payResp.success === true && payResp.prepaid) {
+        banner.className = "outcome-banner banner-ok";
+        banner.textContent = `Prepaid call OK — charged $${payResp.charged_usdc}, balance now $${payResp.balance_usdc}. No on-chain tx, no gas.`;
+        logStep("ok", "Off-chain debit succeeded.");
+      } else {
+        banner.className = "outcome-banner banner-err";
+        banner.textContent = "Prepaid call did not debit — see JSON.";
+        logStep("error", "Prepaid debit failed.");
+      }
+    }
+  }
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────
+  function clearLog() { document.getElementById("status-log").innerHTML = ""; }
+  function logStep(type, message) {
+    const log = document.getElementById("status-log"); const item = document.createElement("li");
+    const icons = { ok:"✓", error:"✗", spin:"⋯", info:"○" };
+    const classes = { ok:"step-ok", error:"step-err", spin:"step-spin", info:"step-info" };
+    const icon = document.createElement("span"); icon.className = "step-icon " + (classes[type] || "step-info"); icon.textContent = icons[type] || "○";
+    const text = document.createElement("span"); text.textContent = message;
+    item.appendChild(icon); item.appendChild(text); log.appendChild(item);
+    item.scrollIntoView({ behavior:"smooth", block:"nearest" });
+  }
+  function shortAddr(a) { return a.slice(0,6) + "…" + a.slice(-4); }
+</script>
+</body>
+</html>
