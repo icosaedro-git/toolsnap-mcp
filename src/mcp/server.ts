@@ -11,6 +11,7 @@ import {
   buildPaymentRequiredResponse,
   verifyPayment,
   settlePayment,
+  isWhitelistedPayer,
   NETWORK,
   USDC_ADDRESS,
   USDC_EIP712_NAME,
@@ -360,6 +361,46 @@ export async function dispatch(
               content: [{ type: "text", text: message }],
               isError: true,
             });
+          }
+        }
+
+        // ---------------------------------------------------------------------
+        // PATH 0.5 — whitelisted wallet (signature verified, no settlement)
+        // ---------------------------------------------------------------------
+        const whitelisted = (env.WHITELISTED_ADDRESSES ?? "")
+          .split(",")
+          .map((a) => a.trim())
+          .filter(Boolean);
+        if (whitelisted.length > 0) {
+          const rawPayload = (params._meta ?? {})[MCP_PAYMENT_META_KEY] ?? null;
+          if (rawPayload) {
+            const whitelistedPayer = await isWhitelistedPayer(rawPayload, whitelisted);
+            if (whitelistedPayer) {
+              try {
+                const result = await callTool(toolName, toolArgs);
+                writeEvent(env, {
+                  toolName,
+                  paymentType: "free_tool",
+                  payer: whitelistedPayer,
+                  revenueUsdc: 0,
+                  latencyMs: Date.now() - t0,
+                });
+                return successResponse(id, { content: [{ type: "text", text: result }] });
+              } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                writeEvent(env, {
+                  toolName,
+                  paymentType: "tool_error",
+                  payer: whitelistedPayer,
+                  revenueUsdc: 0,
+                  latencyMs: Date.now() - t0,
+                });
+                return successResponse(id, {
+                  content: [{ type: "text", text: message }],
+                  isError: true,
+                });
+              }
+            }
           }
         }
 
