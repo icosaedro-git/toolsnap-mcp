@@ -18,6 +18,9 @@ import { webpageMetadataTool } from "./webpage-metadata.js";
 import { countTokensTool } from "./count-tokens.js";
 import { rssParseTool } from "./rss-parse.js";
 import { sitemapParseTool } from "./sitemap-parse.js";
+import { fetchHtmlTool } from "./fetch-html.js";
+import { pageAssetsTool } from "./page-assets.js";
+import { pageLinksTool } from "./page-links.js";
 import { pricingTool } from "./pricing.js";
 import { accountBalanceTool, accountDepositTool } from "./account.js";
 
@@ -26,6 +29,9 @@ export const tools: McpTool[] = [
   accountBalanceTool,
   accountDepositTool,
   fetchExtractTool,
+  fetchHtmlTool,
+  pageAssetsTool,
+  pageLinksTool,
   uuidTool,
   hashTool,
   base64EncodeTool,

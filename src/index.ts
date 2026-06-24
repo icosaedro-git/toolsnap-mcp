@@ -1,5 +1,6 @@
 import { handleMcpRequest } from "./mcp/server.js";
 import { tools } from "./tools/index.js";
+import { requiresPayment } from "./x402/middleware.js";
 import { PRICING_DATA } from "./tools/pricing.js";
 import { getDashboardData } from "./analytics/queries.js";
 import { PANEL_HTML } from "./analytics/panel.js";
@@ -134,7 +135,7 @@ export default {
           },
         },
         tools: tools.map(({ name, description }) => {
-          const paid = name === "fetch_extract";
+          const paid = requiresPayment(name);
           return {
             name,
             description,

@@ -180,7 +180,7 @@ export interface PaymentConfig {
 // ---------------------------------------------------------------------------
 
 /** Tools that require payment before execution. */
-const PAID_TOOLS = new Set(["fetch_extract"]);
+const PAID_TOOLS = new Set(["fetch_extract", "fetch_html"]);
 
 /** Returns true if the tool requires a payment. */
 export function requiresPayment(toolName: string): boolean {
