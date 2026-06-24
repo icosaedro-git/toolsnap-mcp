@@ -1,6 +1,8 @@
 import { handleMcpRequest } from "./mcp/server.js";
 import { tools } from "./tools/index.js";
 import { PRICING_DATA } from "./tools/pricing.js";
+import { getDashboardData } from "./analytics/queries.js";
+import { PANEL_HTML } from "./analytics/panel.js";
 
 export interface Env {
   // x402 payment config (vars in wrangler.jsonc)
@@ -19,6 +21,7 @@ export interface Env {
 
   // D1 database for prepaid balances + money ledger (Fase 8)
   PREPAID_DB: D1Database;
+
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -138,6 +141,27 @@ export default {
     // Pricing menu (machine-readable)
     if (method === "GET" && url.pathname === "/.well-known/pricing.json") {
       return jsonResponse(PRICING_DATA);
+    }
+
+    // Analytics dashboard (Fase 9)
+    // Protected externally via Cloudflare Access (mcp.toolsnap.app/analytics*)
+    // Setup: https://one.dash.cloudflare.com → Access → Applications → add app for /analytics*
+    if (method === "GET" && url.pathname === "/analytics") {
+      return new Response(PANEL_HTML, {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
+    // Analytics data API — called by the dashboard panel via fetch('/analytics/data')
+    if (method === "GET" && url.pathname === "/analytics/data") {
+      try {
+        const data = await getDashboardData(env.PREPAID_DB);
+        return jsonResponse(data);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return jsonResponse({ error: message }, 502);
+      }
     }
 
     // 404
