@@ -6,6 +6,8 @@ export interface Env {
   // x402 payment config (vars in wrangler.jsonc)
   X402_NETWORK: string;
   X402_PRICE_USDC: string;
+  X402_PREPAID_PRICE_USDC: string;
+  X402_MIN_DEPOSIT_USDC: string;
   BASE_RPC_URL: string;
 
   // x402 secrets (set via: wrangler secret put <NAME>)
@@ -14,6 +16,9 @@ export interface Env {
 
   // KV namespace for nonce replay-protection + first-call-free tracking
   X402_NONCES: KVNamespace;
+
+  // D1 database for prepaid balances + money ledger (Fase 8)
+  PREPAID_DB: D1Database;
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -98,7 +103,7 @@ export default {
         name: "toolsnap-mcp",
         version: "0.1.0",
         description:
-          "Context-efficient microtools for AI agents. Flagship tool fetch_extract: median 98.1% token reduction vs raw HTML (53 820 → 2 001 tokens, 11 real pages). Saves ~$0.156/call at Sonnet pricing. Costs $0.02 USDC on Base — 7.8× ROI on a typical page. First call free per wallet. 10 free utility tools included (UUID, hash, Base64, URL encode/decode, JSON, timestamps, text stats).",
+          "Context-efficient microtools for AI agents. Flagship tool fetch_extract: median 98.1% token reduction vs raw HTML (53 820 → 2 001 tokens, 11 real pages). Saves ~$0.156/call at Sonnet pricing. Costs $0.02 USDC on Base pay-per-call, or $0.01 prepaid (deposit once, debit off-chain, no per-call gas) — first call free per wallet. 20+ free utility tools included.",
         transport: "streamable-http",
         endpoint: "/mcp",
         pricing_endpoint: "/.well-known/pricing.json",
@@ -106,14 +111,24 @@ export default {
           method: "x402 v2",
           network: "eip155:8453",
           asset: "USDC",
-          first_call_free: true,
+          pay_per_call: { price_usdc: 0.02, first_call_free: true },
+          prepaid: {
+            price_usdc: 0.01,
+            min_deposit_usdc: 0.5,
+            non_refundable: true,
+            deposit_tool: "account_deposit",
+            balance_tool: "account_balance",
+            spend_meta_key: "x402/prepaid-spend",
+          },
         },
         tools: tools.map(({ name, description }) => {
           const paid = name === "fetch_extract";
           return {
             name,
             description,
-            ...(paid ? { tier: "paid", price_usdc: 0.02 } : { tier: "free" }),
+            ...(paid
+              ? { tier: "paid", price_usdc: 0.02, prepaid_price_usdc: 0.01 }
+              : { tier: "free" }),
           };
         }),
         docs: "https://toolsnap.app/agents",
