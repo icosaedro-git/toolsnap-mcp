@@ -16,6 +16,8 @@ import { pdfTextExtractTool } from "./pdf-text-extract.js";
 import { regexExtractTool } from "./regex-extract.js";
 import { webpageMetadataTool } from "./webpage-metadata.js";
 import { countTokensTool } from "./count-tokens.js";
+import { rssParseTool } from "./rss-parse.js";
+import { sitemapParseTool } from "./sitemap-parse.js";
 
 export const tools: McpTool[] = [
   uuidTool,
@@ -37,6 +39,8 @@ export const tools: McpTool[] = [
   regexExtractTool,
   webpageMetadataTool,
   countTokensTool,
+  rssParseTool,
+  sitemapParseTool,
 ];
 
 /** Returns the tool list for tools/list responses (no run function). */
