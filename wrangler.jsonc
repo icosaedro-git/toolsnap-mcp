@@ -16,7 +16,7 @@
     "BASE_RPC_URL": "https://base-rpc.publicnode.com",
     // Comma-separated EVM addresses whitelisted for free access via wallet signature.
     // Add the relay wallet's public address here (derived from RELAYER_PRIVATE_KEY).
-    "WHITELISTED_ADDRESSES": ""
+    "WHITELISTED_ADDRESSES": "0xd5F96b537A05f196091502bCde038C572f88efba"
   },
   // KV namespace for x402 nonce replay-protection (created 2026-06-23).
   // Also holds prepaid spend-authorization nonces (single-use) and
