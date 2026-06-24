@@ -270,7 +270,8 @@ function errorResponse(
  */
 export async function dispatch(
   request: JsonRpcRequest,
-  env: Env
+  env: Env,
+  isAdmin = false
 ): Promise<JsonRpcResponse | null> {
   const id: string | number | null =
     request.id !== undefined ? (request.id ?? null) : null;
@@ -331,6 +332,36 @@ export async function dispatch(
       // -----------------------------------------------------------------------
       if (requiresPayment(toolName)) {
         const t0 = Date.now();
+
+        // ---------------------------------------------------------------------
+        // PATH 0 — admin bypass (valid x-admin-key header, no payment needed)
+        // ---------------------------------------------------------------------
+        if (isAdmin) {
+          try {
+            const result = await callTool(toolName, toolArgs);
+            writeEvent(env, {
+              toolName,
+              paymentType: "free_tool",
+              payer: "admin",
+              revenueUsdc: 0,
+              latencyMs: Date.now() - t0,
+            });
+            return successResponse(id, { content: [{ type: "text", text: result }] });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            writeEvent(env, {
+              toolName,
+              paymentType: "tool_error",
+              payer: "admin",
+              revenueUsdc: 0,
+              latencyMs: Date.now() - t0,
+            });
+            return successResponse(id, {
+              content: [{ type: "text", text: message }],
+              isError: true,
+            });
+          }
+        }
 
         // ---------------------------------------------------------------------
         // PATH A — prepaid debit (deposited balance, off-chain, no gas/402)
@@ -669,7 +700,8 @@ STRATEGY: Before loading any external URL or large document into your context, c
 
 export async function handleMcpRequest(
   body: string,
-  env: Env
+  env: Env,
+  isAdmin = false
 ): Promise<{ response: string | null; status: number }> {
   let request: JsonRpcRequest;
   try {
@@ -679,7 +711,7 @@ export async function handleMcpRequest(
     return { response: JSON.stringify(err), status: 400 };
   }
 
-  const result = await dispatch(request, env);
+  const result = await dispatch(request, env, isAdmin);
 
   if (result === null) {
     // Notification — no response body

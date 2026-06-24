@@ -16,6 +16,9 @@ export interface Env {
   X402_PAY_TO_ADDRESS: string;
   RELAYER_PRIVATE_KEY: string;
 
+  // Admin bypass key (set via: wrangler secret put ADMIN_API_KEY)
+  ADMIN_API_KEY?: string;
+
   // KV namespace for nonce replay-protection + first-call-free tracking
   X402_NONCES: KVNamespace;
 
@@ -28,7 +31,7 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version",
+    "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version, X-Admin-Key",
 };
 
 function withCors(response: Response): Response {
@@ -71,7 +74,10 @@ export default {
         return jsonResponse({ error: "Failed to read request body." }, 400);
       }
 
-      const { response, status } = await handleMcpRequest(body, env);
+      const adminKey = request.headers.get("x-admin-key");
+      const isAdmin = Boolean(env.ADMIN_API_KEY && adminKey === env.ADMIN_API_KEY);
+
+      const { response, status } = await handleMcpRequest(body, env, isAdmin);
 
       if (response === null) {
         // Notification — 202 empty body with CORS

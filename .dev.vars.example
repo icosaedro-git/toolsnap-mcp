@@ -2,3 +2,6 @@
 # Copy this file to .dev.vars and fill in real values for local development.
 X402_PAY_TO_ADDRESS=0xYourPublicWalletAddressHere
 X402_NETWORK=base
+
+# Admin bypass key — allows calling paid tools without payment (set via: wrangler secret put ADMIN_API_KEY)
+ADMIN_API_KEY=your-secret-admin-key-here
