@@ -53,6 +53,8 @@ async function runRemoveBackground(
 
     const LOCAL_PREFIX = "/files/";
     const parsedUrl = new URL(imageUrl);
+    const isLocalUpload = parsedUrl.pathname.startsWith(LOCAL_PREFIX) &&
+      parsedUrl.pathname.includes("/uploads/");
     if (parsedUrl.pathname.startsWith(LOCAL_PREFIX)) {
       // Internal R2 object — read via binding to avoid same-zone HTTP loopback.
       const r2Key = parsedUrl.pathname.slice(LOCAL_PREFIX.length);
@@ -60,6 +62,10 @@ async function runRemoveBackground(
       if (!obj) throw new Error(`File not found in storage: ${r2Key}`);
       srcBytes = await obj.arrayBuffer();
       mimeType = obj.httpMetadata?.contentType ?? "image/jpeg";
+      // Delete temporary uploads immediately after reading.
+      if (isLocalUpload) {
+        await env.SCREENSHOTS_BUCKET.delete(r2Key);
+      }
     } else {
       const srcRes = await fetch(imageUrl, { signal: controller.signal });
       if (!srcRes.ok) throw new Error(`Failed to fetch source image: HTTP ${srcRes.status}`);
