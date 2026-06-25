@@ -23,6 +23,7 @@ import { fetchHtmlTool } from "./fetch-html.js";
 import { pageAssetsTool } from "./page-assets.js";
 import { pageLinksTool } from "./page-links.js";
 import { screenshotUrlTool } from "./screenshot-url.js";
+import { taskRecipesTool } from "./task-recipes.js";
 import { pricingTool } from "./pricing.js";
 import { accountBalanceTool, accountDepositTool } from "./account.js";
 
@@ -35,6 +36,7 @@ export const tools: McpTool[] = [
   pageAssetsTool,
   pageLinksTool,
   screenshotUrlTool,
+  taskRecipesTool,
   uuidTool,
   hashTool,
   base64EncodeTool,
