@@ -181,7 +181,12 @@ export interface PaymentConfig {
 // ---------------------------------------------------------------------------
 
 /** Tools that require payment before execution. */
-const PAID_TOOLS = new Set(["fetch_extract", "fetch_html", "screenshot_url"]);
+const PAID_TOOLS = new Set([
+  "fetch_extract",
+  "fetch_html",
+  "screenshot_url",
+  "keyword_research",
+]);
 
 /** Returns true if the tool requires a payment. */
 export function requiresPayment(toolName: string): boolean {
@@ -200,6 +205,7 @@ export function requiresPayment(toolName: string): boolean {
  */
 const TOOL_PRICE_OVERRIDES: Record<string, { payPerCall: string; prepaid: string }> = {
   screenshot_url: { payPerCall: "0.04", prepaid: "0.025" },
+  keyword_research: { payPerCall: "0.04", prepaid: "0.025" },
 };
 
 export interface ToolPrice {

@@ -48,6 +48,10 @@ export interface Env {
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
 
+  // DataForSEO credentials for keyword_research (set via: wrangler secret put DATAFORSEO_LOGIN/PASSWORD).
+  DATAFORSEO_LOGIN?: string;
+  DATAFORSEO_PASSWORD?: string;
+
 }
 
 const CORS_HEADERS: Record<string, string> = {

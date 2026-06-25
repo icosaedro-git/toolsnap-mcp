@@ -103,6 +103,16 @@ const PRICING_DATA = {
         note: "Captures a page (full-page or viewport, PNG/JPEG), uploads to R2 and returns a public URL — never the bytes, so it does not bloat context. For visual reference during site migration and visual QA. Priced above the flat rate because each call drives a real headless/render cost. No first-call-free (real per-call cost). Costs $0.04 pay-per-call or $0.025 prepaid.",
       },
     },
+    {
+      name: "keyword_research",
+      tier: "paid",
+      price_usdc: 0.04,
+      prepaid_price_usdc: 0.025,
+      first_call_free: false,
+      value: {
+        note: "Queries Google Ads data via DataForSEO for 1–20 keywords per call. Returns monthly search volume, CPC (USD), competition score (0–1), 12-month trend, and top-5 related suggestions per keyword. Default location: Spain (2724). Priced above the flat rate due to DataForSEO COGS per batch. No first-call-free. Costs $0.04 pay-per-call or $0.025 prepaid.",
+      },
+    },
     ...FREE_TOOLS.map((name) => ({ name, tier: "free" as const })),
   ],
 };
