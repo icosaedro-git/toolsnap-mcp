@@ -220,8 +220,10 @@ export default {
     }
 
     // File upload — POST /upload
-    // Accepts raw image bytes (Content-Type: image/jpeg|png|webp|gif), stores in R2,
-    // returns { url, key, content_type, file_size_bytes }. Free, no auth required.
+    // Accepts raw image bytes (Content-Type: image/jpeg|png|webp|gif), stores in R2
+    // under uploads/ as a temporary file. Consumed tools (e.g. remove_background)
+    // delete the upload immediately after reading it.
+    // Returns { url, key, content_type, file_size_bytes }. Free, no auth required.
     if (method === "POST" && url.pathname === "/upload") {
       const contentType = (request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
       const ALLOWED: Record<string, string> = {
