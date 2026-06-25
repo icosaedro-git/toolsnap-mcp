@@ -186,6 +186,7 @@ const PAID_TOOLS = new Set([
   "fetch_html",
   "screenshot_url",
   "keyword_research",
+  "remove_background",
 ]);
 
 /** Returns true if the tool requires a payment. */
@@ -206,6 +207,7 @@ export function requiresPayment(toolName: string): boolean {
 const TOOL_PRICE_OVERRIDES: Record<string, { payPerCall: string; prepaid: string }> = {
   screenshot_url: { payPerCall: "0.04", prepaid: "0.025" },
   keyword_research: { payPerCall: "0.04", prepaid: "0.025" },
+  remove_background: { payPerCall: "0.03", prepaid: "0.02" },
 };
 
 export interface ToolPrice {
