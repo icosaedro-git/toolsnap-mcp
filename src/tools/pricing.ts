@@ -113,6 +113,16 @@ const PRICING_DATA = {
         note: "Queries Google Ads data via DataForSEO for 1–20 keywords per call. Returns monthly search volume, CPC (USD), competition score (0–1), 12-month trend, and top-5 related suggestions per keyword. Default location: Spain (2724). Priced above the flat rate due to DataForSEO COGS per batch. No first-call-free. Costs $0.04 pay-per-call or $0.025 prepaid.",
       },
     },
+    {
+      name: "remove_background",
+      tier: "paid",
+      price_usdc: 0.03,
+      prepaid_price_usdc: 0.02,
+      first_call_free: false,
+      value: {
+        note: "Removes the background from any public image URL (JPEG/PNG/WEBP) using the U²-Net model. Returns a transparent PNG hosted on a permanent public URL — never raw bytes. Priced above the flat rate due to generative AI inference COGS. No first-call-free. Costs $0.03 pay-per-call or $0.02 prepaid.",
+      },
+    },
     ...FREE_TOOLS.map((name) => ({ name, tier: "free" as const })),
   ],
 };
