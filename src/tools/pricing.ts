@@ -24,6 +24,8 @@ const FREE_TOOLS = [
   "count_tokens",
   "rss_parse",
   "sitemap_parse",
+  "page_assets",
+  "page_links",
 ];
 
 const PRICING_DATA = {
@@ -79,6 +81,24 @@ const PRICING_DATA = {
         best_case_savings_pct: 99.3,
         best_case_source: "Cloudflare Workers docs (372 KB → 2.5 KB)",
         note: "Saves ~$0.156/call at Sonnet pricing. Costs $0.02 pay-per-call or $0.01 prepaid.",
+      },
+    },
+    {
+      name: "fetch_html",
+      tier: "paid",
+      price_usdc: 0.02,
+      prepaid_price_usdc: 0.01,
+      value: {
+        note: "Clean HTML with structure preserved (tags/classes/ids, no scripts/styles/tracking) for site migration and reconstruction. Costs $0.02 pay-per-call or $0.01 prepaid.",
+      },
+    },
+    {
+      name: "screenshot_url",
+      tier: "paid",
+      price_usdc: 0.04,
+      prepaid_price_usdc: 0.025,
+      value: {
+        note: "Captures a page (full-page or viewport, PNG/JPEG), uploads to R2 and returns a public URL — never the bytes, so it does not bloat context. For visual reference during site migration and visual QA. Priced above the flat rate because each call drives a real headless/render cost. Costs $0.04 pay-per-call or $0.025 prepaid.",
       },
     },
     ...FREE_TOOLS.map((name) => ({ name, tier: "free" as const })),

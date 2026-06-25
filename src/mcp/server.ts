@@ -8,6 +8,7 @@ import type { Env } from "../index.js";
 import { listTools, callTool } from "../tools/index.js";
 import {
   requiresPayment,
+  getToolPrice,
   buildPaymentRequiredResponse,
   verifyPayment,
   settlePayment,
@@ -333,13 +334,15 @@ export async function dispatch(
       // -----------------------------------------------------------------------
       if (requiresPayment(toolName)) {
         const t0 = Date.now();
+        // Per-tool price (screenshot_url etc. cost more than the flat rate).
+        const price = getToolPrice(toolName, env);
 
         // ---------------------------------------------------------------------
         // PATH 0 — admin bypass (valid x-admin-key header, no payment needed)
         // ---------------------------------------------------------------------
         if (isAdmin) {
           try {
-            const result = await callTool(toolName, toolArgs);
+            const result = await callTool(toolName, toolArgs, env);
             writeEvent(env, {
               toolName,
               paymentType: "free_tool",
@@ -377,7 +380,7 @@ export async function dispatch(
             const whitelistedPayer = await isWhitelistedPayer(rawPayload, whitelisted);
             if (whitelistedPayer) {
               try {
-                const result = await callTool(toolName, toolArgs);
+                const result = await callTool(toolName, toolArgs, env);
                 writeEvent(env, {
                   toolName,
                   paymentType: "free_tool",
@@ -409,7 +412,7 @@ export async function dispatch(
         // ---------------------------------------------------------------------
         const prepaidProof = (params._meta ?? {})[MCP_PREPAID_META_KEY] ?? null;
         if (prepaidProof !== null && prepaidProof !== undefined) {
-          const prepaidPriceMicro = usdcToMicro(env.X402_PREPAID_PRICE_USDC);
+          const prepaidPriceMicro = price.prepaidMicro;
 
           const v = await verifySpendAuthorization(prepaidProof, toolName, prepaidPriceMicro);
           if (!v.ok) {
@@ -447,7 +450,7 @@ export async function dispatch(
               return buildDepositRequiredResponse(
                 id,
                 env,
-                `Insufficient prepaid balance: have ${microToUsdc(bal)} USDC, need ${env.X402_PREPAID_PRICE_USDC}. Top up with account_deposit.`
+                `Insufficient prepaid balance: have ${microToUsdc(bal)} USDC, need ${price.prepaidStr} for ${toolName}. Top up with account_deposit.`
               );
             }
             writeEvent(env, {
@@ -471,7 +474,7 @@ export async function dispatch(
           // Execute; on failure, refund the debit (do not charge for failures).
           let prepaidResult: string;
           try {
-            prepaidResult = await callTool(toolName, toolArgs);
+            prepaidResult = await callTool(toolName, toolArgs, env);
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             const bal = await refundDebit(env.PREPAID_DB, v.payer!, prepaidPriceMicro, toolName, v.nonce!);
@@ -512,7 +515,7 @@ export async function dispatch(
               [MCP_PAYMENT_RESPONSE_META_KEY]: {
                 success: true,
                 prepaid: true,
-                charged_usdc: env.X402_PREPAID_PRICE_USDC,
+                charged_usdc: price.prepaidStr,
                 balance_usdc: microToUsdc(debit.balanceAfter!),
                 balance_micro_usdc: debit.balanceAfter!.toString(),
                 payer: v.payer,
@@ -527,7 +530,7 @@ export async function dispatch(
         const config: PaymentConfig = {
           payToAddress: env.X402_PAY_TO_ADDRESS,
           network: env.X402_NETWORK,
-          priceUSDC: env.X402_PRICE_USDC ?? "0.02",
+          priceUSDC: price.payPerCallStr,
           resource: toolName,
         };
 
@@ -545,8 +548,8 @@ export async function dispatch(
           return buildPaymentRequiredResponse(config, id) as JsonRpcResponse;
         }
 
-        // Step 2: off-chain verification
-        const verifyResult = await verifyPayment(paymentPayload, config, env);
+        // Step 2: off-chain verification (require at least the per-tool price)
+        const verifyResult = await verifyPayment(paymentPayload, config, env, price.payPerCallMicro);
         if (!verifyResult.ok) {
           writeEvent(env, {
             toolName,
@@ -571,7 +574,7 @@ export async function dispatch(
         // Step 4: execute the tool FIRST — do not charge on failure
         let toolResult: string;
         try {
-          toolResult = await callTool(toolName, toolArgs);
+          toolResult = await callTool(toolName, toolArgs, env);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           // Tool failed → do NOT settle or consume free call, return error
@@ -651,7 +654,7 @@ export async function dispatch(
           toolName,
           paymentType: "x402_paid",
           payer,
-          revenueUsdc: Number(env.X402_PRICE_USDC ?? "0.02"),
+          revenueUsdc: Number(price.payPerCallStr),
           latencyMs: Date.now() - t0,
         });
 
@@ -675,7 +678,7 @@ export async function dispatch(
       {
         const t0 = Date.now();
         try {
-          const result = await callTool(toolName, toolArgs);
+          const result = await callTool(toolName, toolArgs, env);
           writeEvent(env, {
             toolName,
             paymentType: "free_tool",
@@ -713,7 +716,7 @@ export async function dispatch(
  * Returns { response, status } where status is 200, 202, or 400.
  */
 function buildServerInstructions(env: Env): string {
-  return `You are connected to ToolSnap MCP — a single connector that expands your capabilities with 27 tools, no extra accounts needed. For paid tools, you only need USDC on Base in a wallet.
+  return `You are connected to ToolSnap MCP — a single connector that expands your capabilities with 28 tools, no extra accounts needed. For paid tools, you only need USDC on Base in a wallet.
 
 PAYMENT OPTIONS
 • Pay-per-call: $${env.X402_PRICE_USDC} USDC per call, first call free (x402 via _meta["x402/payment"])
@@ -727,6 +730,7 @@ WHEN TO USE THESE TOOLS (save context & gain capabilities)
 • Get clean HTML with structure preserved (for site migration / reconstruction) → fetch_html (paid)
 • Inventory every asset (images, CSS, fonts, scripts, icons) a page references → page_assets
 • List all links on a page, classified internal/external → page_links
+• Screenshot a page (full-page or viewport) → screenshot_url (paid; returns a public image URL, not bytes)
 • Convert HTML to clean Markdown → html_to_markdown
 • Extract structured data (Open Graph, JSON-LD, meta) from URL → extract_structured
 • Query CSV or JSON data → csv_query / json_query

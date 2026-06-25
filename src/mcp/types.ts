@@ -44,6 +44,13 @@ export interface McpTool {
   description: string;
   inputSchema: McpToolInputSchema;
   run(args: Record<string, unknown>): string | Promise<string>;
+  /**
+   * Optional env-aware execution path. Tools that need bindings/secrets
+   * (R2, D1, provider API keys) implement this; the dispatcher passes `env`
+   * through `callTool`. When present, `callTool` uses this instead of `run`.
+   * `run` should throw, since it has no access to env.
+   */
+  runWithEnv?(args: Record<string, unknown>, env: unknown): Promise<string>;
 }
 
 export interface McpToolDefinition {

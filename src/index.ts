@@ -1,6 +1,6 @@
 import { handleMcpRequest } from "./mcp/server.js";
 import { tools } from "./tools/index.js";
-import { requiresPayment } from "./x402/middleware.js";
+import { requiresPayment, getToolPrice } from "./x402/middleware.js";
 import { PRICING_DATA } from "./tools/pricing.js";
 import { getDashboardData } from "./analytics/queries.js";
 import { PANEL_HTML } from "./analytics/panel.js";
@@ -28,6 +28,19 @@ export interface Env {
 
   // D1 database for prepaid balances + money ledger (Fase 8)
   PREPAID_DB: D1Database;
+
+  // R2 bucket for screenshot_url captures (Fase 11.2)
+  SCREENSHOTS_BUCKET: R2Bucket;
+
+  // Public base URL for the screenshots bucket (r2.dev or custom domain)
+  R2_PUBLIC_URL: string;
+
+  // Screenshot provider selector: "screenshotone" | "microlink" (default microlink)
+  SCREENSHOT_PROVIDER?: string;
+
+  // ScreenshotOne access key (set via: wrangler secret put SCREENSHOT_API_KEY).
+  // Optional — without it screenshot_url falls back to the keyless microlink provider.
+  SCREENSHOT_API_KEY?: string;
 
 }
 
@@ -136,12 +149,14 @@ export default {
         },
         tools: tools.map(({ name, description }) => {
           const paid = requiresPayment(name);
+          if (!paid) return { name, description, tier: "free" };
+          const p = getToolPrice(name, env);
           return {
             name,
             description,
-            ...(paid
-              ? { tier: "paid", price_usdc: 0.02, prepaid_price_usdc: 0.01 }
-              : { tier: "free" }),
+            tier: "paid",
+            price_usdc: Number(p.payPerCallStr),
+            prepaid_price_usdc: Number(p.prepaidStr),
           };
         }),
         docs: "https://toolsnap.app/agents",

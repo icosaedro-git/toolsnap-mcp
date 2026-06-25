@@ -21,6 +21,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
+import { usdcToMicro } from "./prepaid.js";
 
 // ---------------------------------------------------------------------------
 // Constants – Base mainnet
@@ -180,11 +181,48 @@ export interface PaymentConfig {
 // ---------------------------------------------------------------------------
 
 /** Tools that require payment before execution. */
-const PAID_TOOLS = new Set(["fetch_extract", "fetch_html"]);
+const PAID_TOOLS = new Set(["fetch_extract", "fetch_html", "screenshot_url"]);
 
 /** Returns true if the tool requires a payment. */
 export function requiresPayment(toolName: string): boolean {
   return PAID_TOOLS.has(toolName);
+}
+
+/**
+ * Per-tool price overrides (USDC decimal strings). Tools not listed use the
+ * global flat price (X402_PRICE_USDC / X402_PREPAID_PRICE_USDC).
+ *
+ * Pure-compute tools (fetch_extract, fetch_html) have ~zero marginal cost, so
+ * the flat $0.02 / $0.01 clears trivially. Tools with real COGS price ABOVE the
+ * flat rate (vault rule: every paid tool must be tariffed over its resource
+ * cost). screenshot_url calls an external/headless capture (~$0.003–0.009/shot)
+ * + R2 storage, so each call must clear that.
+ */
+const TOOL_PRICE_OVERRIDES: Record<string, { payPerCall: string; prepaid: string }> = {
+  screenshot_url: { payPerCall: "0.04", prepaid: "0.025" },
+};
+
+export interface ToolPrice {
+  payPerCallStr: string;
+  prepaidStr: string;
+  payPerCallMicro: bigint;
+  prepaidMicro: bigint;
+}
+
+/** Resolve the effective price for a tool (override or global flat default). */
+export function getToolPrice(
+  toolName: string,
+  env: { X402_PRICE_USDC?: string; X402_PREPAID_PRICE_USDC?: string }
+): ToolPrice {
+  const o = TOOL_PRICE_OVERRIDES[toolName];
+  const payPerCallStr = o?.payPerCall ?? env.X402_PRICE_USDC ?? "0.02";
+  const prepaidStr = o?.prepaid ?? env.X402_PREPAID_PRICE_USDC ?? "0.01";
+  return {
+    payPerCallStr,
+    prepaidStr,
+    payPerCallMicro: usdcToMicro(payPerCallStr),
+    prepaidMicro: usdcToMicro(prepaidStr),
+  };
 }
 
 /**
@@ -274,19 +312,22 @@ export function buildPaymentRequiredResponse(
   requestId: string | number | null,
   reason?: string
 ): object {
+  // Amount comes from the per-tool price carried in config.priceUSDC (set by the
+  // dispatcher via getToolPrice), not a hardcoded flat rate.
+  const amountMicro = usdcToMicro(config.priceUSDC || "0.02");
   const paymentRequired = {
     x402Version: 2,
     error: reason ?? "Payment required to use this tool",
     resource: {
       url: `mcp://tool/${config.resource}`,
-      description: `Pay $0.02 USDC on Base to call the ${config.resource} tool`,
+      description: `Pay $${config.priceUSDC} USDC on Base to call the ${config.resource} tool`,
       mimeType: "application/json",
     },
     accepts: [
       {
         scheme: "exact",
         network: NETWORK,
-        amount: PRICE_MICRO_USDC_STR,
+        amount: amountMicro.toString(),
         asset: USDC_ADDRESS,
         payTo: config.payToAddress,
         maxTimeoutSeconds: 300,

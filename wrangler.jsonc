@@ -16,7 +16,14 @@
     "BASE_RPC_URL": "https://base-rpc.publicnode.com",
     // Comma-separated EVM addresses whitelisted for free access via wallet signature.
     // Add the relay wallet's public address here (derived from RELAYER_PRIVATE_KEY).
-    "WHITELISTED_ADDRESSES": "0xd5F96b537A05f196091502bCde038C572f88efba"
+    "WHITELISTED_ADDRESSES": "0xd5F96b537A05f196091502bCde038C572f88efba",
+    // screenshot_url (Fase 11.2): public base URL for the R2 screenshots bucket.
+    // r2.dev managed public URL (enabled 2026-06-25). Swap for a custom domain later.
+    "R2_PUBLIC_URL": "https://pub-e25a29e50f6645acba8c20197c99194f.r2.dev",
+    // Screenshot provider: "screenshotone" (uses SCREENSHOT_API_KEY) or "microlink"
+    // (no key, free tier). If SCREENSHOT_API_KEY is unset, automatically falls back
+    // to microlink so the tool works with zero external account.
+    "SCREENSHOT_PROVIDER": "screenshotone"
   },
   // KV namespace for x402 nonce replay-protection (created 2026-06-23).
   // Also holds prepaid spend-authorization nonces (single-use) and
@@ -33,8 +40,19 @@
       "database_name": "toolsnap-prepaid",
       "database_id": "f56a06a9-add9-4394-9a7c-727c7610d9e2"
     }
+  ],
+  // R2 bucket for screenshot_url captures (Fase 11.2).
+  // Created 2026-06-25 (`wrangler r2 bucket create toolsnap-screenshots`).
+  // Public access enabled via r2.dev dev URL (see R2_PUBLIC_URL var above).
+  "r2_buckets": [
+    {
+      "binding": "SCREENSHOTS_BUCKET",
+      "bucket_name": "toolsnap-screenshots"
+    }
   ]
   // Secrets (never stored here — upload via wrangler secret put):
   //   wrangler secret put X402_PAY_TO_ADDRESS   (already done)
-  //   wrangler secret put RELAYER_PRIVATE_KEY    (NEW — required before deploy)
+  //   wrangler secret put RELAYER_PRIVATE_KEY    (already done)
+  //   wrangler secret put SCREENSHOT_API_KEY     (optional — ScreenshotOne access key;
+  //                                               without it screenshot_url uses microlink)
 }

@@ -1,4 +1,5 @@
 import type { McpTool, McpToolDefinition } from "../mcp/types.js";
+import type { Env } from "../index.js";
 import { uuidTool } from "./uuid.js";
 import { hashTool } from "./hash.js";
 import { base64EncodeTool, base64DecodeTool } from "./base64.js";
@@ -21,6 +22,7 @@ import { sitemapParseTool } from "./sitemap-parse.js";
 import { fetchHtmlTool } from "./fetch-html.js";
 import { pageAssetsTool } from "./page-assets.js";
 import { pageLinksTool } from "./page-links.js";
+import { screenshotUrlTool } from "./screenshot-url.js";
 import { pricingTool } from "./pricing.js";
 import { accountBalanceTool, accountDepositTool } from "./account.js";
 
@@ -32,6 +34,7 @@ export const tools: McpTool[] = [
   fetchHtmlTool,
   pageAssetsTool,
   pageLinksTool,
+  screenshotUrlTool,
   uuidTool,
   hashTool,
   base64EncodeTool,
@@ -67,14 +70,24 @@ export function listTools(): McpToolDefinition[] {
  * Find and run a tool by name.
  * Returns the string result.
  * Throws if tool not found or run throws.
+ *
+ * Env-aware tools (those exposing `runWithEnv`, e.g. screenshot_url which needs
+ * the R2 bucket + provider key) receive `env`. Pure tools use `run`.
  */
 export async function callTool(
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  env?: Env
 ): Promise<string> {
   const tool = tools.find((t) => t.name === name);
   if (!tool) {
     throw new Error(`Tool not found: ${name}`);
+  }
+  if (tool.runWithEnv) {
+    if (!env) {
+      throw new Error(`Tool ${name} requires env but none was provided.`);
+    }
+    return await tool.runWithEnv(args, env);
   }
   return await tool.run(args);
 }
