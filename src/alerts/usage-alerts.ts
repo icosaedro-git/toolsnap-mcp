@@ -45,7 +45,35 @@ async function monthScreenshotCount(env: Env, now: Date): Promise<number> {
   return row?.n ?? 0;
 }
 
+/** Delete R2 objects under the given prefix that are older than maxAgeMs. */
+async function purgeOldR2Objects(
+  bucket: R2Bucket,
+  prefix: string,
+  maxAgeMs: number,
+  now: Date
+): Promise<number> {
+  let deleted = 0;
+  let cursor: string | undefined;
+  do {
+    const listed = await bucket.list({ prefix, cursor, limit: 1000 });
+    for (const obj of listed.objects) {
+      if (now.getTime() - obj.uploaded.getTime() > maxAgeMs) {
+        await bucket.delete(obj.key);
+        deleted++;
+      }
+    }
+    cursor = listed.truncated ? listed.cursor : undefined;
+  } while (cursor);
+  return deleted;
+}
+
 export async function checkUsageAlerts(env: Env, now: Date = new Date()): Promise<void> {
+  // Purge temporary R2 files older than 24 h.
+  const TTL_24H = 24 * 60 * 60 * 1000;
+  await Promise.all([
+    purgeOldR2Objects(env.SCREENSHOTS_BUCKET, "rembg/", TTL_24H, now),
+    purgeOldR2Objects(env.SCREENSHOTS_BUCKET, "uploads/", TTL_24H, now),
+  ]);
   const count = await monthScreenshotCount(env, now);
   const month = monthKey(now);
 
