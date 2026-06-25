@@ -4,6 +4,7 @@ import { requiresPayment, getToolPrice, firstCallFreeEligible } from "./x402/mid
 import { PRICING_DATA } from "./tools/pricing.js";
 import { getDashboardData } from "./analytics/queries.js";
 import { PANEL_HTML } from "./analytics/panel.js";
+import { checkUsageAlerts } from "./alerts/usage-alerts.js";
 
 export interface Env {
   // x402 payment config (vars in wrangler.jsonc)
@@ -41,6 +42,11 @@ export interface Env {
   // ScreenshotOne access key (set via: wrangler secret put SCREENSHOT_API_KEY).
   // Optional — without it screenshot_url falls back to the keyless microlink provider.
   SCREENSHOT_API_KEY?: string;
+
+  // Telegram usage alerts (set via: wrangler secret put TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID).
+  // Optional — the scheduled alert handler no-ops when either is missing.
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string;
 
 }
 
@@ -208,5 +214,14 @@ export default {
 
     // 404
     return jsonResponse({ error: "Not found" }, 404);
+  },
+
+  // Cron Trigger (daily) — usage alerts for COGS tools (screenshot_url quota).
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      checkUsageAlerts(env).catch((err) =>
+        console.error("usage-alerts cron failed:", err instanceof Error ? err.message : err)
+      )
+    );
   },
 };

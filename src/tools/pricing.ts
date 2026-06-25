@@ -26,6 +26,7 @@ const FREE_TOOLS = [
   "sitemap_parse",
   "page_assets",
   "page_links",
+  "task_recipes",
 ];
 
 const PRICING_DATA = {
