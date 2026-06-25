@@ -52,6 +52,9 @@ export interface Env {
   DATAFORSEO_LOGIN?: string;
   DATAFORSEO_PASSWORD?: string;
 
+  // fal.ai API key for remove_background and future generative tools (set via: wrangler secret put FAL_API_KEY).
+  FAL_API_KEY?: string;
+
 }
 
 const CORS_HEADERS: Record<string, string> = {
