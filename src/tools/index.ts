@@ -24,6 +24,7 @@ import { pageAssetsTool } from "./page-assets.js";
 import { pageLinksTool } from "./page-links.js";
 import { screenshotUrlTool } from "./screenshot-url.js";
 import { taskRecipesTool } from "./task-recipes.js";
+import { keywordResearchTool } from "./keyword-research.js";
 import { pricingTool } from "./pricing.js";
 import { accountBalanceTool, accountDepositTool } from "./account.js";
 
@@ -36,6 +37,7 @@ export const tools: McpTool[] = [
   pageAssetsTool,
   pageLinksTool,
   screenshotUrlTool,
+  keywordResearchTool,
   taskRecipesTool,
   uuidTool,
   hashTool,
