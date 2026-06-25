@@ -209,6 +209,19 @@ export interface ToolPrice {
   prepaidMicro: bigint;
 }
 
+/**
+ * Whether a tool is eligible for the per-wallet first-call-free hook.
+ *
+ * Zero-COGS tools (fetch_extract, fetch_html…) ARE eligible: a free first call
+ * is pure marketing, costs us nothing. COGS tools (those with a price override,
+ * e.g. screenshot_url) are NOT: a free call is a direct loss AND an abuse vector
+ * (mint throwaway wallets → drain the provider's free quota). Such tools always
+ * settle from the first call.
+ */
+export function firstCallFreeEligible(toolName: string): boolean {
+  return !(toolName in TOOL_PRICE_OVERRIDES);
+}
+
 /** Resolve the effective price for a tool (override or global flat default). */
 export function getToolPrice(
   toolName: string,

@@ -9,6 +9,7 @@ import { listTools, callTool } from "../tools/index.js";
 import {
   requiresPayment,
   getToolPrice,
+  firstCallFreeEligible,
   buildPaymentRequiredResponse,
   verifyPayment,
   settlePayment,
@@ -565,11 +566,13 @@ export async function dispatch(
           ) as JsonRpcResponse;
         }
 
-        // Step 3: check first-call-free (per payer address)
+        // Step 3: check first-call-free (per payer address).
+        // COGS tools (screenshot_url) are excluded — they always settle, so a
+        // free call can't be used to drain the screenshot provider's quota.
         const payer = verifyResult.payer!;
         const freeCallKey = `first_free:${payer.toLowerCase()}`;
         const hasUsedFreeCall = await env.X402_NONCES.get(freeCallKey);
-        const isFreeCall = hasUsedFreeCall === null;
+        const isFreeCall = hasUsedFreeCall === null && firstCallFreeEligible(toolName);
 
         // Step 4: execute the tool FIRST — do not charge on failure
         let toolResult: string;
