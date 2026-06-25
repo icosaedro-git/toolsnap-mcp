@@ -42,6 +42,27 @@ async function runRemoveBackground(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
 
+  // fal.ai cannot fetch arbitrary external URLs (blocked by Cloudflare WAF on
+  // many CDN domains including r2.dev). We download the source image ourselves
+  // and pass it as a data URI — this is reliable regardless of the origin host.
+  let sourceDataUri: string;
+  try {
+    const srcRes = await fetch(imageUrl, { signal: controller.signal });
+    if (!srcRes.ok) {
+      throw new Error(`Failed to fetch source image: HTTP ${srcRes.status}`);
+    }
+    const srcBytes = await srcRes.arrayBuffer();
+    const contentType = srcRes.headers.get("content-type") ?? "image/jpeg";
+    const mimeType = contentType.split(";")[0].trim();
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(srcBytes)));
+    sourceDataUri = `data:${mimeType};base64,${b64}`;
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(`Source image download timed out after ${API_TIMEOUT_MS / 1000}s`);
+    }
+    throw err;
+  }
+
   let falResult: FalRembgResponse;
   try {
     const res = await fetch(FAL_REMBG_URL, {
@@ -50,7 +71,7 @@ async function runRemoveBackground(
         "Content-Type": "application/json",
         Authorization: `Key ${env.FAL_API_KEY}`,
       },
-      body: JSON.stringify({ image_url: imageUrl }),
+      body: JSON.stringify({ image_url: sourceDataUri }),
       signal: controller.signal,
     });
 
