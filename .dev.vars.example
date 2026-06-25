@@ -8,3 +8,8 @@ ADMIN_API_KEY=your-secret-admin-key-here
 
 # Comma-separated EVM addresses whitelisted for free access (relay wallet public address)
 WHITELISTED_ADDRESSES=0xYourRelayWalletPublicAddressHere
+
+# screenshot_url (Fase 11.2): ScreenshotOne access key for the production provider.
+# Optional — if unset, screenshot_url uses the keyless microlink free-tier provider.
+# Set in production via: wrangler secret put SCREENSHOT_API_KEY
+SCREENSHOT_API_KEY=your-screenshotone-access-key-here
