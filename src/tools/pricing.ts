@@ -97,8 +97,9 @@ const PRICING_DATA = {
       tier: "paid",
       price_usdc: 0.04,
       prepaid_price_usdc: 0.025,
+      first_call_free: false,
       value: {
-        note: "Captures a page (full-page or viewport, PNG/JPEG), uploads to R2 and returns a public URL — never the bytes, so it does not bloat context. For visual reference during site migration and visual QA. Priced above the flat rate because each call drives a real headless/render cost. Costs $0.04 pay-per-call or $0.025 prepaid.",
+        note: "Captures a page (full-page or viewport, PNG/JPEG), uploads to R2 and returns a public URL — never the bytes, so it does not bloat context. For visual reference during site migration and visual QA. Priced above the flat rate because each call drives a real headless/render cost. No first-call-free (real per-call cost). Costs $0.04 pay-per-call or $0.025 prepaid.",
       },
     },
     ...FREE_TOOLS.map((name) => ({ name, tier: "free" as const })),

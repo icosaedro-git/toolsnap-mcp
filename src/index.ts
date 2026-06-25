@@ -1,6 +1,6 @@
 import { handleMcpRequest } from "./mcp/server.js";
 import { tools } from "./tools/index.js";
-import { requiresPayment, getToolPrice } from "./x402/middleware.js";
+import { requiresPayment, getToolPrice, firstCallFreeEligible } from "./x402/middleware.js";
 import { PRICING_DATA } from "./tools/pricing.js";
 import { getDashboardData } from "./analytics/queries.js";
 import { PANEL_HTML } from "./analytics/panel.js";
@@ -157,6 +157,7 @@ export default {
             tier: "paid",
             price_usdc: Number(p.payPerCallStr),
             prepaid_price_usdc: Number(p.prepaidStr),
+            first_call_free: firstCallFreeEligible(name),
           };
         }),
         docs: "https://toolsnap.app/agents",
