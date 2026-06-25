@@ -219,6 +219,39 @@ export default {
       }
     }
 
+    // File upload — POST /upload
+    // Accepts raw image bytes (Content-Type: image/jpeg|png|webp|gif), stores in R2,
+    // returns { url, key, content_type, file_size_bytes }. Free, no auth required.
+    if (method === "POST" && url.pathname === "/upload") {
+      const contentType = (request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+      const ALLOWED: Record<string, string> = {
+        "image/jpeg": "jpg", "image/jpg": "jpg",
+        "image/png": "png", "image/webp": "webp", "image/gif": "gif",
+      };
+      const ext = ALLOWED[contentType];
+      if (!ext) {
+        return jsonResponse({ error: `Unsupported content-type "${contentType}". Allowed: image/jpeg, image/png, image/webp, image/gif` }, 415);
+      }
+      const bytes = await request.arrayBuffer();
+      if (bytes.byteLength > 10 * 1024 * 1024) {
+        return jsonResponse({ error: "File too large (max 10 MB)" }, 413);
+      }
+      const key = `uploads/${Date.now()}-${Math.random().toString(36).slice(2, 9)}.${ext}`;
+      await env.SCREENSHOTS_BUCKET.put(key, bytes, { httpMetadata: { contentType } });
+      const workerBase = new URL(request.url).origin;
+      return jsonResponse({ url: `${workerBase}/files/${key}`, key, content_type: contentType, file_size_bytes: bytes.byteLength });
+    }
+
+    // File serving — GET /files/:key  (serves R2 objects uploaded via /upload or by tools)
+    if (method === "GET" && url.pathname.startsWith("/files/")) {
+      const key = url.pathname.slice("/files/".length);
+      if (!key) return jsonResponse({ error: "Missing file key" }, 400);
+      const obj = await env.SCREENSHOTS_BUCKET.get(key);
+      if (!obj) return jsonResponse({ error: "File not found" }, 404);
+      const ct = obj.httpMetadata?.contentType ?? "application/octet-stream";
+      return new Response(obj.body, { status: 200, headers: { "Content-Type": ct, ...CORS_HEADERS } });
+    }
+
     // 404
     return jsonResponse({ error: "Not found" }, 404);
   },
