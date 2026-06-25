@@ -22,7 +22,7 @@ const ALLOWED_MIME: Record<string, string> = {
 export const uploadFileTool: McpTool = {
   name: "upload_file",
   description:
-    "Upload a base64-encoded image to ToolSnap storage and receive a permanent public URL. Use this when you have image data locally and need a URL to pass to tools like remove_background. Accepts JPEG, PNG, WEBP, or GIF up to 10 MB. Free tool — no payment required. Returns: url (permanent public URL), key, content_type, file_size_bytes.",
+    "Upload a base64-encoded image to ToolSnap temporary storage and receive a URL to pass to tools like remove_background. The file is automatically deleted once consumed by a tool (e.g. remove_background deletes it immediately after reading). Do not use this URL as a permanent link. Accepts JPEG, PNG, WEBP, or GIF up to 10 MB. Free tool — no payment required. Returns: url (temporary), key, content_type, file_size_bytes.",
   inputSchema: {
     type: "object",
     properties: {
