@@ -4,6 +4,7 @@ const FREE_TOOLS = [
   "pricing",
   "account_balance",
   "account_deposit",
+  "wallet_setup",
   "uuid_generate",
   "hash_text",
   "base64_encode",
