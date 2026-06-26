@@ -29,11 +29,13 @@ import { removeBackgroundTool } from "./remove-background.js";
 import { uploadFileTool } from "./upload-file.js";
 import { pricingTool } from "./pricing.js";
 import { accountBalanceTool, accountDepositTool } from "./account.js";
+import { walletSetupTool } from "./wallet-setup.js";
 
 export const tools: McpTool[] = [
   pricingTool,
   accountBalanceTool,
   accountDepositTool,
+  walletSetupTool,
   fetchExtractTool,
   fetchHtmlTool,
   pageAssetsTool,

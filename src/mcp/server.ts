@@ -546,7 +546,18 @@ export async function dispatch(
             revenueUsdc: 0,
             latencyMs: Date.now() - t0,
           });
-          return buildPaymentRequiredResponse(config, id) as JsonRpcResponse;
+          // No payment payload at all → agent likely has no wallet yet.
+          // Inject a wallet_setup hint into the standard x402 response so the
+          // agent knows the exact next step without reading docs.
+          const base402 = buildPaymentRequiredResponse(config, id) as {
+            error: { data: { extensions: Record<string, unknown> } };
+          } & JsonRpcResponse;
+          base402.error.data.extensions = {
+            no_payment_method: true,
+            next_tool: "wallet_setup",
+            hint: "No payment payload detected. Call wallet_setup to create a wallet your agent controls (ToolSnap never sees the key), then fund it with USDC on Base.",
+          };
+          return base402;
         }
 
         // Step 2: off-chain verification (require at least the per-tool price)
