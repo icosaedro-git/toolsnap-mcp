@@ -95,6 +95,12 @@ export default {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
+    // Favicon
+    if (method === "GET" && (url.pathname === "/favicon.svg" || url.pathname === "/favicon.ico")) {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#4338ca"/></linearGradient></defs><rect width="256" height="256" rx="73" fill="url(#g)"/><svg x="64" y="64" width="128" height="128" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></svg>`;
+      return new Response(svg, { headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" } });
+    }
+
     // MCP endpoint
     if (method === "POST" && url.pathname === "/mcp") {
       let body: string;
