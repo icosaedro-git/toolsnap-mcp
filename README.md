@@ -45,6 +45,35 @@ The tool costs $0.02 USDC → 7.8× ROI on a typical page.
 }
 ```
 
+Free tools work immediately with the URL connection above. **Paid tools need an
+x402 payment client** — a wallet alone is not enough, because most MCP clients
+can't satisfy a `402 Payment Required` on their own. Use the pay-proxy below.
+
+### Paid tools — connect through the pay-proxy
+
+`scripts/pay-proxy.mjs` is a local stdio MCP server that wraps the remote
+endpoint, reads your wallet, and signs + retries automatically when the server
+asks for payment. The private key never leaves your host; only signatures are sent.
+
+```json
+{
+  "mcpServers": {
+    "toolsnap": {
+      "command": "node",
+      "args": ["/ABSOLUTE/PATH/to/toolsnap-mcp/scripts/pay-proxy.mjs"]
+    }
+  }
+}
+```
+
+No wallet yet? Call the `wallet_setup` tool — it generates a wallet you control,
+helps your human fund it with USDC on Base, and wires this proxy. Key resolution
+order: `TOOLSNAP_WALLET_KEY` → `~/.toolsnap/wallet.key` → macOS Keychain
+(`toolsnap-agent-wallet/default`).
+
+Useful env: `TOOLSNAP_MAX_PRICE_USDC` (per-call spend cap, default `0.10`),
+`TOOLSNAP_PREPAID=1` + `TOOLSNAP_AUTO_DEPOSIT_USDC` (use the cheaper prepaid balance).
+
 ### Direct MCP call
 
 ```bash

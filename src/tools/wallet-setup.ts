@@ -255,6 +255,43 @@ No third-party libraries required — uses only Python stdlib and the public Bas
 
 ---
 
+## Step 7 — Wire payments so paid tools actually work (REQUIRED)
+
+> **A funded wallet is necessary but NOT sufficient.** Most MCP clients (Claude
+> Desktop, Claude Code, …) cannot, on their own, answer an x402 \`402 Payment
+> Required\` — they can't sign the payment and retry. So without this step you
+> will still hit "402 / no_payment_method" on every paid tool, even with money
+> in the wallet.
+
+The fix is the **ToolSnap pay-proxy**: a small local stdio MCP server that wraps
+the remote endpoint, reads the wallet you just created, and signs + retries
+automatically when the server asks for payment. The private key stays on your
+host; only signatures are sent.
+
+**Wire it once** — point your MCP client at the proxy instead of the URL:
+
+\`\`\`json
+{
+  "mcpServers": {
+    "toolsnap": {
+      "command": "node",
+      "args": ["/ABSOLUTE/PATH/to/toolsnap-mcp/scripts/pay-proxy.mjs"]
+    }
+  }
+}
+\`\`\`
+
+The proxy auto-discovers the key (env \`TOOLSNAP_WALLET_KEY\` → \`~/.toolsnap/wallet.key\`
+→ macOS Keychain entry \`toolsnap-agent-wallet/default\`, exactly where Step 3 put it).
+Useful env: \`TOOLSNAP_MAX_PRICE_USDC\` (per-call spend cap, default 0.10),
+\`TOOLSNAP_PREPAID=1\` (+ \`TOOLSNAP_AUTO_DEPOSIT_USDC\`) to use the cheaper prepaid balance.
+
+After reconnecting through the proxy, paid tools "just work" — no per-call action
+from you. (Advanced: if your client already signs x402 natively, you can skip the
+proxy and pay via \`_meta["x402/payment"]\` / \`_meta["x402/prepaid-spend"]\` directly.)
+
+---
+
 ## Summary
 
 | Step | Action | Output |
@@ -265,14 +302,16 @@ No third-party libraries required — uses only Python stdlib and the public Bas
 | 4 | Show address + QR | Human can fund |
 | 5 | Persist address | ~/.toolsnap/wallet.json |
 | 6 | Verify balance | Confirmed on-chain |
+| 7 | Wire the pay-proxy | Paid tools work end-to-end |
 
-Key never leaves your host. ToolSnap never sees it. You are ready to pay for tools.
+Key never leaves your host. ToolSnap never sees it. After Step 7 you are ready to
+pay for tools.
 `;
 
 export const walletSetupTool: McpTool = {
   name: "wallet_setup",
   description:
-    "Returns the step-by-step procedure for you (the agent) to generate your own wallet on your host and have your human fund it with USDC on Base. ToolSnap never sees, stores, or transmits the private key — it is born and lives on your machine. Call this after receiving a no_payment_method error from any paid tool. The procedure covers: OS detection, choosing the best secret store (macOS Keychain / Windows Credential Manager / Linux Secret Service / file fallback), generating and storing the key without it ever appearing in context, printing the public address + QR for the human to fund, and verifying the on-chain balance.",
+    "Returns the step-by-step procedure for you (the agent) to generate your own wallet on your host and have your human fund it with USDC on Base. ToolSnap never sees, stores, or transmits the private key — it is born and lives on your machine. Call this after receiving a no_payment_method error from any paid tool. The procedure covers: OS detection, choosing the best secret store (macOS Keychain / Windows Credential Manager / Linux Secret Service / file fallback), generating and storing the key without it ever appearing in context, printing the public address + QR for the human to fund, verifying the on-chain balance, and — critically — wiring the ToolSnap pay-proxy so paid tools actually work (a funded wallet alone is not enough: most MCP clients can't satisfy x402 on their own).",
   inputSchema: {
     type: "object",
     properties: {},
