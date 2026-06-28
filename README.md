@@ -2,6 +2,7 @@
 
 > Context-efficient microtools for AI agents. Pay per call with USDC on Base.
 
+[![toolsnap-mcp MCP server](https://glama.ai/mcp/servers/icosaedro-git/toolsnap-mcp/badges/score.svg)](https://glama.ai/mcp/servers/icosaedro-git/toolsnap-mcp)
 [![MCP](https://img.shields.io/badge/MCP-streamable--http-6366f1)](https://mcp.toolsnap.app/.well-known/mcp.json)
 [![x402](https://img.shields.io/badge/payment-x402%20v2-orange)](https://x402.org)
 [![Base](https://img.shields.io/badge/network-Base%20mainnet-0052FF)](https://base.org)
@@ -181,6 +182,10 @@ PRs welcome for **new free tools** in `src/tools/`. Follow the pattern in [`src/
 For paid tools or changes to the x402 payment logic, open an issue first.
 
 **Do not commit wallet private keys, `.dev.vars`, or any secrets.**
+
+---
+
+[![toolsnap-mcp MCP server](https://glama.ai/mcp/servers/icosaedro-git/toolsnap-mcp/badges/card.svg)](https://glama.ai/mcp/servers/icosaedro-git/toolsnap-mcp)
 
 ---
 
