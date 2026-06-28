@@ -303,7 +303,7 @@ async function runKeywordResearch(
 export const keywordResearchTool: McpTool = {
   name: "keyword_research",
   description:
-    "Query Google Ads data via DataForSEO for 1–20 keywords and get per-keyword: monthly search volume, CPC (USD), competition score (0–1 + level label), 12-month trend, and top-5 related keyword suggestions. Ideal for SEO audits, content planning, and PPC budget estimation. Params: keywords (string or string[], max 20, required), language_code (default \"es\"), location_code (default 2724 = Spain, use 2840 for USA), include_suggestions (default true). Returns JSON with all results. Cost: $0.04 USDC pay-per-call on Base ($0.025 prepaid) — real COGS per batch. No first-call-free.",
+    "Query Google Ads data via DataForSEO for 1–20 keywords and get per-keyword: monthly search volume, CPC (USD), competition score (0–1 + level label), 12-month trend, and top-5 related keyword suggestions. Returns JSON with all results. Returns an error if keywords is empty, exceeds 20 items, or the upstream API is unavailable. Has no side effects. Cost: $0.04 USDC pay-per-call on Base ($0.025 prepaid) — real COGS per batch. No first-call-free. Ideal for SEO audits, content planning, and PPC budget estimation.",
   inputSchema: {
     type: "object",
     properties: {

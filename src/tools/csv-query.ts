@@ -136,7 +136,7 @@ function rowsToCSV(rows: Record<string, string>[], headers: string[]): string {
 export const csvQueryTool: McpTool = {
   name: "csv_query",
   description:
-    "Fetch a CSV from a URL (or accept raw CSV text) and query it: select columns, filter rows, sort, and limit results. Returns JSON array of objects by default, or CSV with format=csv. Use instead of loading the full CSV into your context — send only the data you need.",
+    "Fetch a CSV from a URL (or accept raw CSV text) and query it: select columns, filter rows, sort, and limit results. Provide exactly one of url or csv — not both. Returns a JSON array of objects (default) or CSV text when format=csv. Returns an error if the URL is unreachable, returns a non-2xx status, or the content cannot be parsed as CSV. Has no side effects. Use instead of loading the full CSV into your context — send only the data you need.",
   inputSchema: {
     type: "object",
     properties: {

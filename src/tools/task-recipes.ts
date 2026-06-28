@@ -11,7 +11,7 @@ import { RECIPES, recipeMenu } from "../recipes.js";
 export const taskRecipesTool: McpTool = {
   name: "task_recipes",
   description:
-    "Free. Returns a menu of pre-designed complex tasks that ToolSnap makes easy (e.g. replicate a website as static HTML, run an SEO audit), each as a ready-to-run prompt that orchestrates the right ToolSnap tools end-to-end. Call with no arguments to list available recipes; call with recipe='<id>' to get the full ready-to-paste prompt, the tools it uses and an estimated cost. Use this when the user asks for a whole task (migrate/clone a site, audit SEO, etc.) rather than a single operation.",
+    "Returns a menu of pre-designed complex tasks that ToolSnap makes easy (e.g. replicate a website as static HTML, run an SEO audit), each as a ready-to-run prompt that orchestrates the right ToolSnap tools end-to-end. Call with no arguments to list available recipes; call with recipe='<id>' to get the full ready-to-paste prompt, the tools it uses and an estimated cost. Always returns immediately — has no side effects and costs nothing. Use this when the user asks for a whole task (migrate/clone a site, audit SEO) rather than a single operation.",
   inputSchema: {
     type: "object",
     properties: {

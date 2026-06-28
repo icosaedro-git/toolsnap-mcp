@@ -3,7 +3,7 @@ import type { McpTool } from "../mcp/types.js";
 export const jsonFormatTool: McpTool = {
   name: "json_format",
   description:
-    "Parse and reformat a JSON string with a configurable indent level (0 = minified, 2 = standard pretty-print). Use to pretty-print, validate, or minify JSON.",
+    "Parse and reformat a JSON string with a configurable indent level (0 = minified, 2 = standard pretty-print). Returns the reformatted JSON string, or an error if the input is not valid JSON. Has no side effects. Use to pretty-print, validate, or minify JSON. Do NOT use to query or transform JSON values — use json_query instead.",
   inputSchema: {
     type: "object",
     properties: {

@@ -3,7 +3,7 @@ import type { McpTool } from "../mcp/types.js";
 export const textStatsTool: McpTool = {
   name: "text_stats",
   description:
-    "Count characters, words, lines, and sentences in a text string. Returns a JSON object. Use when you need to analyse or report on the size and structure of a body of text.",
+    "Count characters, words, lines, and sentences in a text string. Returns a JSON object with counts for characters, words, lines, sentences, and average word length. Has no side effects. Free. Use when you need to analyse or report on the size and structure of a body of text. Do NOT use to count LLM tokens — use count_tokens instead.",
   inputSchema: {
     type: "object",
     properties: {

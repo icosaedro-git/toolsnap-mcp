@@ -97,7 +97,7 @@ function extractLinks(html: string, base: string, maxLinks: number): LinksResult
 export const pageLinksTool: McpTool = {
   name: "page_links",
   description:
-    "Fetch a URL and return a JSON list of all its links, classified as internal (same host), external (different host) or other (mailto:, tel:, etc.), resolved to absolute URLs, deduplicated, each with its anchor text. Ideal for systematically crawling a site for migration or for building a sitemap. Free.",
+    "Fetch a URL and return a JSON list of all its links, classified as internal (same host), external (different host) or other (mailto:, tel:, etc.), resolved to absolute URLs, deduplicated, each with its anchor text. Returns an error if the URL is unreachable. Has no side effects. Free. Ideal for systematically crawling a site for migration or for building a sitemap. Do NOT use to list page assets (images, scripts) — use page_assets instead.",
   inputSchema: {
     type: "object",
     properties: {

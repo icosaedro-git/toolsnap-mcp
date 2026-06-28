@@ -51,7 +51,7 @@ const SUPPORTED_MODELS = [
 export const countTokensTool: McpTool = {
   name: "count_tokens",
   description:
-    "Estimate the number of tokens a text will consume when sent to an LLM. Uses a byte-pair encoding approximation compatible with cl100k_base (GPT-4, Claude, and most modern models). Accurate to ±10% on English prose. Returns token count, character count, byte count, and a cost estimate footnote. Use before sending long context to an LLM to avoid surprises.",
+    "Estimate the number of tokens a text will consume when sent to an LLM. Uses a byte-pair encoding approximation compatible with cl100k_base (GPT-4, Claude, and most modern models). Accurate to ±10% on English prose. Returns token count, character count, byte count, and a cost estimate footnote. Does NOT send text to any LLM — estimation is purely local. Has no side effects. Free. Use before sending long context to an LLM to avoid surprises. Do NOT use to count characters or words — use text_stats instead.",
   inputSchema: {
     type: "object",
     properties: {

@@ -11,7 +11,7 @@ import type { McpTool } from "../mcp/types.js";
 export const timestampConvertTool: McpTool = {
   name: "timestamp_convert",
   description:
-    "Convert between Unix timestamps (seconds) and ISO 8601 date strings. Auto-detects direction: numbers → ISO, date strings → Unix seconds. Accepts Unix in seconds or milliseconds (auto-detected). Use when you need to convert epoch values to human-readable dates or vice-versa.",
+    "Convert between Unix timestamps (seconds) and ISO 8601 date strings. Auto-detects direction: numeric input → ISO string, date string input → Unix seconds. Accepts Unix in seconds or milliseconds (auto-detected by magnitude). Returns an error if the input cannot be parsed as a timestamp or date. Has no side effects. Free. Use when you need to convert epoch values to human-readable dates or vice-versa.",
   inputSchema: {
     type: "object",
     properties: {

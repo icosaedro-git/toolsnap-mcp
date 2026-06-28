@@ -119,7 +119,7 @@ async function fetchSitemap(url: string): Promise<string> {
 export const sitemapParseTool: McpTool = {
   name: "sitemap_parse",
   description:
-    "Fetch and parse an XML sitemap (urlset or sitemapindex). Returns structured JSON: for urlsets — array of URLs with loc, lastmod, changefreq, priority, plus image/news sitemap extensions; for sitemapindex — list of child sitemap URLs. Use to enumerate all pages of a site, find recently updated content, or build a crawl queue — without loading raw XML into context.",
+    "Fetch and parse an XML sitemap (urlset or sitemapindex). Returns structured JSON: for urlsets — array of URLs with loc, lastmod, changefreq, priority, plus image/news sitemap extensions; for sitemapindex — list of child sitemap URLs. Returns an error if the URL is unreachable or the response is not valid XML sitemap format. Has no side effects. Use to enumerate all pages of a site, find recently updated content, or build a crawl queue — without loading raw XML into context.",
   inputSchema: {
     type: "object",
     properties: {

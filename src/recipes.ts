@@ -90,18 +90,18 @@ Stop and ask me only if you hit auth walls, JS-only content, or an unexpectedly 
       "SEO consultants, marketers and site owners who want a fast, deterministic audit without signing up for an SEO suite.",
     tools: [
       "sitemap_parse (free)",
-      "webpage_metadata (free)",
+      "fetch_metadata (free)",
       "fetch_extract (paid, optional)",
       "screenshot_url (paid, optional)",
       "keyword_research (paid, optional)",
     ],
     est_cost:
-      "Mostly FREE: sitemap_parse + webpage_metadata per page cost nothing. Optional extras: fetch_extract $0.02/page (content/word-count), screenshot_url $0.04/page (visual snapshot), keyword_research $0.04/batch of ≤20 keywords (volume + CPC + competition). A 20-page metadata-only audit ≈ $0.",
+      "Mostly FREE: sitemap_parse + fetch_metadata per page cost nothing. Optional extras: fetch_extract $0.02/page (content/word-count), screenshot_url $0.04/page (visual snapshot), keyword_research $0.04/batch of ≤20 keywords (volume + CPC + competition). A 20-page metadata-only audit ≈ $0.",
     prompt: `${PREAMBLE}You are running an SEO audit of a website using the ToolSnap MCP tools. Target site: <PUT THE SITE URL HERE>.
 
 Do it end-to-end:
 1. Enumerate pages: call sitemap_parse on /sitemap.xml (fall back to page_links from the homepage if there's no sitemap).
-2. For each page, call webpage_metadata and collect: title (+ length), meta description (+ length), canonical, robots, Open Graph + Twitter Card tags, lang, and JSON-LD presence.
+2. For each page, call fetch_metadata and collect: title (+ length), meta description (+ length), canonical, robots, Open Graph + Twitter Card tags, lang, and JSON-LD presence.
 3. Flag issues per page: missing/duplicate/over-length titles (>60 chars) or descriptions (>160 chars), missing canonical, missing/incomplete Open Graph, noindex where it shouldn't be, missing structured data.
 4. (Optional) For key pages, call fetch_extract to assess content depth/word count, and screenshot_url to capture how the page renders.
 5. (Optional) Extract the main target keyword(s) from each page's title/metadata, then call keyword_research with up to 20 at once to get monthly search volume, CPC, competition, and top-5 related suggestions. Use this to validate keyword targeting and spot gaps.

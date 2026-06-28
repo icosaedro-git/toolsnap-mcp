@@ -3,7 +3,7 @@ import type { McpTool } from "../mcp/types.js";
 export const uuidTool: McpTool = {
   name: "uuid_generate",
   description:
-    "Generate one or more random UUID v4 values. Use when you need unique identifiers for records, sessions, tokens, or any entity requiring a globally unique ID.",
+    "Generate one or more random UUID v4 values. Returns a newline-separated string of UUIDs (or a single UUID string when count=1). Has no side effects. Free. Use when you need unique identifiers for records, sessions, tokens, or any entity requiring a globally unique ID.",
   inputSchema: {
     type: "object",
     properties: {
