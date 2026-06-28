@@ -110,9 +110,9 @@ function extractMeta(html: string, resolvedUrl: string): MetaResult {
 }
 
 export const webpageMetadataTool: McpTool = {
-  name: "webpage_metadata",
+  name: "fetch_metadata",
   description:
-    "Fetch a URL and extract its metadata: title, meta description, Open Graph tags (og:title, og:image, og:type…), Twitter Card tags, canonical URL, robots directive, author, keywords, JSON-LD structured data, and lang/charset. Returns a structured JSON object. Much cheaper than loading the full page — ideal for link previews, SEO audits, and content classification.",
+    "Fetch a URL and extract its metadata: title, meta description, Open Graph tags (og:title, og:image, og:type…), Twitter Card tags, canonical URL, robots directive, author, keywords, JSON-LD structured data, and lang/charset. Returns a structured JSON object; missing fields are omitted. Returns an error if the URL is unreachable. Has no side effects. Much cheaper than loading the full page — ideal for link previews, SEO audits, and content classification. Do NOT use to extract page body text — use fetch_extract or html_to_markdown instead.",
   inputSchema: {
     type: "object",
     properties: {
@@ -137,7 +137,7 @@ export const webpageMetadataTool: McpTool = {
       response = await fetch(url, {
         signal: controller.signal,
         headers: {
-          "User-Agent": "toolsnap-mcp/1.0 (webpage_metadata; +https://toolsnap.app)",
+          "User-Agent": "toolsnap-mcp/1.0 (fetch_metadata; +https://toolsnap.app)",
           Accept: "text/html,application/xhtml+xml",
         },
         redirect: "follow",

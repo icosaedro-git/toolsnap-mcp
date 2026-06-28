@@ -15,13 +15,13 @@ const FREE_TOOLS = [
   "timestamp_convert",
   "text_stats",
   "html_to_markdown",
-  "extract_structured",
+  "fetch_structured",
   "diff_text",
   "csv_query",
   "json_query",
   "pdf_text_extract",
   "regex_extract",
-  "webpage_metadata",
+  "fetch_metadata",
   "count_tokens",
   "rss_parse",
   "sitemap_parse",
@@ -131,7 +131,7 @@ const PRICING_DATA = {
 export const pricingTool: McpTool = {
   name: "pricing",
   description:
-    "Returns the machine-readable pricing menu for this server: which tools are free vs paid, pay-per-call vs discounted prepaid pricing, how to deposit and spend a prepaid balance, payment method, and quantified value (token savings, ROI). Call this first to understand what is available and at what cost before using paid tools.",
+    "Returns the machine-readable pricing menu for this server: which tools are free vs paid, pay-per-call vs discounted prepaid pricing, how to deposit and spend a prepaid balance, payment method, and quantified value (token savings, ROI). Always returns immediately — has no side effects and costs nothing. Call this first to understand what is available and at what cost before using paid tools.",
   inputSchema: {
     type: "object",
     properties: {},

@@ -144,7 +144,7 @@ function extractAssets(html: string, base: string): AssetResult {
 export const pageAssetsTool: McpTool = {
   name: "page_assets",
   description:
-    "Fetch a URL and return a JSON inventory of every asset it references — images (incl. srcset), stylesheets, scripts, fonts, icons/favicons and media — all resolved to absolute URLs and deduplicated. Ideal for auditing or migrating a site: get the full asset manifest in one cheap call instead of loading the page into context. Free.",
+    "Fetch a URL and return a JSON inventory of every asset it references — images (incl. srcset), stylesheets, scripts, fonts, icons/favicons and media — all resolved to absolute URLs and deduplicated. Returns an error if the URL is unreachable. Has no side effects. Free. Ideal for auditing or migrating a site: get the full asset manifest in one cheap call instead of loading the page into context. Do NOT use to list hyperlinks — use page_links instead.",
   inputSchema: {
     type: "object",
     properties: {

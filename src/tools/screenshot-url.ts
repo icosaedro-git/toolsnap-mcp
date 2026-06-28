@@ -244,7 +244,7 @@ async function runScreenshot(
 export const screenshotUrlTool: McpTool = {
   name: "screenshot_url",
   description:
-    "Capture a screenshot of a web page (full-page or viewport) and return a PUBLIC image URL — not the bytes — so it never bloats your context. Upload-to-R2 backed; ideal for site migration/reconstruction (visual reference of the original page) and visual QA. Params: url (required), fullPage, width, height, format (png/jpeg), quality (jpeg only). Returns JSON with the hosted URL, size, and dimensions. Cost: $0.04 USDC pay-per-call on Base ($0.025 prepaid) — priced above the flat rate because each capture drives a real render cost. First call free per wallet.",
+    "Capture a screenshot of a web page (full-page or viewport) and return a PUBLIC image URL — not the bytes — so it never bloats your context. Returns JSON with the hosted URL, size, and dimensions. Returns an error if the URL is unreachable or the page fails to load. The hosted image expires after ~24 h — download it promptly if you need it longer. Has no side effects on the target page. Cost: $0.04 USDC pay-per-call on Base ($0.025 prepaid). First call free per wallet. Ideal for site migration/reconstruction (visual reference) and visual QA.",
   inputSchema: {
     type: "object",
     properties: {

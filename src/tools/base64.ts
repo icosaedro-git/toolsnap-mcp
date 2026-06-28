@@ -28,7 +28,7 @@ function decodeBase64(data: string): string {
 export const base64EncodeTool: McpTool = {
   name: "base64_encode",
   description:
-    "Encode a UTF-8 text string to Base64. Handles non-ASCII characters correctly. Use when you need to embed binary or unicode data in JSON, URLs, or HTTP headers.",
+    "Encode a UTF-8 text string to Base64. Handles non-ASCII characters correctly. Returns the Base64-encoded string. Has no side effects. Use when you need to embed binary or unicode data in JSON, URLs, or HTTP headers. Do NOT use to encode binary files — this tool accepts UTF-8 text only.",
   inputSchema: {
     type: "object",
     properties: {
@@ -50,7 +50,7 @@ export const base64EncodeTool: McpTool = {
 export const base64DecodeTool: McpTool = {
   name: "base64_decode",
   description:
-    "Decode a Base64 string back to UTF-8 text. Handles non-ASCII characters correctly. Use to recover the original text from a Base64-encoded value.",
+    "Decode a Base64 string back to UTF-8 text. Handles non-ASCII characters correctly. Returns the decoded UTF-8 string, or an error if the input is not valid Base64. Has no side effects. Use to recover the original text from a Base64-encoded value. Do NOT use to decode binary data — output is always interpreted as UTF-8 text.",
   inputSchema: {
     type: "object",
     properties: {

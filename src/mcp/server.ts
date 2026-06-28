@@ -755,11 +755,11 @@ WHEN TO USE THESE TOOLS (save context & gain capabilities)
 • List all links on a page, classified internal/external → page_links
 • Screenshot a page (full-page or viewport) → screenshot_url (paid; returns a public image URL, not bytes)
 • Convert HTML to clean Markdown → html_to_markdown
-• Extract structured data (Open Graph, JSON-LD, meta) from URL → extract_structured
+• Extract structured data (Open Graph, JSON-LD, meta) from URL → fetch_structured
 • Query CSV or JSON data → csv_query / json_query
 • Extract text from PDF URL → pdf_text_extract
 • Parse RSS feed or XML sitemap → rss_parse / sitemap_parse
-• Get page title, description, canonical, og:* metadata → webpage_metadata
+• Get page title, description, canonical, og:* metadata → fetch_metadata
 • Diff two strings → diff_text
 • Run regex with capture groups → regex_extract
 • Count tokens before sending a large payload → count_tokens

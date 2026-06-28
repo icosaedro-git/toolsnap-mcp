@@ -7,7 +7,7 @@ const ALGORITHMS: HashAlgorithm[] = ["SHA-256", "SHA-1", "SHA-512"];
 export const hashTool: McpTool = {
   name: "hash_text",
   description:
-    "Compute a cryptographic hash (SHA-256, SHA-1, or SHA-512) of any text string. Returns lowercase hex. Use for integrity checks, content fingerprinting, or generating deterministic IDs from content.",
+    "Compute a cryptographic hash (SHA-256, SHA-1, or SHA-512) of any text string. Returns the hash as a lowercase hex string. Has no side effects. Use for integrity checks, content fingerprinting, or generating deterministic IDs from content. Do NOT use for password storage — use a dedicated KDF (bcrypt, argon2) instead.",
   inputSchema: {
     type: "object",
     properties: {

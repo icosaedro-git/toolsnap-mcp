@@ -128,7 +128,7 @@ const MAX_LINES = 5_000;
 export const diffTextTool: McpTool = {
   name: "diff_text",
   description:
-    "Compare two text strings and return a unified diff showing additions (+), deletions (-), and context lines. Useful for review agents, changelog generation, and patch creation. Returns '(no differences)' when inputs are identical. Free — no payment required.",
+    "Compare two text strings and return a unified diff showing additions (+), deletions (-), and context lines. Returns a unified diff string, or '(no differences)' when inputs are identical. Has no side effects — does not modify either input. Free. Use for review agents, changelog generation, and patch creation. Input is capped at 5000 lines per string.",
   inputSchema: {
     type: "object",
     properties: {

@@ -5,7 +5,7 @@ const MAX_MATCHES = 500;
 export const regexExtractTool: McpTool = {
   name: "regex_extract",
   description:
-    "Run a regular expression against text and return all matches. Supports capture groups, named groups, and multiline input. Returns a JSON array of match objects — each has `match` (full match) and `groups` (array of capture groups, or object for named groups). Use for extracting emails, URLs, codes, patterns, or any structured data from unstructured text.",
+    "Run a regular expression against text and return all matches. Supports capture groups, named groups, and multiline input. Returns a JSON array of match objects — each has `match` (full match) and `groups` (array or object for named groups). Returns an empty array if no matches are found. Returns an error if the pattern is not a valid regular expression. Has no side effects. Free. Use for extracting emails, URLs, codes, patterns, or any structured data from unstructured text.",
   inputSchema: {
     type: "object",
     properties: {

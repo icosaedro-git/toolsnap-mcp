@@ -283,7 +283,7 @@ function findRecursive(node: JSONValue, key: string): JSONValue[] {
 export const jsonQueryTool: McpTool = {
   name: "json_query",
   description:
-    "Fetch JSON from a URL (or accept raw JSON) and query it with a JSONPath-lite expression. Supports property access, array indexing, wildcards ([*]), recursive descent (..), and filter expressions ([?(@.price < 10)]). Returns only the matching values as JSON — use instead of loading large JSON payloads into your context.",
+    "Fetch JSON from a URL (or accept raw JSON) and query it with a JSONPath-lite expression. Supports property access, array indexing, wildcards ([*]), recursive descent (..), and filter expressions ([?(@.price < 10)]). Provide exactly one of url or json — not both. Returns only the matching values as JSON. Returns an error if the URL is unreachable, the response is not valid JSON, or the query expression is invalid. Has no side effects. Use instead of loading large JSON payloads into your context.",
   inputSchema: {
     type: "object",
     properties: {

@@ -301,9 +301,9 @@ function resolveField(
 // ---------------------------------------------------------------------------
 
 export const extractStructuredTool: McpTool = {
-  name: "extract_structured",
+  name: "fetch_structured",
   description:
-    "Fetch a URL and extract structured data matching a JSON Schema — title, author, date, price, description, rating, image, and more. Reads JSON-LD, Open Graph, Twitter Cards, and Schema.org microdata embedded in the page; returns only the extracted JSON object. No LLM required: extraction is deterministic. Ideal for articles, products, recipes, events, and any page using semantic markup.",
+    "Fetch a URL and extract structured data matching a JSON Schema — title, author, date, price, description, rating, image, and more. Reads JSON-LD, Open Graph, Twitter Cards, and Schema.org microdata embedded in the page; returns only the extracted JSON object. No LLM required: extraction is deterministic. Returns an empty object if the page has no matching semantic markup. Returns an error if the URL is unreachable or the schema parameter is not valid JSON. Has no side effects. Ideal for articles, products, recipes, and events with semantic markup. Do NOT use for pages without structured markup — use fetch_extract or html_to_markdown instead.",
   inputSchema: {
     type: "object",
     properties: {
@@ -342,7 +342,7 @@ export const extractStructuredTool: McpTool = {
       response = await fetch(args.url as string, {
         signal: controller.signal,
         headers: {
-          "User-Agent": "toolsnap-mcp/1.0 (extract_structured; +https://toolsnap.app)",
+          "User-Agent": "toolsnap-mcp/1.0 (fetch_structured; +https://toolsnap.app)",
         },
       });
     } catch (err) {
