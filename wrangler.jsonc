@@ -8,7 +8,8 @@
   "routes": [{ "pattern": "mcp.toolsnap.app", "custom_domain": true }],
   // Daily cron (09:00 UTC) → usage alerts for COGS tools (screenshot_url quota
   // vs ScreenshotOne free tier). Fires Telegram at 50/90/100 + Monday digest.
-  // Cron Triggers run on the Workers free plan.
+  // Also purges analytics_events older than 90 days (retention; money ledger
+  // tables are untouched). Cron Triggers run on the Workers free plan.
   "triggers": { "crons": ["0 9 * * *"] },
   "vars": {
     "X402_NETWORK": "base",

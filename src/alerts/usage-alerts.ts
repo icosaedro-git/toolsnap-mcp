@@ -19,6 +19,7 @@ const FREE_TIER = 100; // ScreenshotOne free screenshots / month
 const BREAK_EVEN = 135; // monthly paid calls that cover Workers Paid $5/mo
 const THRESHOLDS = [50, 90, 100];
 const KV_TTL_SEC = 45 * 24 * 60 * 60;
+const ANALYTICS_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
 /** Payment types that mean the tool actually executed (hit the provider). */
 const EXECUTED_TYPES = ["x402_paid", "prepaid", "free_tool", "x402_free_first"];
@@ -74,6 +75,15 @@ export async function checkUsageAlerts(env: Env, now: Date = new Date()): Promis
     purgeOldR2Objects(env.SCREENSHOTS_BUCKET, "rembg/", TTL_24H, now),
     purgeOldR2Objects(env.SCREENSHOTS_BUCKET, "uploads/", TTL_24H, now),
   ]);
+
+  // Retention: drop analytics_events older than 90 days (money ledger tables
+  // are untouched — this only trims the append-only telemetry log).
+  await env.PREPAID_DB.prepare(`DELETE FROM analytics_events WHERE ts < ?`)
+    .bind(now.getTime() - ANALYTICS_RETENTION_MS)
+    .run()
+    .catch(() => {
+      // Retention is best-effort — never let it break the alerts cron.
+    });
   const count = await monthScreenshotCount(env, now);
   const month = monthKey(now);
 

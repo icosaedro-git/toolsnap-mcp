@@ -83,7 +83,8 @@ const PAY_COLORS = {
   x402_paid: '#3fb950',
   x402_free_first: '#2f81f7',
   prepaid: '#a371f7',
-  '402_rejected': '#f85149',
+  '402_no_wallet': '#7d8590',
+  '402_pay_failed': '#f85149',
   prepaid_insufficient: '#d29922',
   prepaid_rejected: '#e3b341',
   deposit_success: '#58a6ff',
@@ -178,7 +179,10 @@ function conversion(breakdown) {
   if (!breakdown || breakdown.length === 0) return { rate: 0, paid402: 0, total402: 0 };
   const paid = (breakdown.find(b => b.type === 'x402_paid')?.calls ?? 0)
              + (breakdown.find(b => b.type === 'x402_free_first')?.calls ?? 0);
-  const rejected = breakdown.find(b => b.type === '402_rejected')?.calls ?? 0;
+  // 402_rejected is split into 402_no_wallet (benign handshake) + 402_pay_failed
+  // (real verification failure) — both count as "prompted for payment".
+  const rejected = (breakdown.find(b => b.type === '402_no_wallet')?.calls ?? 0)
+                  + (breakdown.find(b => b.type === '402_pay_failed')?.calls ?? 0);
   const total = paid + rejected;
   return { rate: total > 0 ? Math.round((paid / total) * 100) : 0, paid, total };
 }
