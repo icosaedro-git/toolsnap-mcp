@@ -19,7 +19,11 @@ const FREE_TIER = 100; // ScreenshotOne free screenshots / month
 const BREAK_EVEN = 135; // monthly paid calls that cover Workers Paid $5/mo
 const THRESHOLDS = [50, 90, 100];
 const KV_TTL_SEC = 45 * 24 * 60 * 60;
-const ANALYTICS_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+// 2 years — the panel now shows a 1y timeframe and we want history to grow
+// into it. D1 free tier is 5 GB (~25M rows at ~200 B/row); even sustained
+// high traffic (~34k calls/day) wouldn't fill that in 2 years, and by then
+// the revenue implied would make Workers Paid a non-issue.
+const ANALYTICS_RETENTION_MS = 730 * 24 * 60 * 60 * 1000;
 
 /** Payment types that mean the tool actually executed (hit the provider). */
 const EXECUTED_TYPES = ["x402_paid", "prepaid", "free_tool", "x402_free_first"];
