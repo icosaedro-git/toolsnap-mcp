@@ -53,9 +53,16 @@ export const PANEL_HTML = `<!DOCTYPE html>
   .accent { color: var(--accent); }
   .yellow { color: var(--yellow); }
   .loading { text-align: center; padding: 60px 0; color: var(--muted); font-size: 13px; }
+  .err-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .err-table th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--border); text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; }
+  .err-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .err-table tr:last-child td { border-bottom: none; }
+  .err-detail { color: var(--muted); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .err-detail:hover { white-space: normal; overflow: visible; }
+  .grid-wide { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-bottom: 24px; }
   @media (max-width: 768px) {
     .kpis { grid-template-columns: 1fr 1fr; }
-    .grid2, .grid3 { grid-template-columns: 1fr; }
+    .grid2, .grid3, .grid-wide { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -81,6 +88,7 @@ const PAY_COLORS = {
   prepaid_rejected: '#e3b341',
   deposit_success: '#58a6ff',
   deposit_failed: '#f85149',
+  settle_failed: '#f85149',
   tool_error: '#f85149',
 };
 
@@ -132,6 +140,38 @@ function payChips(breakdown) {
       \${b.type} <span class="pay-count">\${b.calls} · \${pct}%</span>
     </span>\`;
   }).join('');
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function timeLabel(ts) {
+  return new Date(ts).toISOString().slice(11, 19) + ' UTC · ' + new Date(ts).toISOString().slice(5, 10);
+}
+
+function errorTable(items) {
+  if (!items || items.length === 0) return '<div style="color:var(--muted);font-size:12px">no errors 🎉</div>';
+  const rows = items.map(e => \`<tr>
+    <td>\${timeLabel(e.ts)}</td>
+    <td>\${esc(e.tool)}</td>
+    <td><span class="dot" style="background:\${PAY_COLORS[e.type] ?? '#555'};display:inline-block;margin-right:5px"></span>\${esc(e.type)}</td>
+    <td title="\${esc(e.client)}">\${esc((e.client || '').slice(0, 24))}</td>
+    <td class="err-detail" title="\${esc(e.detail)}">\${esc(e.detail) || '—'}</td>
+  </tr>\`).join('');
+  return \`<table class="err-table">
+    <thead><tr><th>Time</th><th>Tool</th><th>Type</th><th>Client</th><th>Detail</th></tr></thead>
+    <tbody>\${rows}</tbody>
+  </table>\`;
+}
+
+function errorRateChart(items) {
+  if (!items || items.length === 0) return '<div style="color:var(--muted);font-size:12px">no errors yet</div>';
+  return items.map(item => \`<div class="bar-row">
+    <div class="bar-label" title="\${esc(item.tool)}">\${esc(item.tool)}</div>
+    <div class="bar-track"><div class="bar-fill" style="width:\${item.error_pct}%;background:#f85149"></div></div>
+    <div class="bar-count">\${item.errors}/\${item.total}</div>
+  </div>\`).join('');
 }
 
 function conversion(breakdown) {
@@ -193,7 +233,18 @@ function render(d) {
         <h3>Deposits · 30d</h3>
         <div class="stat-row"><span>Count</span><span class="stat-val accent">\${d.deposits.count}</span></div>
         <div class="stat-row"><span>Total deposited</span><span class="stat-val green">$\${fmt(d.deposits.total_usdc, 4)}</span></div>
-        <div class="stat-row"><span>Avg latency</span><span class="stat-val">\${d.summary.avg_latency_ms} ms</span></div>
+        <div class="stat-row"><span>Avg / p50 / p95 latency</span><span class="stat-val">\${d.summary.avg_latency_ms} / \${d.summary.p50_latency_ms} / \${d.summary.p95_latency_ms} ms</span></div>
+      </div>
+    </div>
+
+    <div class="grid-wide">
+      <div class="card">
+        <h3>Recent errors · 30d</h3>
+        \${errorTable(d.recent_errors)}
+      </div>
+      <div class="card">
+        <h3>Error rate by tool · 30d</h3>
+        \${errorRateChart(d.error_rate_by_tool)}
       </div>
     </div>
   \`;

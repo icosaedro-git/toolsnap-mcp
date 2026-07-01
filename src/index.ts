@@ -86,7 +86,7 @@ function jsonResponse(data: unknown, status = 200): Response {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const method = request.method.toUpperCase();
 
@@ -112,8 +112,9 @@ export default {
 
       const adminKey = request.headers.get("x-admin-key");
       const isAdmin = Boolean(env.ADMIN_API_KEY && adminKey === env.ADMIN_API_KEY);
+      const clientUA = request.headers.get("user-agent") ?? "";
 
-      const { response, status } = await handleMcpRequest(body, env, isAdmin);
+      const { response, status } = await handleMcpRequest(body, env, isAdmin, ctx, clientUA);
 
       if (response === null) {
         // Notification — 202 empty body with CORS
