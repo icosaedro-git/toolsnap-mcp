@@ -1,11 +1,15 @@
-import type { Env } from "../index.js";
+/** Minimal shape needed to send a Telegram message — any Env satisfies this. */
+export interface TelegramEnv {
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string;
+}
 
 /**
  * Send a Telegram message via the Bot API. No-op (returns false) if the bot
  * token or chat id are not configured, so the scheduled handler is safe to ship
  * before the chat id is known.
  */
-export async function sendTelegram(env: Env, text: string): Promise<boolean> {
+export async function sendTelegram(env: TelegramEnv, text: string): Promise<boolean> {
   const token = env.TELEGRAM_BOT_TOKEN;
   const chatId = env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return false;

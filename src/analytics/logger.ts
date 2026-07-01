@@ -5,6 +5,8 @@
  * the main request. The table is created by migration 0002_analytics.sql.
  */
 
+import { maybeAlertError } from "../alerts/error-alerts.js";
+
 export type PaymentType =
   | "free_tool"
   | "x402_paid"
@@ -44,6 +46,9 @@ export interface AnalyticsEvent {
 
 export interface AnalyticsEnv {
   PREPAID_DB: D1Database;
+  X402_NONCES?: KVNamespace;
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string;
 }
 
 export function writeEvent(
@@ -63,6 +68,13 @@ export function writeEvent(
         detail,
       })
     );
+    maybeAlertError(env, ctx, {
+      toolName: event.toolName,
+      paymentType: event.paymentType,
+      payer: event.payer,
+      client: event.client,
+      detail,
+    });
   }
 
   // Must use ctx.waitUntil — otherwise Cloudflare Workers kills the D1 write

@@ -117,12 +117,23 @@ export async function getDashboardData(db: D1Database): Promise<DashboardData> {
         .bind(since30)
         .all<{ tool: string; calls: number }>(),
 
+      // 402_rejected is split into a benign "no wallet yet" handshake
+      // (detail = no_payment_payload) vs. a real payment-verification failure,
+      // so the panel doesn't conflate normal x402 discovery with lost revenue.
       db
         .prepare(
-          `SELECT payment_type AS type, count(*) AS calls
+          `SELECT
+             CASE
+               WHEN payment_type = '402_rejected' AND (detail IS NULL OR detail = 'no_payment_payload')
+                 THEN '402_no_wallet'
+               WHEN payment_type = '402_rejected'
+                 THEN '402_pay_failed'
+               ELSE payment_type
+             END AS type,
+             count(*) AS calls
            FROM analytics_events
            WHERE ts >= ?
-           GROUP BY payment_type
+           GROUP BY type
            ORDER BY calls DESC`
         )
         .bind(since30)
