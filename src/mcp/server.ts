@@ -137,7 +137,9 @@ async function handleAccountBalance(
 async function handleAccountDeposit(
   id: string | number | null,
   params: ToolsCallParams,
-  env: Env
+  env: Env,
+  ctx: ExecutionContext,
+  clientUA = ""
 ): Promise<JsonRpcResponse> {
   const minMicro = usdcToMicro(env.X402_MIN_DEPOSIT_USDC);
   const config: PaymentConfig = {
@@ -171,7 +173,9 @@ async function handleAccountDeposit(
       payer: v.payer ?? "anon",
       revenueUsdc: 0,
       latencyMs: Date.now() - depositStart,
-    });
+      detail: msg,
+      client: clientUA,
+    }, ctx);
     return successResponse(id, {
       content: [{ type: "text", text: `Deposit settlement failed (not charged): ${msg}` }],
       isError: true,
@@ -198,7 +202,9 @@ async function handleAccountDeposit(
       payer: v.payer ?? "anon",
       revenueUsdc: Number(creditMicro) / 1_000_000,
       latencyMs: Date.now() - depositStart,
-    });
+      detail: `credit_failed after settlement tx ${settlement.txHash}: ${msg}`,
+      client: clientUA,
+    }, ctx);
     return successResponse(id, {
       content: [
         {
@@ -225,7 +231,8 @@ async function handleAccountDeposit(
     payer: v.payer ?? "anon",
     revenueUsdc: Number(creditMicro) / 1_000_000,
     latencyMs: Date.now() - depositStart,
-  });
+    client: clientUA,
+  }, ctx);
 
   return successResponse(id, {
     content: [
@@ -274,7 +281,9 @@ function errorResponse(
 export async function dispatch(
   request: JsonRpcRequest,
   env: Env,
-  isAdmin = false
+  isAdmin = false,
+  ctx: ExecutionContext,
+  clientUA = ""
 ): Promise<JsonRpcResponse | null> {
   const id: string | number | null =
     request.id !== undefined ? (request.id ?? null) : null;
@@ -327,7 +336,7 @@ export async function dispatch(
         return handleAccountBalance(id, toolArgs, env);
       }
       if (toolName === "account_deposit") {
-        return handleAccountDeposit(id, params, env);
+        return handleAccountDeposit(id, params, env, ctx, clientUA);
       }
 
       // -----------------------------------------------------------------------
@@ -350,7 +359,8 @@ export async function dispatch(
               payer: "admin",
               revenueUsdc: 0,
               latencyMs: Date.now() - t0,
-            });
+              client: clientUA,
+            }, ctx);
             return successResponse(id, { content: [{ type: "text", text: result }] });
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
@@ -360,7 +370,9 @@ export async function dispatch(
               payer: "admin",
               revenueUsdc: 0,
               latencyMs: Date.now() - t0,
-            });
+              detail: message,
+              client: clientUA,
+            }, ctx);
             return successResponse(id, {
               content: [{ type: "text", text: message }],
               isError: true,
@@ -388,7 +400,8 @@ export async function dispatch(
                   payer: whitelistedPayer,
                   revenueUsdc: 0,
                   latencyMs: Date.now() - t0,
-                });
+                  client: clientUA,
+                }, ctx);
                 return successResponse(id, { content: [{ type: "text", text: result }] });
               } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
@@ -398,7 +411,9 @@ export async function dispatch(
                   payer: whitelistedPayer,
                   revenueUsdc: 0,
                   latencyMs: Date.now() - t0,
-                });
+                  detail: message,
+                  client: clientUA,
+                }, ctx);
                 return successResponse(id, {
                   content: [{ type: "text", text: message }],
                   isError: true,
@@ -423,7 +438,9 @@ export async function dispatch(
               payer: "anon",
               revenueUsdc: 0,
               latencyMs: Date.now() - t0,
-            });
+              detail: v.reason,
+              client: clientUA,
+            }, ctx);
             return successResponse(id, {
               content: [{ type: "text", text: `Prepaid authorization rejected: ${v.reason}` }],
               isError: true,
@@ -447,7 +464,9 @@ export async function dispatch(
                 payer: v.payer ?? "anon",
                 revenueUsdc: 0,
                 latencyMs: Date.now() - t0,
-              });
+                detail: `have ${microToUsdc(bal)} USDC, need ${price.prepaidStr}`,
+                client: clientUA,
+              }, ctx);
               return buildDepositRequiredResponse(
                 id,
                 env,
@@ -460,7 +479,9 @@ export async function dispatch(
               payer: v.payer ?? "anon",
               revenueUsdc: 0,
               latencyMs: Date.now() - t0,
-            });
+              detail: "replay: spend authorization already used",
+              client: clientUA,
+            }, ctx);
             return successResponse(id, {
               content: [
                 {
@@ -485,7 +506,9 @@ export async function dispatch(
               payer: v.payer ?? "anon",
               revenueUsdc: 0,
               latencyMs: Date.now() - t0,
-            });
+              detail: message,
+              client: clientUA,
+            }, ctx);
             return successResponse(id, {
               content: [{ type: "text", text: message }],
               isError: true,
@@ -508,7 +531,8 @@ export async function dispatch(
             payer: v.payer ?? "anon",
             revenueUsdc: Number(prepaidPriceMicro) / 1_000_000,
             latencyMs: Date.now() - t0,
-          });
+            client: clientUA,
+          }, ctx);
 
           return successResponse(id, {
             content: [{ type: "text", text: prepaidResult }],
@@ -545,7 +569,9 @@ export async function dispatch(
             payer: "anon",
             revenueUsdc: 0,
             latencyMs: Date.now() - t0,
-          });
+            detail: "no_payment_payload",
+            client: clientUA,
+          }, ctx);
           // No payment payload at all → agent likely has no wallet yet.
           // Inject a wallet_setup hint into the standard x402 response so the
           // agent knows the exact next step without reading docs.
@@ -569,7 +595,9 @@ export async function dispatch(
             payer: "anon",
             revenueUsdc: 0,
             latencyMs: Date.now() - t0,
-          });
+            detail: verifyResult.reason,
+            client: clientUA,
+          }, ctx);
           return buildPaymentRequiredResponse(
             config,
             id,
@@ -598,7 +626,9 @@ export async function dispatch(
             payer,
             revenueUsdc: 0,
             latencyMs: Date.now() - t0,
-          });
+            detail: message,
+            client: clientUA,
+          }, ctx);
           return successResponse(id, {
             content: [{ type: "text", text: message }],
             isError: true,
@@ -614,7 +644,8 @@ export async function dispatch(
             payer,
             revenueUsdc: 0,
             latencyMs: Date.now() - t0,
-          });
+            client: clientUA,
+          }, ctx);
           return successResponse(id, {
             content: [{ type: "text", text: toolResult }],
             _meta: {
@@ -645,11 +676,13 @@ export async function dispatch(
           const settleErr = err instanceof Error ? err.message : String(err);
           writeEvent(env, {
             toolName,
-            paymentType: "tool_error",
+            paymentType: "settle_failed",
             payer,
             revenueUsdc: 0,
             latencyMs: Date.now() - t0,
-          });
+            detail: settleErr,
+            client: clientUA,
+          }, ctx);
           return successResponse(id, {
             content: [{ type: "text", text: toolResult }],
             _meta: {
@@ -670,7 +703,8 @@ export async function dispatch(
           payer,
           revenueUsdc: Number(price.payPerCallStr),
           latencyMs: Date.now() - t0,
-        });
+          client: clientUA,
+        }, ctx);
 
         // Step 7: return tool result with settlement metadata
         return successResponse(id, {
@@ -699,7 +733,8 @@ export async function dispatch(
             payer: "anon",
             revenueUsdc: 0,
             latencyMs: Date.now() - t0,
-          });
+            client: clientUA,
+          }, ctx);
           return successResponse(id, {
             content: [{ type: "text", text: result }],
           });
@@ -711,7 +746,9 @@ export async function dispatch(
             payer: "anon",
             revenueUsdc: 0,
             latencyMs: Date.now() - t0,
-          });
+            detail: message,
+            client: clientUA,
+          }, ctx);
           return successResponse(id, {
             content: [{ type: "text", text: message }],
             isError: true,
@@ -772,7 +809,9 @@ STRATEGY: Before loading any external URL or large document into your context, c
 export async function handleMcpRequest(
   body: string,
   env: Env,
-  isAdmin = false
+  isAdmin = false,
+  ctx: ExecutionContext,
+  clientUA = ""
 ): Promise<{ response: string | null; status: number }> {
   let request: JsonRpcRequest;
   try {
@@ -782,7 +821,7 @@ export async function handleMcpRequest(
     return { response: JSON.stringify(err), status: 400 };
   }
 
-  const result = await dispatch(request, env, isAdmin);
+  const result = await dispatch(request, env, isAdmin, ctx, clientUA);
 
   if (result === null) {
     // Notification — no response body
