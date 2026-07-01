@@ -4,7 +4,7 @@
  */
 
 const MS_30D = 30 * 24 * 60 * 60 * 1000;
-const MS_7D = 7 * 24 * 60 * 60 * 1000;
+const MS_365D = 365 * 24 * 60 * 60 * 1000;
 
 /** payment_type values that represent a failure — used for error-rate and recent-errors queries. */
 const ERROR_TYPES = [
@@ -74,7 +74,7 @@ function dayLabel(ts: number): string {
 export async function getDashboardData(db: D1Database): Promise<DashboardData> {
   const now = Date.now();
   const since30 = now - MS_30D;
-  const since7 = now - MS_7D;
+  const since365 = now - MS_365D;
 
   const [
     summary,
@@ -151,7 +151,9 @@ export async function getDashboardData(db: D1Database): Promise<DashboardData> {
         .bind(since30)
         .first<{ cnt: number; total: number }>(),
 
-      // Calls per day — aggregate in JS from raw ts+count bucketed rows
+      // Calls per day — aggregate in JS from raw ts+count bucketed rows.
+      // Up to 365 days of daily granularity; the panel re-buckets client-side
+      // for wider timeframes so the timeframe selector never re-fetches.
       db
         .prepare(
           `SELECT ts, count(*) AS calls
@@ -160,7 +162,7 @@ export async function getDashboardData(db: D1Database): Promise<DashboardData> {
            GROUP BY (ts / 86400000)
            ORDER BY ts ASC`
         )
-        .bind(since7)
+        .bind(since365)
         .all<{ ts: number; calls: number }>(),
 
       db
@@ -171,7 +173,7 @@ export async function getDashboardData(db: D1Database): Promise<DashboardData> {
            GROUP BY (ts / 86400000)
            ORDER BY ts ASC`
         )
-        .bind(since7)
+        .bind(since365)
         .all<{ ts: number; revenue: number }>(),
 
       db
