@@ -291,7 +291,12 @@ function withMeta(request, key, value) {
  */
 async function handleRequest(request) {
   const isToolCall = request.method === "tools/call";
-  const toolName = request.params?.name;
+  // use_tool is a transparent dispatcher: the server binds payment to the
+  // INNER tool name, so sign for that one, not for "use_tool".
+  let toolName = request.params?.name;
+  if (toolName === "use_tool" && typeof request.params?.arguments?.name === "string") {
+    toolName = request.params.arguments.name;
+  }
 
   // Prepaid mode: attach a fresh SpendAuthorization up-front (ignored by the
   // server for free tools). If there's no balance the server returns a deposit

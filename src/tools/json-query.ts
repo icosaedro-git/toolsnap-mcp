@@ -282,28 +282,14 @@ function findRecursive(node: JSONValue, key: string): JSONValue[] {
 
 export const jsonQueryTool: McpTool = {
   name: "json_query",
-  description:
-    "Fetch JSON from a URL (or accept raw JSON) and query it with a JSONPath-lite expression. Supports property access, array indexing, wildcards ([*]), recursive descent (..), and filter expressions ([?(@.price < 10)]). Provide exactly one of url or json — not both. Returns only the matching values as JSON. Returns an error if the URL is unreachable, the response is not valid JSON, or the query expression is invalid. Has no side effects. Use instead of loading large JSON payloads into your context.",
+  description: "Query JSON with JSONPath-lite ($.a[*].b, ..key). One of url or json.",
   inputSchema: {
     type: "object",
     properties: {
-      url: {
-        type: "string",
-        description: "URL returning JSON to query (http/https).",
-      },
-      json: {
-        type: "string",
-        description: "Raw JSON string to query (alternative to url).",
-      },
-      query: {
-        type: "string",
-        description:
-          "JSONPath-lite expression. Examples: '$.users[*].name', '$..price', '$.items[?(@.stock > 0)].id', '$.store.books[0].title'",
-      },
-      limit: {
-        type: "number",
-        description: "Max number of results to return (default 100, max 1000).",
-      },
+      url: { type: "string" },
+      json: { type: "string" },
+      query: { type: "string", description: "e.g. '$.users[*].name'." },
+      limit: { type: "number" },
     },
     required: ["query"],
   },

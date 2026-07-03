@@ -701,19 +701,12 @@ function trimEol(bytes: Uint8Array, start: number, es: number): number {
 
 export const pdfTextExtractTool: McpTool = {
   name: "pdf_text_extract",
-  description:
-    "Fetch a PDF from a URL and extract its text content. Handles FlateDecode-compressed streams and RC4-encrypted PDFs that open with an empty password. Returns clean plain text. Returns an error if the URL is unreachable, the response is not a PDF, or the PDF is password-protected with a non-empty password. Has no side effects. Works on text-based PDFs (Word, LaTeX, web-generated); does NOT perform OCR on scanned/image-only PDFs. Use instead of loading raw PDF bytes into your context.",
+  description: "Fetch a PDF by URL, extract text. No OCR — text-based PDFs only.",
   inputSchema: {
     type: "object",
     properties: {
-      url: {
-        type: "string",
-        description: "URL of the PDF to fetch (http/https). Must be a PDF file.",
-      },
-      maxChars: {
-        type: "number",
-        description: `Max characters to return (default ${DEFAULT_MAX_CHARS}, max ${HARD_MAX_CHARS}).`,
-      },
+      url: { type: "string" },
+      maxChars: { type: "number" },
     },
     required: ["url"],
   },

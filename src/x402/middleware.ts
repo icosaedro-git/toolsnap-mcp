@@ -180,14 +180,14 @@ export interface PaymentConfig {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Tools that require payment before execution. */
-const PAID_TOOLS = new Set([
-  "fetch_extract",
-  "fetch_html",
-  "screenshot_url",
-  "keyword_research",
-  "remove_background",
-]);
+/**
+ * Tools that require payment before execution.
+ *
+ * fetch_extract and fetch_html were liberated to free in Fase 18 (2026-07-03,
+ * approved decision) — they are the free flagship tools now. Only real-COGS
+ * tools remain paid.
+ */
+const PAID_TOOLS = new Set(["screenshot_url", "keyword_research", "remove_background"]);
 
 /** Returns true if the tool requires a payment. */
 export function requiresPayment(toolName: string): boolean {

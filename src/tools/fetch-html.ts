@@ -45,19 +45,12 @@ function cleanHtml(html: string): string {
 
 export const fetchHtmlTool: McpTool = {
   name: "fetch_html",
-  description:
-    "Fetch a URL and return clean HTML with structure preserved — tags, classes, ids and semantic layout kept, but scripts, styles, comments, SVG/iframe blobs and inline JS handlers removed. Unlike fetch_extract (flattens to text) or html_to_markdown (converts to Markdown), this keeps the DOM skeleton so an agent can reconstruct the page as static HTML. Ideal for site migration (e.g. WordPress → static). Cost: $0.02 USDC on Base. First call free per wallet address.",
+  description: "Fetch a URL, return clean HTML (structure kept, scripts/styles stripped). Free. Site migration.",
   inputSchema: {
     type: "object",
     properties: {
-      url: {
-        type: "string",
-        description: "The URL to fetch (http:// or https://).",
-      },
-      maxChars: {
-        type: "number",
-        description: `Max characters to return (default ${DEFAULT_MAX_CHARS}, max ${HARD_MAX_CHARS}).`,
-      },
+      url: { type: "string" },
+      maxChars: { type: "number" },
     },
     required: ["url"],
   },

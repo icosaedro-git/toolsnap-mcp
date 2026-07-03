@@ -90,19 +90,12 @@ function detectUnusable(html: string, text: string): string | null {
 
 export const fetchExtractTool: McpTool = {
   name: "fetch_extract",
-  description:
-    "Fetch a URL and return clean text, stripped of HTML, scripts, styles, and navigation. Benchmark (11 real pages): median 98.1% token reduction (53 820 → 2 001 tokens); saves ~$0.156/call at Sonnet pricing ($3/M tokens) vs loading raw HTML. Break-even at 26 KB pages — virtually all real pages qualify. Deterministic, parallel-safe, zero-setup. Note: does NOT run JavaScript — for client-side-rendered SPAs use screenshot_url or fetch_html instead (fetch_extract detects this and returns an error WITHOUT charging). Cost: $0.02 USDC on Base. First call free per wallet address.",
+  description: "Fetch a URL, return clean text. Free. Median 98% fewer tokens than raw HTML. Not for JS SPAs.",
   inputSchema: {
     type: "object",
     properties: {
-      url: {
-        type: "string",
-        description: "The URL to fetch and extract text from",
-      },
-      maxChars: {
-        type: "number",
-        description: `Max characters to return (default ${DEFAULT_MAX_CHARS}, max ${HARD_MAX_CHARS})`,
-      },
+      url: { type: "string" },
+      maxChars: { type: "number" },
     },
     required: ["url"],
   },

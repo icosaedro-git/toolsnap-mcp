@@ -5,6 +5,9 @@ const FREE_TOOLS = [
   "account_balance",
   "account_deposit",
   "wallet_setup",
+  "tool_catalog",
+  "use_tool",
+  "memory_snippet",
   "uuid_generate",
   "hash_text",
   "base64_encode",
@@ -27,7 +30,10 @@ const FREE_TOOLS = [
   "sitemap_parse",
   "page_assets",
   "page_links",
+  "upload_file",
   "task_recipes",
+  "fetch_extract",
+  "fetch_html",
 ];
 
 const PRICING_DATA = {
@@ -41,16 +47,14 @@ const PRICING_DATA = {
     asset: "USDC — 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
     // Pay-per-call: one on-chain settlement per call.
     pay_per_call: {
-      price_usdc: 0.02,
-      how: 'Include a signed PaymentPayload in _meta["x402/payment"]. Server verifies off-chain, settles on-chain after successful execution.',
-      first_call_free: true,
+      how: 'Include a signed PaymentPayload in _meta["x402/payment"]. Server verifies off-chain, settles on-chain after successful execution. Price varies per tool — see each tool entry below (payPerCall).',
+      first_call_free: false,
       first_call_free_note:
-        "First call per wallet address is served free. A valid signed payment payload is still required for identification — it is verified but not settled.",
+        "The first-call-free mechanism exists in code (per payer wallet) but every currently paid tool has real per-call COGS and is excluded from it, so in practice all paid calls settle from the first one. It will apply automatically to any future flat-rate (non-COGS) paid tool.",
     },
     // Prepaid: deposit once, then debit off-chain per call at a discount.
     prepaid: {
-      price_usdc: 0.01,
-      discount_vs_pay_per_call: "50%",
+      discount_vs_pay_per_call: "~33-38% — price varies per tool, see each tool entry below (prepaid_price_usdc)",
       min_deposit_usdc: 0.5,
       non_refundable: true,
       how_to_deposit:
@@ -71,9 +75,7 @@ const PRICING_DATA = {
   tools: [
     {
       name: "fetch_extract",
-      tier: "paid",
-      price_usdc: 0.02,
-      prepaid_price_usdc: 0.01,
+      tier: "free",
       value: {
         benchmark_token_savings_median_pct: 98.1,
         benchmark_input_tokens_median: 53820,
@@ -82,16 +84,14 @@ const PRICING_DATA = {
         break_even_page_size_kb: 26,
         best_case_savings_pct: 99.3,
         best_case_source: "Cloudflare Workers docs (372 KB → 2.5 KB)",
-        note: "Saves ~$0.156/call at Sonnet pricing. Costs $0.02 pay-per-call or $0.01 prepaid.",
+        note: "Free flagship tool. Median 98.1% token reduction vs loading raw HTML — saves ~$0.156/call at Sonnet pricing.",
       },
     },
     {
       name: "fetch_html",
-      tier: "paid",
-      price_usdc: 0.02,
-      prepaid_price_usdc: 0.01,
+      tier: "free",
       value: {
-        note: "Clean HTML with structure preserved (tags/classes/ids, no scripts/styles/tracking) for site migration and reconstruction. Costs $0.02 pay-per-call or $0.01 prepaid.",
+        note: "Free. Clean HTML with structure preserved (tags/classes/ids, no scripts/styles/tracking) for site migration and reconstruction.",
       },
     },
     {
@@ -121,17 +121,20 @@ const PRICING_DATA = {
       prepaid_price_usdc: 0.02,
       first_call_free: false,
       value: {
-        note: "Removes the background from any public image URL (JPEG/PNG/WEBP) using the U²-Net model. Returns a transparent PNG hosted on a permanent public URL — never raw bytes. Priced above the flat rate due to generative AI inference COGS. No first-call-free. Costs $0.03 pay-per-call or $0.02 prepaid.",
+        note: "Removes the background from any public image URL (JPEG/PNG/WEBP) using the U²-Net model. Returns a transparent PNG hosted on a public URL (expires ~24h) — never raw bytes. Priced above the flat rate due to generative AI inference COGS. No first-call-free. Costs $0.03 pay-per-call or $0.02 prepaid.",
       },
     },
-    ...FREE_TOOLS.map((name) => ({ name, tier: "free" as const })),
+    // fetch_extract and fetch_html have detailed entries above; exclude them
+    // here to avoid duplicates.
+    ...FREE_TOOLS.filter((name) => name !== "fetch_extract" && name !== "fetch_html").map(
+      (name) => ({ name, tier: "free" as const })
+    ),
   ],
 };
 
 export const pricingTool: McpTool = {
   name: "pricing",
-  description:
-    "Returns the machine-readable pricing menu for this server: which tools are free vs paid, pay-per-call vs discounted prepaid pricing, how to deposit and spend a prepaid balance, payment method, and quantified value (token savings, ROI). Always returns immediately — has no side effects and costs nothing. Call this first to understand what is available and at what cost before using paid tools.",
+  description: "Free. Machine-readable pricing menu: free vs paid tools, pricing, deposit/spend flow.",
   inputSchema: {
     type: "object",
     properties: {},

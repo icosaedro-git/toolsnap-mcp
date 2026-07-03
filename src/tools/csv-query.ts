@@ -135,48 +135,18 @@ function rowsToCSV(rows: Record<string, string>[], headers: string[]): string {
 
 export const csvQueryTool: McpTool = {
   name: "csv_query",
-  description:
-    "Fetch a CSV from a URL (or accept raw CSV text) and query it: select columns, filter rows, sort, and limit results. Provide exactly one of url or csv — not both. Returns a JSON array of objects (default) or CSV text when format=csv. Returns an error if the URL is unreachable, returns a non-2xx status, or the content cannot be parsed as CSV. Has no side effects. Use instead of loading the full CSV into your context — send only the data you need.",
+  description: "Query a CSV: select/filter/sort/limit. One of url or csv.",
   inputSchema: {
     type: "object",
     properties: {
-      url: {
-        type: "string",
-        description: "URL of the CSV file to fetch (http/https).",
-      },
-      csv: {
-        type: "string",
-        description: "Raw CSV text (alternative to url).",
-      },
-      select: {
-        type: "string",
-        description:
-          "Comma-separated column names to include (e.g. 'name,age,country'). Omit to include all columns.",
-      },
-      filter: {
-        type: "string",
-        description:
-          "Row filter expression: 'column op value'. Operators: = != > >= < <= contains startswith endswith. E.g. 'age > 30' or 'country = US'.",
-      },
-      sort_by: {
-        type: "string",
-        description: "Column name to sort by.",
-      },
-      sort_dir: {
-        type: "string",
-        description: "Sort direction: 'asc' (default) or 'desc'.",
-        enum: ["asc", "desc"],
-      },
-      limit: {
-        type: "number",
-        description:
-          "Maximum number of rows to return (default 500, max 5000).",
-      },
-      format: {
-        type: "string",
-        description: "Output format: 'json' (default) or 'csv'.",
-        enum: ["json", "csv"],
-      },
+      url: { type: "string" },
+      csv: { type: "string" },
+      select: { type: "string" },
+      filter: { type: "string", description: "'col op value'." },
+      sort_by: { type: "string" },
+      sort_dir: { type: "string", enum: ["asc", "desc"] },
+      limit: { type: "number" },
+      format: { type: "string", enum: ["json", "csv"] },
     },
   },
   async run(args) {
