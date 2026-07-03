@@ -111,15 +111,11 @@ function extractMeta(html: string, resolvedUrl: string): MetaResult {
 
 export const webpageMetadataTool: McpTool = {
   name: "fetch_metadata",
-  description:
-    "Fetch a URL and extract its metadata: title, meta description, Open Graph tags (og:title, og:image, og:type…), Twitter Card tags, canonical URL, robots directive, author, keywords, JSON-LD structured data, and lang/charset. Returns a structured JSON object; missing fields are omitted. Returns an error if the URL is unreachable. Has no side effects. Much cheaper than loading the full page — ideal for link previews, SEO audits, and content classification. Do NOT use to extract page body text — use fetch_extract or html_to_markdown instead.",
+  description: "Fetch a URL, extract title/description/OG/Twitter/canonical/JSON-LD. Not for body text.",
   inputSchema: {
     type: "object",
     properties: {
-      url: {
-        type: "string",
-        description: "URL to fetch (http:// or https://).",
-      },
+      url: { type: "string" },
     },
     required: ["url"],
   },

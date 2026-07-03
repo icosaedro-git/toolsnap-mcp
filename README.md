@@ -27,7 +27,7 @@ The biggest cost for AI agents isn't generation — it's context. When an agent 
 | Cost @ Sonnet ($3/M) | $0.162 | $0.006 | **$0.156/call** |
 | Break-even page size | — | — | 26 KB |
 
-The tool costs $0.02 USDC → 7.8× ROI on a typical page.
+`fetch_extract` is free — this saving costs nothing.
 
 ---
 
@@ -87,34 +87,44 @@ curl -X POST https://mcp.toolsnap.app/mcp \
 
 ## Tools
 
-### Paid (x402)
+35+ tools total. `tools/list` shows a curated core (~18); discover everything else with the free `tool_catalog` tool and run it with `use_tool(name, args)`.
+
+### Paid (x402) — real per-call COGS only
 
 | Tool | Description | Price |
 |---|---|---|
-| `fetch_extract` | Fetch a URL → clean text. 98.1% median token reduction. | $0.02 USDC |
+| `screenshot_url` | Capture a page → public image URL. | $0.04 USDC |
+| `keyword_research` | Google Ads volume/CPC/competition via DataForSEO. | $0.04 USDC |
+| `remove_background` | Remove an image's background → transparent PNG URL. | $0.03 USDC |
 
-**First call free per wallet address.** After that, your agent pays $0.02 USDC on Base using [x402 v2](https://x402.org) (EIP-3009 `transferWithAuthorization`). No API key, no subscription — pay only when you call.
+No first-call-free: these three tools have real per-call cost, so every call settles from the start. Pay-per-call is $0.03–$0.04 USDC on Base using [x402 v2](https://x402.org) (EIP-3009 `transferWithAuthorization`); prepaid (deposit once, debit off-chain) is cheaper per call. No API key, no subscription.
 
 ### Free (always)
 
+Flagship: `fetch_extract` (URL → clean text, median 98.1% fewer tokens than raw HTML) and `fetch_html` (URL → clean structured HTML). Plus a wide utility catalog:
+
 | Tool | Description |
 |---|---|
-| `pricing` | Machine-readable pricing menu + ROI. Call this first. |
+| `pricing` | Machine-readable pricing menu. Call this first. |
+| `tool_catalog` | Discover the full tool catalog (families → detail). |
+| `use_tool` | Execute any tool not in your tools/list. |
+| `memory_snippet` | Get the ToolSnap habit block for your harness's persistent memory. |
+| `task_recipes` | Ready-to-run multi-tool workflows for whole tasks. |
 | `uuid_generate` | 1–100 random UUID v4 values |
 | `hash_text` | SHA-256 / SHA-1 / SHA-512 (hex) |
-| `base64_encode` | UTF-8 → Base64 |
-| `base64_decode` | Base64 → UTF-8 |
-| `url_encode` | Percent-encode (encodeURIComponent) |
-| `url_decode` | Decode percent-encoded string |
+| `base64_encode` / `base64_decode` | Base64 encode/decode |
+| `url_encode` / `url_decode` | Percent-encode/decode |
 | `json_format` | Parse + pretty-print or minify JSON |
 | `timestamp_convert` | Unix ↔ ISO 8601 (auto-detects direction) |
 | `text_stats` | Chars, words, lines, sentences |
+
+Call `tool_catalog()` for the complete, current list with schemas and prices.
 
 ---
 
 ## Payment (x402)
 
-When an agent calls `fetch_extract` without payment, the server returns:
+When an agent calls a paid tool (e.g. `screenshot_url`) without payment, the server returns:
 
 ```json
 {
@@ -128,7 +138,7 @@ When an agent calls `fetch_extract` without payment, the server returns:
       "accepts": [{
         "scheme": "exact",
         "network": "eip155:8453",
-        "amount": "20000",
+        "amount": "40000",
         "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
       }]
     }
@@ -171,7 +181,7 @@ npm run deploy
 - **Verification:** off-chain EIP-712 signature recovery (viem)
 - **Settlement:** on-chain `transferWithAuthorization` via relayer wallet
 - **Anti-replay:** Cloudflare KV nonce store (7-day TTL)
-- **First-call-free:** KV key `first_free:{address}`, verified but not settled
+- **First-call-free:** mechanism exists in code (KV key `first_free:{address}`) for future flat-rate tools; all current paid tools have real COGS and are excluded, so every call settles
 
 ---
 

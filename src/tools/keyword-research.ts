@@ -302,34 +302,14 @@ async function runKeywordResearch(
 
 export const keywordResearchTool: McpTool = {
   name: "keyword_research",
-  description:
-    "Query Google Ads data via DataForSEO for 1–20 keywords and get per-keyword: monthly search volume, CPC (USD), competition score (0–1 + level label), 12-month trend, and top-5 related keyword suggestions. Returns JSON with all results. Returns an error if keywords is empty, exceeds 20 items, or the upstream API is unavailable. Has no side effects. Cost: $0.04 USDC pay-per-call on Base ($0.025 prepaid) — real COGS per batch. No first-call-free. Ideal for SEO audits, content planning, and PPC budget estimation.",
+  description: "Google Ads volume/CPC/competition for 1-20 keywords. $0.04 USDC/call.",
   inputSchema: {
     type: "object",
     properties: {
-      keywords: {
-        type: "array",
-        description:
-          "One keyword (string) or up to 20 keywords (array of strings, max 20). Pass a single string for one keyword or an array for multiple keywords in one API call.",
-      },
-      language_code: {
-        type: "string",
-        description:
-          'ISO 639-1 language code for Google Ads data. Default "es" (Spanish). Use "en" for English, "fr" for French, etc.',
-        default: "es",
-      },
-      location_code: {
-        type: "number",
-        description:
-          "DataForSEO location code for Google Ads geo-targeting. Default 2724 (Spain). Use 2840 for USA, 2826 for UK. Full list: https://api.dataforseo.com/v3/keywords_data/google_ads/locations",
-        default: 2724,
-      },
-      include_suggestions: {
-        type: "boolean",
-        description:
-          "Whether to fetch top-5 related keyword suggestions per seed keyword. Default true. Set false to skip the suggestions call and reduce latency.",
-        default: true,
-      },
+      keywords: { type: "array" },
+      language_code: { type: "string", default: "es" },
+      location_code: { type: "number", default: 2724 },
+      include_suggestions: { type: "boolean", default: true },
     },
     required: ["keywords"],
   },

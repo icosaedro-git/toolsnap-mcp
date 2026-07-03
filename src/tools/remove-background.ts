@@ -144,16 +144,11 @@ async function runRemoveBackground(
 
 export const removeBackgroundTool: McpTool = {
   name: "remove_background",
-  description:
-    "Remove the background from an image (U²-Net model via fal.ai) and return a transparent PNG hosted on a public URL — never raw bytes, so it does not bloat context. Returns JSON with url (public PNG, expires ~24 h — download promptly) and file_size_bytes. Returns an error if the image_url is not publicly accessible or the image format is unsupported. Has no side effects on the source image. To pass a local image, first upload it with upload_file and pass the returned URL here. Cost: $0.03 USDC pay-per-call ($0.02 prepaid). No first-call-free.",
+  description: "Remove an image's background, return a transparent PNG URL. $0.03 USDC/call.",
   inputSchema: {
     type: "object",
     properties: {
-      image_url: {
-        type: "string",
-        description:
-          "Public URL of the source image (JPEG, PNG, or WEBP). Must be accessible from the internet — local paths and data: URIs are not supported.",
-      },
+      image_url: { type: "string", description: "Public image URL." },
     },
     required: ["image_url"],
   },

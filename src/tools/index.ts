@@ -30,12 +30,19 @@ import { uploadFileTool } from "./upload-file.js";
 import { pricingTool } from "./pricing.js";
 import { accountBalanceTool, accountDepositTool } from "./account.js";
 import { walletSetupTool } from "./wallet-setup.js";
+import { toolCatalogTool } from "./tool-catalog.js";
+import { useToolTool } from "./use-tool.js";
+import { memorySnippetTool } from "./memory-snippet.js";
+import { CORE_TOOLS } from "./catalog.js";
 
 export const tools: McpTool[] = [
   pricingTool,
   accountBalanceTool,
   accountDepositTool,
   walletSetupTool,
+  toolCatalogTool,
+  useToolTool,
+  memorySnippetTool,
   fetchExtractTool,
   fetchHtmlTool,
   pageAssetsTool,
@@ -67,13 +74,32 @@ export const tools: McpTool[] = [
   sitemapParseTool,
 ];
 
-/** Returns the tool list for tools/list responses (no run function). */
-export function listTools(): McpToolDefinition[] {
-  return tools.map(({ name, description, inputSchema }) => ({
+/**
+ * Returns the tool list for tools/list responses (no run function).
+ *
+ * scope "core" (default for the live tools/list handler) returns only
+ * CORE_TOOLS, in CORE_TOOLS order — this is what keeps the 1st-connection
+ * payload small. scope "full" returns every registered tool, in registry
+ * order — used by /.well-known/mcp.json and pricing.json, which must stay
+ * complete for registries/directories that crawl the whole catalog.
+ */
+export function listTools(scope: "core" | "full" = "full"): McpToolDefinition[] {
+  const defs = ({ name, description, inputSchema }: McpTool): McpToolDefinition => ({
     name,
     description,
     inputSchema,
-  }));
+  });
+
+  if (scope === "core") {
+    const byName = new Map(tools.map((t) => [t.name, t]));
+    return CORE_TOOLS.map((name) => {
+      const tool = byName.get(name);
+      if (!tool) throw new Error(`CORE_TOOLS references unregistered tool "${name}"`);
+      return defs(tool);
+    });
+  }
+
+  return tools.map(defs);
 }
 
 /**

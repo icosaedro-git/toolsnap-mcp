@@ -180,23 +180,13 @@ async function fetchHtml(url: string): Promise<string> {
 
 export const htmlToMarkdownTool: McpTool = {
   name: "html_to_markdown",
-  description:
-    "Convert a URL or raw HTML string into clean Markdown. Strips navigation, ads, scripts, and boilerplate; preserves headings, lists, links, code blocks, and emphasis. Provide exactly one of url or html — not both. Returns the Markdown string. Returns an error if the URL is unreachable. Has no side effects. Use instead of loading raw HTML into context — saves 85–98% of tokens. Do NOT use for JavaScript-rendered SPAs — use fetch_html or screenshot_url instead.",
+  description: "Convert a URL or raw HTML to Markdown. One of url or html. Not for JS SPAs.",
   inputSchema: {
     type: "object",
     properties: {
-      url: {
-        type: "string",
-        description: "URL to fetch and convert (http:// or https://).",
-      },
-      html: {
-        type: "string",
-        description: "Raw HTML string to convert directly (alternative to url).",
-      },
-      maxChars: {
-        type: "number",
-        description: `Max characters of Markdown to return (default ${DEFAULT_MAX_CHARS}, max ${HARD_MAX_CHARS}).`,
-      },
+      url: { type: "string" },
+      html: { type: "string", description: "Alt. to url." },
+      maxChars: { type: "number" },
     },
   },
   async run(args) {

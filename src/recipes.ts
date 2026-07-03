@@ -63,18 +63,18 @@ export const RECIPES: Recipe[] = [
     tools: [
       "sitemap_parse (free)",
       "page_links (free)",
-      "fetch_html (paid)",
+      "fetch_html (free)",
       "page_assets (free)",
       "screenshot_url (paid)",
     ],
     est_cost:
-      "Free tools for discovery; per page ≈ fetch_html $0.02 + screenshot_url $0.04 = $0.06 pay-per-call (≈ $0.035 prepaid). A 10-page site ≈ $0.60 pay-per-call / ≈ $0.35 prepaid. Skip screenshots to roughly halve it.",
+      "Discovery, fetch_html and page_assets are all free. Only screenshot_url is paid: $0.04/page pay-per-call (≈ $0.025 prepaid). A 10-page site with a screenshot per page ≈ $0.40 pay-per-call / ≈ $0.25 prepaid. Skip screenshots to make the whole recipe free.",
     prompt: `${PREAMBLE}You are migrating a website to clean static HTML using the ToolSnap MCP tools. Target site: <PUT THE SITE URL HERE>.
 
 Do the whole job end-to-end, using ToolSnap for everything that touches the network:
 1. Discover all pages: call sitemap_parse on the site's sitemap (try /sitemap.xml). If there's no sitemap, call page_links on the homepage and follow internal links to build the page list.
 2. For each page (cap at a sensible number, ask me if it's large):
-   a. fetch_html — get clean structured HTML (tags/classes/ids preserved, scripts/tracking stripped). This is the basis for the static page. (If a page is a JS-rendered SPA — little HTML, content injected by JS — fetch_html/fetch_extract can't see the rendered content; rely on screenshot_url for the visual and reconstruct from it, or flag the page to the human.)
+   a. fetch_html — get clean structured HTML (tags/classes/ids preserved, scripts/tracking stripped). This is the basis for the static page. Free. (If a page is a JS-rendered SPA — little HTML, content injected by JS — fetch_html/fetch_extract can't see the rendered content; rely on screenshot_url for the visual and reconstruct from it, or flag the page to the human.)
    b. page_assets — inventory every image/CSS/font/script/icon with absolute URLs (and srcset). Download these to a local /assets folder and rewrite references to relative paths.
    c. screenshot_url (fullPage:true) — capture a visual reference of the original page; save the returned URL so I can compare the rebuild against it.
 3. Reconstruct each page as a standalone static .html file with local assets, no WordPress/CMS runtime, no tracking. Preserve semantic structure and visible content.
@@ -91,19 +91,19 @@ Stop and ask me only if you hit auth walls, JS-only content, or an unexpectedly 
     tools: [
       "sitemap_parse (free)",
       "fetch_metadata (free)",
-      "fetch_extract (paid, optional)",
+      "fetch_extract (free, optional)",
       "screenshot_url (paid, optional)",
       "keyword_research (paid, optional)",
     ],
     est_cost:
-      "Mostly FREE: sitemap_parse + fetch_metadata per page cost nothing. Optional extras: fetch_extract $0.02/page (content/word-count), screenshot_url $0.04/page (visual snapshot), keyword_research $0.04/batch of ≤20 keywords (volume + CPC + competition). A 20-page metadata-only audit ≈ $0.",
+      "Mostly FREE: sitemap_parse + fetch_metadata per page cost nothing, and fetch_extract (content/word-count) is free too. Optional paid extras: screenshot_url $0.04/page (visual snapshot), keyword_research $0.04/batch of ≤20 keywords (volume + CPC + competition). A full metadata + content audit without screenshots/keywords ≈ $0.",
     prompt: `${PREAMBLE}You are running an SEO audit of a website using the ToolSnap MCP tools. Target site: <PUT THE SITE URL HERE>.
 
 Do it end-to-end:
 1. Enumerate pages: call sitemap_parse on /sitemap.xml (fall back to page_links from the homepage if there's no sitemap).
 2. For each page, call fetch_metadata and collect: title (+ length), meta description (+ length), canonical, robots, Open Graph + Twitter Card tags, lang, and JSON-LD presence.
 3. Flag issues per page: missing/duplicate/over-length titles (>60 chars) or descriptions (>160 chars), missing canonical, missing/incomplete Open Graph, noindex where it shouldn't be, missing structured data.
-4. (Optional) For key pages, call fetch_extract to assess content depth/word count, and screenshot_url to capture how the page renders.
+4. For key pages, call fetch_extract (free) to assess content depth/word count. (Optional, paid) call screenshot_url to capture how the page renders.
 5. (Optional) Extract the main target keyword(s) from each page's title/metadata, then call keyword_research with up to 20 at once to get monthly search volume, CPC, competition, and top-5 related suggestions. Use this to validate keyword targeting and spot gaps.
 6. Produce a prioritized report: a table of all pages with their SEO fields + keyword metrics, a list of issues grouped by severity, and concrete fixes. Note site-wide patterns (e.g. all titles missing the brand, pages targeting zero-volume keywords).
 Keep it deterministic and cite the exact field values you found.`,

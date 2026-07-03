@@ -243,43 +243,16 @@ async function runScreenshot(
 
 export const screenshotUrlTool: McpTool = {
   name: "screenshot_url",
-  description:
-    "Capture a screenshot of a web page (full-page or viewport) and return a PUBLIC image URL — not the bytes — so it never bloats your context. Returns JSON with the hosted URL, size, and dimensions. Returns an error if the URL is unreachable or the page fails to load. The hosted image expires after ~24 h — download it promptly if you need it longer. Has no side effects on the target page. Cost: $0.04 USDC pay-per-call on Base ($0.025 prepaid). First call free per wallet. Ideal for site migration/reconstruction (visual reference) and visual QA.",
+  description: "Screenshot a page → public image URL. $0.04 USDC/call, no first-call-free.",
   inputSchema: {
     type: "object",
     properties: {
-      url: {
-        type: "string",
-        description: "The URL of the page to screenshot (http:// or https://).",
-      },
-      fullPage: {
-        type: "boolean",
-        description:
-          "Capture the entire scrollable page instead of just the viewport. Default false.",
-        default: false,
-      },
-      width: {
-        type: "number",
-        description: `Viewport width in pixels (default ${DEFAULT_WIDTH}, ${MIN_DIM}–${MAX_DIM}).`,
-        default: DEFAULT_WIDTH,
-      },
-      height: {
-        type: "number",
-        description: `Viewport height in pixels (default ${DEFAULT_HEIGHT}, ${MIN_DIM}–${MAX_DIM}). Ignored when fullPage is true.`,
-        default: DEFAULT_HEIGHT,
-      },
-      format: {
-        type: "string",
-        description: 'Image format: "png" (default) or "jpeg".',
-        enum: ["png", "jpeg"],
-        default: "png",
-      },
-      quality: {
-        type: "number",
-        description: "JPEG quality 1–100 (only applies when format is jpeg).",
-        minimum: 1,
-        maximum: 100,
-      },
+      url: { type: "string" },
+      fullPage: { type: "boolean", default: false },
+      width: { type: "number", default: DEFAULT_WIDTH },
+      height: { type: "number", default: DEFAULT_HEIGHT },
+      format: { type: "string", enum: ["png", "jpeg"], default: "png" },
+      quality: { type: "number", minimum: 1, maximum: 100 },
     },
     required: ["url"],
   },

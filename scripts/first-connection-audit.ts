@@ -1,0 +1,86 @@
+/**
+ * First-connection AX audit (Fase 18).
+ *
+ * Measures what a fresh MCP client actually receives on connection: the
+ * curated core tools/list + the initialize instructions. No HTTP server
+ * needed — imports the same functions the live dispatcher calls.
+ *
+ * DoD (nota 06 / plan Fase 18): 1st connection ≤ ~1,600 tokens (tools +
+ * instructions), chars/4 estimate. Also runs the catalog integrity guard
+ * (assertCatalogComplete) so a drifted FAMILIES/CORE_TOOLS entry fails loudly
+ * instead of shipping silently.
+ *
+ * Run:  npx tsx scripts/first-connection-audit.ts
+ */
+import { listTools, tools } from "../src/tools/index.js";
+import { assertCatalogComplete } from "../src/tools/catalog.js";
+import { buildServerInstructions } from "../src/mcp/server.js";
+import type { Env } from "../src/index.js";
+
+const TOKEN_BUDGET = 1_600;
+
+/** Rough token estimate: chars / 4 (same heuristic used across the project docs). */
+function estimateTokens(s: string): number {
+  return Math.ceil(s.length / 4);
+}
+
+// Dummy env — only the fields buildServerInstructions/getToolPrice touch are
+// needed. Cast through unknown since Env has many unrelated required bindings
+// (KV/D1/R2) that are irrelevant to a pure string-building call.
+const dummyEnv = {
+  X402_NETWORK: "eip155:8453",
+  X402_PRICE_USDC: "0.02",
+  X402_PREPAID_PRICE_USDC: "0.01",
+  X402_MIN_DEPOSIT_USDC: "0.50",
+  BASE_RPC_URL: "https://mainnet.base.org",
+  X402_PAY_TO_ADDRESS: "0x0000000000000000000000000000000000dEaD",
+  RELAYER_PRIVATE_KEY: "0x" + "1".repeat(64),
+} as unknown as Env;
+
+function main(): void {
+  console.log("=== ToolSnap first-connection audit (Fase 18) ===\n");
+
+  // 1. Catalog integrity guard — fails loudly on drift.
+  assertCatalogComplete(tools.map((t) => t.name));
+  console.log(`Catalog integrity: OK (${tools.length} registered tools, all in ≥1 family)\n`);
+
+  // 2. Curated core tools/list.
+  const coreTools = listTools("core");
+  const toolsJson = JSON.stringify({ tools: coreTools });
+  const toolsTokens = estimateTokens(toolsJson);
+
+  console.log(`Core tools/list: ${coreTools.length} tools`);
+  console.log("Per-tool breakdown (name → estimated tokens):");
+  let sumPerTool = 0;
+  for (const t of coreTools) {
+    const single = JSON.stringify(t);
+    const tk = estimateTokens(single);
+    sumPerTool += tk;
+    console.log(`  ${t.name.padEnd(22)} ${String(tk).padStart(5)} tok  (${single.length} chars)`);
+  }
+  console.log(`  ${"(sum of per-tool)".padEnd(22)} ${String(sumPerTool).padStart(5)} tok`);
+  console.log(`tools/list payload total: ${toolsTokens} tokens (${toolsJson.length} chars)\n`);
+
+  // 3. Instructions.
+  const instructions = buildServerInstructions(dummyEnv);
+  const instructionsTokens = estimateTokens(instructions);
+  console.log(`instructions: ${instructionsTokens} tokens (${instructions.length} chars)\n`);
+
+  // 4. Total + verdict.
+  const total = toolsTokens + instructionsTokens;
+  console.log("=== TOTAL ===");
+  console.log(`tools/list:   ${toolsTokens} tokens`);
+  console.log(`instructions: ${instructionsTokens} tokens`);
+  console.log(`TOTAL:        ${total} tokens (budget: ${TOKEN_BUDGET})`);
+
+  if (total > TOKEN_BUDGET) {
+    console.error(
+      `\nFAIL: first-connection payload (${total} tok) exceeds budget (${TOKEN_BUDGET} tok).`
+    );
+    process.exit(1);
+  }
+
+  console.log(`\nPASS: first-connection payload is within budget (${total} <= ${TOKEN_BUDGET}).`);
+}
+
+main();

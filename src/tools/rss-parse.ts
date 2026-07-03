@@ -194,19 +194,12 @@ async function fetchFeed(url: string): Promise<string> {
 
 export const rssParseTool: McpTool = {
   name: "rss_parse",
-  description:
-    "Fetch and parse an RSS 2.0 or Atom 1.0 feed URL. Returns structured JSON with feed metadata (title, description, language, last-build date) and an array of items (title, link, pubDate, author, categories, description, enclosure). Returns an error if the URL is unreachable or the response is not valid RSS/Atom XML. Has no side effects. Use instead of fetching raw XML — saves 90%+ of tokens. Ideal for news aggregation, content monitoring, and feed-based workflows.",
+  description: "Fetch/parse an RSS or Atom feed into JSON. Saves 90%+ tokens vs raw XML.",
   inputSchema: {
     type: "object",
     properties: {
-      url: {
-        type: "string",
-        description: "RSS or Atom feed URL (http:// or https://).",
-      },
-      maxItems: {
-        type: "number",
-        description: `Max feed items to return (default 20, max ${MAX_ITEMS}).`,
-      },
+      url: { type: "string" },
+      maxItems: { type: "number", description: `Max ${MAX_ITEMS}.` },
     },
     required: ["url"],
   },

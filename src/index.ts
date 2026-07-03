@@ -1,5 +1,5 @@
 import { handleMcpRequest } from "./mcp/server.js";
-import { tools } from "./tools/index.js";
+import { tools, listTools } from "./tools/index.js";
 import { requiresPayment, getToolPrice, firstCallFreeEligible } from "./x402/middleware.js";
 import { PRICING_DATA } from "./tools/pricing.js";
 import { getDashboardData } from "./analytics/queries.js";
@@ -113,8 +113,9 @@ export default {
       const adminKey = request.headers.get("x-admin-key");
       const isAdmin = Boolean(env.ADMIN_API_KEY && adminKey === env.ADMIN_API_KEY);
       const clientUA = request.headers.get("user-agent") ?? "";
+      const sessionId = request.headers.get("mcp-session-id") ?? "";
 
-      const { response, status } = await handleMcpRequest(body, env, isAdmin, ctx, clientUA);
+      const { response, status } = await handleMcpRequest(body, env, isAdmin, ctx, clientUA, sessionId);
 
       if (response === null) {
         // Notification — 202 empty body with CORS
@@ -134,7 +135,7 @@ export default {
       return jsonResponse({
         name: "toolsnap-mcp",
         description:
-          "MCP server with microtools for AI agents. 23 free tools + fetch_extract (98.1% median token reduction, saves $0.156/call at Sonnet, ROI positive even at DeepSeek pricing with $0.01 prepaid). x402 USDC on Base, first call free.",
+          "MCP server with microtools for AI agents. Free flagship fetch_extract (98.1% median token reduction vs raw HTML) + fetch_html + a wide free utility catalog. Paid: screenshot_url, keyword_research, remove_background (real-COGS tools) via x402 USDC on Base.",
         mcp_endpoint: "/mcp",
         well_known: "/.well-known/mcp.json",
         pricing: "/.well-known/pricing.json",
@@ -144,12 +145,14 @@ export default {
     }
 
     // Well-known MCP server card
+    // Always the COMPLETE catalog (scope "full") — registries/directories need
+    // to see every tool, unlike the curated core served by tools/list.
     if (method === "GET" && url.pathname === "/.well-known/mcp.json") {
       return jsonResponse({
         name: "toolsnap-mcp",
         version: "0.1.0",
         description:
-          "Context-efficient microtools for AI agents. 23 free utility tools (UUID, hash, diff, regex, CSV/JSON/PDF query, HTML→Markdown, RSS, sitemap, token count, and more). Flagship fetch_extract: median 98.1% token reduction (53 820 → 2 001 tokens, 11 real pages). Saves $0.156/call at Sonnet pricing; ROI positive at DeepSeek R1 pricing ($0.019/call net at $0.01 prepaid). Pay per call $0.02 USDC on Base via x402 — first call free per wallet. Or deposit once ($0.50 min) and debit off-chain at $0.01/call, no per-call gas.",
+          `Context-efficient microtools for AI agents. ${tools.length} tools total. Free flagships fetch_extract (median 98.1% token reduction, 53,820 → 2,001 tokens, 11 real pages) and fetch_html, plus a wide free utility catalog (CSV/JSON/PDF query, HTML→Markdown, RSS, sitemap, metadata, token count, and more). Paid: screenshot_url, keyword_research, remove_background — real per-call COGS tools, $0.02–$0.04 USDC on Base via x402 (no first-call-free). Or deposit once ($0.50 min) and debit off-chain at a discount, no per-call gas.`,
         transport: "streamable-http",
         endpoint: "/mcp",
         pricing_endpoint: "/.well-known/pricing.json",
@@ -157,9 +160,8 @@ export default {
           method: "x402 v2",
           network: "eip155:8453",
           asset: "USDC",
-          pay_per_call: { price_usdc: 0.02, first_call_free: true },
+          note: "Price varies per tool — see the tools array below or /.well-known/pricing.json.",
           prepaid: {
-            price_usdc: 0.01,
             min_deposit_usdc: 0.5,
             non_refundable: true,
             deposit_tool: "account_deposit",
@@ -167,7 +169,7 @@ export default {
             spend_meta_key: "x402/prepaid-spend",
           },
         },
-        tools: tools.map(({ name, description }) => {
+        tools: listTools("full").map(({ name, description }) => {
           const paid = requiresPayment(name);
           if (!paid) return { name, description, tier: "free" };
           const p = getToolPrice(name, env);
@@ -195,7 +197,7 @@ export default {
         $schema: "https://glama.ai/mcp/schemas/connector.json",
         name: "ToolSnap MCP",
         description:
-          "Context-efficient microtools for AI agents. Flagship: fetch_extract converts raw HTML to clean text with a median 98.1% token reduction (53,820 → 2,001 tokens, 11 real pages) — saving ~$0.156/call at Sonnet pricing. 23 free utility tools included. Pay-per-call $0.02 USDC on Base via x402, first call free. Prepaid: deposit once ($0.50 min), debit at $0.01/call off-chain.",
+          `Context-efficient microtools for AI agents. ${tools.length} tools total. Flagship: fetch_extract converts raw HTML to clean text with a median 98.1% token reduction (53,820 → 2,001 tokens, 11 real pages) — free, like fetch_html and most of the catalog. Paid: screenshot_url, keyword_research, remove_background — real per-call COGS, $0.02–$0.04 USDC on Base via x402. Prepaid: deposit once ($0.50 min), debit off-chain at a discount.`,
         categories: ["developer-tools", "web-scraping", "data-extraction", "paid"],
         transport: "streamable-http",
         homepage: "https://toolsnap.app/agents",

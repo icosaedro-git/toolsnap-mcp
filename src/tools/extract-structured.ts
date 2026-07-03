@@ -302,20 +302,12 @@ function resolveField(
 
 export const extractStructuredTool: McpTool = {
   name: "fetch_structured",
-  description:
-    "Fetch a URL and extract structured data matching a JSON Schema — title, author, date, price, description, rating, image, and more. Reads JSON-LD, Open Graph, Twitter Cards, and Schema.org microdata embedded in the page; returns only the extracted JSON object. No LLM required: extraction is deterministic. Returns an empty object if the page has no matching semantic markup. Returns an error if the URL is unreachable or the schema parameter is not valid JSON. Has no side effects. Ideal for articles, products, recipes, and events with semantic markup. Do NOT use for pages without structured markup — use fetch_extract or html_to_markdown instead.",
+  description: "Fetch a URL, extract JSON Schema fields from its JSON-LD/OG/microdata. Deterministic.",
   inputSchema: {
     type: "object",
     properties: {
-      url: {
-        type: "string",
-        description: "URL to fetch and extract data from.",
-      },
-      schema: {
-        type: "string",
-        description:
-          'JSON Schema (as a JSON string) describing the fields to extract. E.g. {"type":"object","properties":{"title":{"type":"string"},"price":{"type":"number"}}}',
-      },
+      url: { type: "string" },
+      schema: { type: "string", description: "JSON Schema string." },
     },
     required: ["url", "schema"],
   },
