@@ -25,11 +25,11 @@ import {
 
 import {
   verifyPayment,
+  getToolPrice,
   USDC_ADDRESS,
   USDC_EIP712_NAME,
   USDC_EIP712_VERSION,
   NETWORK,
-  PRICE_MICRO_USDC_STR,
   type X402Env,
   type X402PaymentPayload,
 } from "../src/x402/middleware.js";
@@ -40,6 +40,10 @@ import {
 
 const PAY_TO: Address = "0xd5F96b537A05f196091502bCde038C572f88efba";
 const CHAIN_ID = 8453;
+
+// screenshot_url: $0.04 pay-per-call (40 000 micro-USDC) per TOOL_PRICE_OVERRIDES.
+const PAID_TOOL = "screenshot_url";
+const TOOL_PRICE = getToolPrice(PAID_TOOL, {});
 
 const AUTHORIZATION_TYPES = {
   TransferWithAuthorization: [
@@ -117,7 +121,7 @@ async function buildPayload(
 ): Promise<X402PaymentPayload> {
   const now = BigInt(Math.floor(Date.now() / 1000));
   const to: Address = override?.to ?? PAY_TO;
-  const value = override?.value ?? BigInt(PRICE_MICRO_USDC_STR);
+  const value = override?.value ?? TOOL_PRICE.payPerCallMicro;
   const validAfter = override?.validAfter ?? now - 10n;
   const validBefore = override?.validBefore ?? now + 300n;
   const nonce = override?.nonce ?? (`0x${"ab".repeat(32)}` as Hex);
@@ -148,14 +152,14 @@ async function buildPayload(
   return {
     x402Version: 2,
     resource: {
-      url: `mcp://tool/fetch_extract`,
+      url: `mcp://tool/${PAID_TOOL}`,
       description: "Test",
       mimeType: "application/json",
     },
     accepted: {
       scheme: "exact",
       network: NETWORK,
-      amount: PRICE_MICRO_USDC_STR,
+      amount: TOOL_PRICE.payPerCallMicro.toString(),
       asset: USDC_ADDRESS,
       payTo: PAY_TO,
       maxTimeoutSeconds: 300,
@@ -211,8 +215,8 @@ async function runTests(): Promise<void> {
   const config = {
     payToAddress: PAY_TO,
     network: "base",
-    priceUSDC: "0.02",
-    resource: "fetch_extract",
+    priceUSDC: TOOL_PRICE.payPerCallStr,
+    resource: PAID_TOOL,
   };
 
   // -------------------------------------------------------------------------
@@ -223,7 +227,7 @@ async function runTests(): Promise<void> {
     // Mock RPC: balance = 50 000 micro-USDC (enough)
     const balanceHex = (50_000n).toString(16).padStart(64, "0");
     mockFetchWithBalance(balanceHex);
-    const result = await verifyPayment(payload, config, mockEnv);
+    const result = await verifyPayment(payload, config, mockEnv, TOOL_PRICE.payPerCallMicro);
     restoreFetch();
 
     assert(
@@ -240,7 +244,7 @@ async function runTests(): Promise<void> {
     const payload = await buildPayload(account, { tamperSig: true });
     const balanceHex = (50_000n).toString(16).padStart(64, "0");
     mockFetchWithBalance(balanceHex);
-    const result = await verifyPayment(payload, config, mockEnv);
+    const result = await verifyPayment(payload, config, mockEnv, TOOL_PRICE.payPerCallMicro);
     restoreFetch();
 
     assert(
@@ -258,7 +262,7 @@ async function runTests(): Promise<void> {
     const payload = await buildPayload(account, { to: wrongTo });
     const balanceHex = (50_000n).toString(16).padStart(64, "0");
     mockFetchWithBalance(balanceHex);
-    const result = await verifyPayment(payload, config, mockEnv);
+    const result = await verifyPayment(payload, config, mockEnv, TOOL_PRICE.payPerCallMicro);
     restoreFetch();
 
     assert(
@@ -272,10 +276,10 @@ async function runTests(): Promise<void> {
   // Test 4: value too low → ok: false
   // -------------------------------------------------------------------------
   {
-    const payload = await buildPayload(account, { value: 1000n }); // < 20 000
+    const payload = await buildPayload(account, { value: 1000n }); // < 40 000
     const balanceHex = (50_000n).toString(16).padStart(64, "0");
     mockFetchWithBalance(balanceHex);
-    const result = await verifyPayment(payload, config, mockEnv);
+    const result = await verifyPayment(payload, config, mockEnv, TOOL_PRICE.payPerCallMicro);
     restoreFetch();
 
     assert(
@@ -296,7 +300,7 @@ async function runTests(): Promise<void> {
     });
     const balanceHex = (50_000n).toString(16).padStart(64, "0");
     mockFetchWithBalance(balanceHex);
-    const result = await verifyPayment(payload, config, mockEnv);
+    const result = await verifyPayment(payload, config, mockEnv, TOOL_PRICE.payPerCallMicro);
     restoreFetch();
 
     assert(
@@ -317,7 +321,7 @@ async function runTests(): Promise<void> {
     const envWithUsedNonce: X402Env = { ...mockEnv, X402_NONCES: usedKv };
     const balanceHex = (50_000n).toString(16).padStart(64, "0");
     mockFetchWithBalance(balanceHex);
-    const result = await verifyPayment(payload, config, envWithUsedNonce);
+    const result = await verifyPayment(payload, config, envWithUsedNonce, TOOL_PRICE.payPerCallMicro);
     restoreFetch();
 
     assert(
@@ -335,7 +339,7 @@ async function runTests(): Promise<void> {
     // Balance = 1 micro-USDC (not enough)
     const balanceHex = (1n).toString(16).padStart(64, "0");
     mockFetchWithBalance(balanceHex);
-    const result = await verifyPayment(payload, config, mockEnv);
+    const result = await verifyPayment(payload, config, mockEnv, TOOL_PRICE.payPerCallMicro);
     restoreFetch();
 
     assert(

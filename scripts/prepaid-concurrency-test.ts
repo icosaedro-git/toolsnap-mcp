@@ -14,6 +14,8 @@ const account = privateKeyToAccount(
   "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" as Hex
 );
 const ADDR = account.address.toLowerCase();
+const PAID_TOOL = "screenshot_url";
+const PREPAID_PRICE_MICRO = 25_000n; // $0.025 (TOOL_PRICE_OVERRIDES)
 const DOMAIN = { name: "ToolSnap Prepaid", version: "1", chainId: 8453 } as const;
 const TYPES = {
   SpendAuthorization: [
@@ -34,10 +36,10 @@ async function sign(nonce: Hex) {
     domain: DOMAIN,
     types: TYPES,
     primaryType: "SpendAuthorization",
-    message: { address: account.address, tool: "fetch_extract", maxAmount: 10000n, nonce, validBefore: vb },
+    message: { address: account.address, tool: PAID_TOOL, maxAmount: PREPAID_PRICE_MICRO, nonce, validBefore: vb },
   });
   return {
-    authorization: { address: account.address, tool: "fetch_extract", maxAmount: "10000", nonce, validBefore: vb.toString() },
+    authorization: { address: account.address, tool: PAID_TOOL, maxAmount: PREPAID_PRICE_MICRO.toString(), nonce, validBefore: vb.toString() },
     signature,
   };
 }
@@ -49,7 +51,7 @@ function d1(cmd: string): string {
 async function main() {
   const now = Math.floor(Date.now() / 1000);
   d1(
-    `DELETE FROM balances WHERE address='${ADDR}'; DELETE FROM spend_nonces WHERE address='${ADDR}'; INSERT INTO balances (address,balance_micro,total_deposited_micro,created_at,updated_at) VALUES ('${ADDR}',10000,10000,${now},${now});`
+    `DELETE FROM balances WHERE address='${ADDR}'; DELETE FROM spend_nonces WHERE address='${ADDR}'; INSERT INTO balances (address,balance_micro,total_deposited_micro,created_at,updated_at) VALUES ('${ADDR}',${PREPAID_PRICE_MICRO},${PREPAID_PRICE_MICRO},${now},${now});`
   );
 
   const proofs = await Promise.all([rn(), rn(), rn(), rn(), rn()].map(sign));
@@ -62,7 +64,7 @@ async function main() {
           jsonrpc: "2.0",
           id: 1,
           method: "tools/call",
-          params: { name: "fetch_extract", arguments: { url: "https://example.com" }, _meta: { "x402/prepaid-spend": p } },
+          params: { name: PAID_TOOL, arguments: { url: "https://example.com" }, _meta: { "x402/prepaid-spend": p } },
         }),
       }).then((r) => r.json())
     )
