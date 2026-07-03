@@ -15,8 +15,8 @@ import { privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "viem";
 
 const ENDPOINT = process.env.MCP_URL ?? "http://localhost:8787/mcp";
-const PAID_TOOL = "fetch_extract";
-const PREPAID_PRICE_MICRO = 10_000n; // $0.01
+const PAID_TOOL = "screenshot_url";
+const PREPAID_PRICE_MICRO = 25_000n; // $0.025 (TOOL_PRICE_OVERRIDES)
 const TEST_URL = "https://example.com";
 
 // Deterministic throwaway test key (NOT a funded wallet — local D1 only).
@@ -104,29 +104,29 @@ function check(label: string, cond: boolean, extra = "") {
 
 async function main() {
   console.log(`Test address: ${ADDR}`);
-  console.log("Seeding local D1 balance: $0.03 (3 prepaid calls)\n");
-  seedBalance(30_000);
+  console.log("Seeding local D1 balance: $0.075 (3 prepaid calls)\n");
+  seedBalance(75_000);
 
-  console.log("1) balance starts at 0.03");
-  check("balance == 0.030000", (await balance()) === "0.030000");
+  console.log("1) balance starts at 0.075");
+  check("balance == 0.075000", (await balance()) === "0.075000");
 
-  console.log("2) prepaid call #1 → success, balance 0.02");
+  console.log("2) prepaid call #1 → success, balance 0.05");
   const n1 = randNonce();
   const r1 = await callPrepaid(n1);
   const m1 = r1.result?._meta?.["x402/payment-response"];
   check("success + prepaid + not error", r1.result?.isError !== true && m1?.success === true && m1?.prepaid === true, JSON.stringify(r1.result?._meta ?? r1.error));
-  check("balance_usdc == 0.020000", m1?.balance_usdc === "0.020000", m1?.balance_usdc);
+  check("balance_usdc == 0.050000", m1?.balance_usdc === "0.050000", m1?.balance_usdc);
 
-  console.log("3) prepaid call #2 (fresh nonce) → balance 0.01");
+  console.log("3) prepaid call #2 (fresh nonce) → balance 0.025");
   const n2 = randNonce();
   const r2 = await callPrepaid(n2);
   const m2 = r2.result?._meta?.["x402/payment-response"];
-  check("balance_usdc == 0.010000", m2?.balance_usdc === "0.010000", m2?.balance_usdc);
+  check("balance_usdc == 0.025000", m2?.balance_usdc === "0.025000", m2?.balance_usdc);
 
   console.log("4) REPLAY nonce from #2 → rejected, balance unchanged");
   const r3 = await callPrepaid(n2);
   check("replay isError", r3.result?.isError === true && /replay/i.test(r3.result?.content?.[0]?.text ?? ""), JSON.stringify(r3.result));
-  check("balance still 0.010000 after replay", (await balance()) === "0.010000");
+  check("balance still 0.025000 after replay", (await balance()) === "0.025000");
 
   console.log("5) prepaid call #3 (fresh nonce) → balance 0.00");
   const r4 = await callPrepaid(randNonce());
