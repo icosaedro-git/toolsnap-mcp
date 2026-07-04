@@ -22,6 +22,8 @@ import { sitemapParseTool } from "./sitemap-parse.js";
 import { fetchHtmlTool } from "./fetch-html.js";
 import { pageAssetsTool } from "./page-assets.js";
 import { pageLinksTool } from "./page-links.js";
+import { linkCheckTool } from "./link-check.js";
+import { htmlTableExtractTool } from "./html-table-extract.js";
 import { screenshotUrlTool } from "./screenshot-url.js";
 import { taskRecipesTool } from "./task-recipes.js";
 import { keywordResearchTool } from "./keyword-research.js";
@@ -72,6 +74,8 @@ export const tools: McpTool[] = [
   countTokensTool,
   rssParseTool,
   sitemapParseTool,
+  linkCheckTool,
+  htmlTableExtractTool,
 ];
 
 /**

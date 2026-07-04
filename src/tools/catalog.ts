@@ -61,13 +61,14 @@ export const FAMILIES: Record<string, Family> = {
       "fetch_structured",
       "page_assets",
       "page_links",
+      "link_check",
       "screenshot_url",
     ],
   },
   seo: {
     label: "SEO & crawling",
     oneLiner: "Keyword volume/CPC, sitemaps, feeds, page metadata and links for audits and crawls.",
-    tools: ["keyword_research", "sitemap_parse", "rss_parse", "fetch_metadata", "page_links"],
+    tools: ["keyword_research", "sitemap_parse", "rss_parse", "fetch_metadata", "page_links", "link_check"],
   },
   data: {
     label: "Data & text utilities",
@@ -75,6 +76,7 @@ export const FAMILIES: Record<string, Family> = {
     tools: [
       "csv_query",
       "json_query",
+      "html_table_extract",
       "regex_extract",
       "diff_text",
       "json_format",
@@ -153,6 +155,10 @@ export const NOTES: Record<string, string> = {
     "Queries Google Ads data via DataForSEO for 1–20 keywords: monthly search volume, CPC, competition score, 12-month trend, top-5 related suggestions. Default location Spain (2724). No first-call-free (real COGS per batch).",
   remove_background:
     "Uses the U²-Net model via fal.ai. Returns a transparent PNG on a public URL (expires ~24h). To pass a local image, upload it first with upload_file. No first-call-free (real COGS per call).",
+  link_check:
+    "Follows redirects manually to build the full hop-by-hop chain (not just the final URL). Max 20 URLs per call, up to 5 redirect hops each. Detects broken links, redirect loops, and network/DNS failures without loading any page content.",
+  html_table_extract:
+    "Provide exactly one of url or html. Handles colspan (repeats the cell across spanned columns) and nested tables (returned as separate entries). Does NOT expand rowspan. Returns all tables by default; use table_index to select one, or format=csv (requires table_index when the page has more than one table).",
 };
 
 /**
