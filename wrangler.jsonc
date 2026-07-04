@@ -22,6 +22,9 @@
     // Comma-separated EVM addresses whitelisted for free access via wallet signature.
     // Add the relay wallet's public address here (derived from RELAYER_PRIVATE_KEY).
     "WHITELISTED_ADDRESSES": "0xd5F96b537A05f196091502bCde038C572f88efba",
+    // Fase 19.1: payer identifiers flagged as internal traffic in analytics
+    // (own relay wallet used by Hermes + admin-key traffic).
+    "INTERNAL_WALLETS": "0xd5F96b537A05f196091502bCde038C572f88efba,admin",
     // screenshot_url (Fase 11.2): public base URL for the R2 screenshots bucket.
     // r2.dev managed public URL (enabled 2026-06-25). Swap for a custom domain later.
     "R2_PUBLIC_URL": "https://pub-e25a29e50f6645acba8c20197c99194f.r2.dev",

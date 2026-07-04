@@ -123,11 +123,12 @@ const PAY_COLORS = {
 };
 
 const LS_KEY = 'ts_panel';
-const state = { days: 30, view: 'line' };
+const state = { days: 30, view: 'line', internal: false };
 try {
   const saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
   if ([7, 30, 90, 365].includes(saved.days)) state.days = saved.days;
   if (saved.view === 'line' || saved.view === 'bar') state.view = saved.view;
+  if (saved.internal === true) state.internal = true;
 } catch (e) {}
 let lastData = null;
 
@@ -143,6 +144,12 @@ function setView(view) {
   state.view = view;
   saveState();
   if (lastData) render(lastData);
+}
+function setInternal(on) {
+  if (state.internal === on) return;
+  state.internal = on;
+  saveState();
+  load(); // server-side filter — must refetch
 }
 
 function fmt(n, decimals = 2) {
@@ -454,9 +461,14 @@ function controlsBar() {
   const viewChips = views.map(([v, label]) =>
     \`<button class="seg-btn \${state.view === v ? 'active' : ''}" aria-pressed="\${state.view === v}" onclick="setView('\${v}')">\${label}</button>\`
   ).join('');
+  const sources = [[false, 'external'], [true, '+ internal']];
+  const sourceChips = sources.map(([on, label]) =>
+    \`<button class="seg-btn \${state.internal === on ? 'active' : ''}" aria-pressed="\${state.internal === on}" onclick="setInternal(\${on})">\${label}</button>\`
+  ).join('');
   return \`<div class="controls-bar">
     <div class="seg-group">\${chips}</div>
     <div class="seg-group">\${viewChips}</div>
+    <div class="seg-group" title="external = real demand only; + internal also counts our own dev/testing traffic">\${sourceChips}</div>
   </div>\`;
 }
 
@@ -549,7 +561,7 @@ function render(d) {
 async function load() {
   document.getElementById('last-updated').textContent = 'loading…';
   try {
-    const res = await fetch('/analytics/data');
+    const res = await fetch('/analytics/data' + (state.internal ? '?include_internal=1' : ''));
     if (!res.ok) {
       const txt = await res.text();
       document.getElementById('root').innerHTML = \`<div class="error">Error \${res.status}: \${txt}</div>\`;

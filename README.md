@@ -1,6 +1,6 @@
 # ToolSnap MCP
 
-> Context-efficient microtools for AI agents. Pay per call with USDC on Base.
+> One connection, superpowers for your agent: deterministic microtools — no accounts, no API keys, pay per call with USDC on Base.
 
 [![toolsnap-mcp MCP server](https://glama.ai/mcp/servers/icosaedro-git/toolsnap-mcp/badges/score.svg)](https://glama.ai/mcp/servers/icosaedro-git/toolsnap-mcp)
 [![MCP](https://img.shields.io/badge/MCP-streamable--http-6366f1)](https://mcp.toolsnap.app/.well-known/mcp.json)
@@ -18,7 +18,11 @@
 
 ## Why
 
-The biggest cost for AI agents isn't generation — it's context. When an agent loads a raw webpage to extract information it can burn 50,000+ tokens on HTML boilerplate. ToolSnap MCP moves that work server-side.
+ToolSnap is built around three ideas:
+
+**1. Deterministic — no LLM in the loop.** Most agent stacks now "clean" web pages by paying a second model to summarize them. ToolSnap's extraction is pure parsing: exact quotes, stable output, zero added inference cost, reproducible runs. What you extract is what the page said.
+
+**2. Context-efficient by design.** The biggest cost for AI agents isn't generation — it's context. Loading a raw webpage can burn 50,000+ tokens on HTML boilerplate; connecting a fat MCP server can burn as many in tool definitions. ToolSnap moves the work server-side *and* keeps discovery compact: `tools/list` shows a small curated core, and the full catalog of 38 microtools (web, PDFs, CSV/JSON, sitemaps, RSS, images…) sits one free `tool_catalog()` call away, executed via `use_tool`.
 
 **Benchmark (11 real pages, June 2026):**
 
@@ -29,6 +33,8 @@ The biggest cost for AI agents isn't generation — it's context. When an agent 
 | Break-even page size | — | — | 26 KB |
 
 `fetch_extract` is free — this saving costs nothing.
+
+**3. No accounts, no API keys.** Free tools work the second you connect. Paid tools settle per call with USDC on Base via [x402](https://x402.org) — an agent with a wallet can pay cold: no signup, no subscription, no key management.
 
 ---
 
@@ -88,7 +94,7 @@ curl -X POST https://mcp.toolsnap.app/mcp \
 
 ## Tools
 
-35+ tools total. `tools/list` shows a curated core (~18); discover everything else with the free `tool_catalog` tool and run it with `use_tool(name, args)`.
+38 tools total. `tools/list` shows a curated core (~18); discover everything else with the free `tool_catalog` tool and run it with `use_tool(name, args)`.
 
 ### Paid (x402) — real per-call COGS only
 

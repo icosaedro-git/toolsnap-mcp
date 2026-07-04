@@ -46,10 +46,11 @@ export interface DashboardData {
 async function latencyPercentile(
   db: D1Database,
   since: number,
-  fraction: number
+  fraction: number,
+  internalFilter: string
 ): Promise<number> {
   const count = await db
-    .prepare(`SELECT count(*) AS n FROM analytics_events WHERE ts >= ? AND latency_ms > 0`)
+    .prepare(`SELECT count(*) AS n FROM analytics_events WHERE ts >= ? AND latency_ms > 0${internalFilter}`)
     .bind(since)
     .first<{ n: number }>();
   const n = count?.n ?? 0;
@@ -58,7 +59,7 @@ async function latencyPercentile(
   const row = await db
     .prepare(
       `SELECT latency_ms FROM analytics_events
-       WHERE ts >= ? AND latency_ms > 0
+       WHERE ts >= ? AND latency_ms > 0${internalFilter}
        ORDER BY latency_ms ASC
        LIMIT 1 OFFSET ?`
     )
@@ -71,10 +72,16 @@ function dayLabel(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10);
 }
 
-export async function getDashboardData(db: D1Database): Promise<DashboardData> {
+export async function getDashboardData(
+  db: D1Database,
+  includeInternal = false
+): Promise<DashboardData> {
   const now = Date.now();
   const since30 = now - MS_30D;
   const since365 = now - MS_365D;
+  // Own dev/testing traffic (internal = 1) is excluded by default — the panel
+  // measures real external demand. Constant string, never user input.
+  const internalFilter = includeInternal ? "" : " AND internal = 0";
 
   const [
     summary,
@@ -95,7 +102,7 @@ export async function getDashboardData(db: D1Database): Promise<DashboardData> {
                   count(DISTINCT CASE WHEN payer != 'anon' THEN payer END) AS payers,
                   COALESCE(avg(latency_ms), 0) AS avg_latency
            FROM analytics_events
-           WHERE ts >= ?`
+           WHERE ts >= ?${internalFilter}`
         )
         .bind(since30)
         .first<{
@@ -109,7 +116,7 @@ export async function getDashboardData(db: D1Database): Promise<DashboardData> {
         .prepare(
           `SELECT tool_name AS tool, count(*) AS calls
            FROM analytics_events
-           WHERE ts >= ?
+           WHERE ts >= ?${internalFilter}
            GROUP BY tool_name
            ORDER BY calls DESC
            LIMIT 10`
@@ -132,7 +139,7 @@ export async function getDashboardData(db: D1Database): Promise<DashboardData> {
              END AS type,
              count(*) AS calls
            FROM analytics_events
-           WHERE ts >= ?
+           WHERE ts >= ?${internalFilter}
            GROUP BY type
            ORDER BY calls DESC`
         )
@@ -146,7 +153,7 @@ export async function getDashboardData(db: D1Database): Promise<DashboardData> {
            FROM analytics_events
            WHERE tool_name = 'account_deposit'
              AND payment_type = 'deposit_success'
-             AND ts >= ?`
+             AND ts >= ?${internalFilter}`
         )
         .bind(since30)
         .first<{ cnt: number; total: number }>(),
@@ -158,7 +165,7 @@ export async function getDashboardData(db: D1Database): Promise<DashboardData> {
         .prepare(
           `SELECT ts, count(*) AS calls
            FROM analytics_events
-           WHERE ts >= ?
+           WHERE ts >= ?${internalFilter}
            GROUP BY (ts / 86400000)
            ORDER BY ts ASC`
         )
@@ -169,7 +176,7 @@ export async function getDashboardData(db: D1Database): Promise<DashboardData> {
         .prepare(
           `SELECT ts, COALESCE(sum(revenue_usdc), 0) AS revenue
            FROM analytics_events
-           WHERE ts >= ?
+           WHERE ts >= ?${internalFilter}
            GROUP BY (ts / 86400000)
            ORDER BY ts ASC`
         )
@@ -180,7 +187,7 @@ export async function getDashboardData(db: D1Database): Promise<DashboardData> {
         .prepare(
           `SELECT ts, tool_name AS tool, payment_type AS type, payer, client, detail
            FROM analytics_events
-           WHERE ts >= ? AND payment_type IN (${ERROR_TYPES_SQL})
+           WHERE ts >= ? AND payment_type IN (${ERROR_TYPES_SQL})${internalFilter}
            ORDER BY ts DESC
            LIMIT 15`
         )
@@ -200,7 +207,7 @@ export async function getDashboardData(db: D1Database): Promise<DashboardData> {
                   count(*) AS total,
                   sum(CASE WHEN payment_type IN (${ERROR_TYPES_SQL}) THEN 1 ELSE 0 END) AS errors
            FROM analytics_events
-           WHERE ts >= ?
+           WHERE ts >= ?${internalFilter}
            GROUP BY tool_name
            HAVING errors > 0
            ORDER BY errors DESC
@@ -209,8 +216,8 @@ export async function getDashboardData(db: D1Database): Promise<DashboardData> {
         .bind(since30)
         .all<{ tool: string; total: number; errors: number }>(),
 
-      latencyPercentile(db, since30, 0.5),
-      latencyPercentile(db, since30, 0.95),
+      latencyPercentile(db, since30, 0.5, internalFilter),
+      latencyPercentile(db, since30, 0.95, internalFilter),
     ]);
 
   const s = summary ?? { calls: 0, revenue: 0, payers: 0, avg_latency: 0 };

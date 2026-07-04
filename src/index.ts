@@ -55,13 +55,20 @@ export interface Env {
   // fal.ai API key for remove_background and future generative tools (set via: wrangler secret put FAL_API_KEY).
   FAL_API_KEY?: string;
 
+  // Marks our own dev/testing traffic in analytics (Fase 19).
+  // Clients send X-ToolSnap-Internal: <token>; set via: wrangler secret put TOOLSNAP_INTERNAL_TOKEN.
+  TOOLSNAP_INTERNAL_TOKEN?: string;
+
+  // Comma-separated EVM addresses of our own wallets — their paid calls are marked internal.
+  INTERNAL_WALLETS?: string;
+
 }
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version, X-Admin-Key",
+    "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version, X-Admin-Key, X-ToolSnap-Internal",
 };
 
 function withCors(response: Response): Response {
@@ -114,8 +121,12 @@ export default {
       const isAdmin = Boolean(env.ADMIN_API_KEY && adminKey === env.ADMIN_API_KEY);
       const clientUA = request.headers.get("user-agent") ?? "";
       const sessionId = request.headers.get("mcp-session-id") ?? "";
+      const internalHeader = request.headers.get("x-toolsnap-internal");
+      const isInternal = Boolean(
+        env.TOOLSNAP_INTERNAL_TOKEN && internalHeader === env.TOOLSNAP_INTERNAL_TOKEN
+      );
 
-      const { response, status } = await handleMcpRequest(body, env, isAdmin, ctx, clientUA, sessionId);
+      const { response, status } = await handleMcpRequest(body, env, isAdmin, ctx, clientUA, sessionId, isInternal);
 
       if (response === null) {
         // Notification — 202 empty body with CORS
@@ -135,7 +146,7 @@ export default {
       return jsonResponse({
         name: "toolsnap-mcp",
         description:
-          "MCP server with microtools for AI agents. Free flagship fetch_extract (98.1% median token reduction vs raw HTML) + fetch_html + a wide free utility catalog. Paid: screenshot_url, keyword_research, remove_background (real-COGS tools) via x402 USDC on Base.",
+          "Deterministic microtools for AI agents — no accounts, no API keys. Free flagship fetch_extract (98.1% median token reduction vs raw HTML, pure parsing, no LLM in the loop) + fetch_html + a wide free utility catalog. Paid: screenshot_url, keyword_research, remove_background (real-COGS tools), pay per call via x402 USDC on Base.",
         mcp_endpoint: "/mcp",
         well_known: "/.well-known/mcp.json",
         pricing: "/.well-known/pricing.json",
@@ -152,7 +163,7 @@ export default {
         name: "toolsnap-mcp",
         version: "0.1.0",
         description:
-          `Context-efficient microtools for AI agents. ${tools.length} tools total. Free flagships fetch_extract (median 98.1% token reduction, 53,820 → 2,001 tokens, 11 real pages) and fetch_html, plus a wide free utility catalog (CSV/JSON/PDF query, HTML→Markdown, RSS, sitemap, metadata, token count, and more). Paid: screenshot_url, keyword_research, remove_background — real per-call COGS tools, $0.02–$0.04 USDC on Base via x402 (no first-call-free). Or deposit once ($0.50 min) and debit off-chain at a discount, no per-call gas.`,
+          `Deterministic, context-efficient microtools for AI agents — no accounts, no API keys. ${tools.length} tools total. Extraction is pure parsing (no LLM in the loop): exact quotes, stable output, zero added inference cost. Free flagships fetch_extract (median 98.1% token reduction, 53,820 → 2,001 tokens, 11 real pages) and fetch_html, plus a wide free utility catalog (CSV/JSON/PDF query, HTML→Markdown, RSS, sitemap, metadata, token count, and more). Paid: screenshot_url, keyword_research, remove_background — real per-call COGS tools, $0.02–$0.04 USDC on Base via x402 (no first-call-free). Or deposit once ($0.50 min) and debit off-chain at a discount, no per-call gas.`,
         transport: "streamable-http",
         endpoint: "/mcp",
         pricing_endpoint: "/.well-known/pricing.json",
@@ -197,7 +208,7 @@ export default {
         $schema: "https://glama.ai/mcp/schemas/connector.json",
         name: "ToolSnap MCP",
         description:
-          `Context-efficient microtools for AI agents. ${tools.length} tools total. Flagship: fetch_extract converts raw HTML to clean text with a median 98.1% token reduction (53,820 → 2,001 tokens, 11 real pages) — free, like fetch_html and most of the catalog. Paid: screenshot_url, keyword_research, remove_background — real per-call COGS, $0.02–$0.04 USDC on Base via x402. Prepaid: deposit once ($0.50 min), debit off-chain at a discount.`,
+          `Deterministic, context-efficient microtools for AI agents — no accounts, no API keys. ${tools.length} tools total. Flagship: fetch_extract converts raw HTML to clean text with a median 98.1% token reduction (53,820 → 2,001 tokens, 11 real pages) via pure parsing, no LLM in the loop — free, like fetch_html and most of the catalog. Paid: screenshot_url, keyword_research, remove_background — real per-call COGS, $0.02–$0.04 USDC on Base via x402. Prepaid: deposit once ($0.50 min), debit off-chain at a discount.`,
         categories: ["developer-tools", "web-scraping", "data-extraction", "paid"],
         transport: "streamable-http",
         homepage: "https://toolsnap.app/agents",
@@ -218,9 +229,11 @@ export default {
     }
 
     // Analytics data API — called by the dashboard panel via fetch('/analytics/data')
+    // ?include_internal=1 also counts our own dev/testing traffic (excluded by default).
     if (method === "GET" && url.pathname === "/analytics/data") {
       try {
-        const data = await getDashboardData(env.PREPAID_DB);
+        const includeInternal = url.searchParams.get("include_internal") === "1";
+        const data = await getDashboardData(env.PREPAID_DB, includeInternal);
         return jsonResponse(data);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

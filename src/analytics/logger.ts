@@ -42,6 +42,8 @@ export interface AnalyticsEvent {
   detail?: string;
   /** Caller's User-Agent header — identifies which MCP client made the call. */
   client?: string;
+  /** True when the call was flagged as our own dev/testing traffic (X-ToolSnap-Internal header). */
+  internal?: boolean;
 }
 
 export interface AnalyticsEnv {
@@ -49,6 +51,19 @@ export interface AnalyticsEnv {
   X402_NONCES?: KVNamespace;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
+  /** Comma-separated EVM addresses of our own wallets — their calls are marked internal. */
+  INTERNAL_WALLETS?: string;
+}
+
+/** A call is internal when explicitly flagged, admin-bypassed, or paid by one of our own wallets. */
+function isInternalEvent(env: AnalyticsEnv, event: AnalyticsEvent): boolean {
+  if (event.internal) return true;
+  if (event.payer === "admin") return true;
+  if (env.INTERNAL_WALLETS && event.payer) {
+    const own = env.INTERNAL_WALLETS.split(",").map((a) => a.trim().toLowerCase());
+    return own.includes(event.payer.toLowerCase());
+  }
+  return false;
 }
 
 export function writeEvent(
@@ -81,8 +96,8 @@ export function writeEvent(
   // before the async op completes (fire-and-forget without waitUntil is a no-op).
   ctx.waitUntil(
     env.PREPAID_DB.prepare(
-      `INSERT INTO analytics_events (ts, tool_name, payment_type, payer, revenue_usdc, latency_ms, detail, client)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO analytics_events (ts, tool_name, payment_type, payer, revenue_usdc, latency_ms, detail, client, internal)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
       .bind(
         Date.now(),
@@ -92,7 +107,8 @@ export function writeEvent(
         event.revenueUsdc,
         event.latencyMs,
         detail,
-        event.client ?? null
+        event.client ?? null,
+        isInternalEvent(env, event) ? 1 : 0
       )
       .run()
       .catch(() => {
