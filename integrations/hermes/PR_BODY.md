@@ -25,9 +25,20 @@ no wallet. Endpoint: `https://mcp.toolsnap.app/mcp` · Server card:
 
 ## Testing
 
-- `curl -X POST https://mcp.toolsnap.app/mcp -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'` → curated core list.
-- <!-- TODO before submitting: install the manifest in a local Hermes, run fetch_extract /
-  html_table_extract / tool_catalog from a session, and replace this line with the results. -->
+Tested against a local Hermes Agent install (v0.18.0) with `toolsnap` added as an MCP server
+(`hermes mcp add`, `url: https://mcp.toolsnap.app/mcp`, `auth: none`):
+
+- `hermes mcp test toolsnap` → `✓ Connected (1949ms)`, `✓ Tools discovered: 18` (curated core
+  from `tools/list`, matching the manifest's default selection).
+- `fetch_extract` on `https://example.com` → clean text, no HTML noise, single tool call.
+- `tool_catalog()` (no args) → 9 families, `total_tools: 38`, correct `how_to_run` guidance
+  pointing to `use_tool`.
+- `html_table_extract` (not in the curated 18, called via `use_tool(name="html_table_extract",
+  args={...})` per the manifest's documented pattern) on a Wikipedia population table →
+  `total_tables: 2`, 238 rows parsed with headers, as structured JSON.
+
+All three calls round-tripped through the live production endpoint (server v1.1.0, deployed
+2026-07-04) with correct, deterministic output — no LLM in the loop on ToolSnap's side.
 
 Happy to adjust the default tool selection or manifest fields to whatever the catalog
 maintainers prefer.
