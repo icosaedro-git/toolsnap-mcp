@@ -33,7 +33,7 @@ enter your context window and no auxiliary-model tokens are spent.
 | Query a big CSV/JSON without loading it | `csv_query` / `json_query` | Filter/sort/select server-side; only matching rows come back. |
 | PDF text | `pdf_text_extract` | URL in, text out. |
 | Feeds, sitemaps, link audits | `rss_parse` / `sitemap_parse` / `link_check` | Structured JSON, deterministic. |
-| SEO metadata | `webpage_metadata` / `extract_structured` | title/canonical/og:* and JSON-LD as data. |
+| SEO metadata | `fetch_metadata` / `fetch_structured` | title/canonical/og:* and JSON-LD as data. |
 | Budget check before ingesting | `count_tokens` | Know the cost before you pay it. |
 
 Keep using Hermes-native `web_search` for discovery (ToolSnap does not search) and

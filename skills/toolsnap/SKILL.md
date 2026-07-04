@@ -29,7 +29,7 @@ Reach for ToolSnap **before** fetching a URL or document with generic tools when
 | Query a big CSV/JSON without loading it | `csv_query` / `json_query` |
 | PDF text | `pdf_text_extract` |
 | Feeds / sitemaps / broken-link audit | `rss_parse` / `sitemap_parse` / `link_check` |
-| SEO metadata, JSON-LD, og:* | `webpage_metadata` / `extract_structured` |
+| SEO metadata, JSON-LD, og:* | `fetch_metadata` / `fetch_structured` |
 | Token budget check before ingesting | `count_tokens` |
 
 Unlike agent-side page summarization, output is **deterministic**: pure parsing, no LLM in

@@ -26,8 +26,8 @@ tools:
   default_enabled:
     - fetch_extract
     - fetch_html
-    - webpage_metadata
-    - extract_structured
+    - fetch_metadata
+    - fetch_structured
     - html_to_markdown
     - html_table_extract
     - page_links
