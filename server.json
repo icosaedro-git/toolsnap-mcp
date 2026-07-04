@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "app.toolsnap/toolsnap-mcp",
   "title": "ToolSnap MCP",
-  "description": "Deterministic microtools for AI agents — no accounts, no API keys. Free flagship fetch_extract (98.1% median token reduction vs raw HTML, pure parsing, no LLM in the loop) + fetch_html + a wide free utility catalog (38 tools). Paid: screenshot_url, keyword_research, remove_background, pay per call via x402 USDC on Base.",
+  "description": "Deterministic AI agent microtools, no accounts/API keys. fetch_extract: 98% token cut. 38 tools.",
   "version": "1.1.0",
   "websiteUrl": "https://toolsnap.app/agents",
   "repository": {
