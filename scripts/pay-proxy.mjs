@@ -69,6 +69,18 @@ const MCP_URL = process.env.TOOLSNAP_MCP_URL ?? "https://mcp.toolsnap.app/mcp";
 const MAX_PRICE_USDC = process.env.TOOLSNAP_MAX_PRICE_USDC ?? "0.10";
 const PREPAID = process.env.TOOLSNAP_PREPAID === "1";
 const AUTO_DEPOSIT_USDC = process.env.TOOLSNAP_AUTO_DEPOSIT_USDC ?? "";
+// Marks this proxy's traffic as our own dev/testing in server analytics (Fase 19).
+// Resolution: env TOOLSNAP_INTERNAL_TOKEN → ~/.toolsnap/internal.token → unmarked.
+const INTERNAL_TOKEN = resolveInternalToken();
+function resolveInternalToken() {
+  const env = process.env.TOOLSNAP_INTERNAL_TOKEN?.trim();
+  if (env) return env;
+  try {
+    return readFileSync(join(homedir(), ".toolsnap", "internal.token"), "utf8").trim();
+  } catch {
+    return "";
+  }
+}
 
 const MAX_PRICE_MICRO = usdcToMicro(MAX_PRICE_USDC);
 const AUTO_DEPOSIT_MICRO = AUTO_DEPOSIT_USDC ? usdcToMicro(AUTO_DEPOSIT_USDC) : 0n;
@@ -156,9 +168,11 @@ function chainIdFromNetwork(network) {
 }
 
 async function postRpc(message) {
+  const headers = { "Content-Type": "application/json" };
+  if (INTERNAL_TOKEN) headers["X-ToolSnap-Internal"] = INTERNAL_TOKEN;
   const res = await fetch(MCP_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(message),
   });
   if (res.status === 202) return null; // notification — no body

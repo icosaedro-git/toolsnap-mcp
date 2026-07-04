@@ -140,7 +140,8 @@ async function handleAccountDeposit(
   params: ToolsCallParams,
   env: Env,
   ctx: ExecutionContext,
-  clientUA = ""
+  clientUA = "",
+  isInternal = false
 ): Promise<JsonRpcResponse> {
   const minMicro = usdcToMicro(env.X402_MIN_DEPOSIT_USDC);
   const config: PaymentConfig = {
@@ -176,6 +177,7 @@ async function handleAccountDeposit(
       latencyMs: Date.now() - depositStart,
       detail: msg,
       client: clientUA,
+      internal: isInternal,
     }, ctx);
     return successResponse(id, {
       content: [{ type: "text", text: `Deposit settlement failed (not charged): ${msg}` }],
@@ -205,6 +207,7 @@ async function handleAccountDeposit(
       latencyMs: Date.now() - depositStart,
       detail: `credit_failed after settlement tx ${settlement.txHash}: ${msg}`,
       client: clientUA,
+      internal: isInternal,
     }, ctx);
     return successResponse(id, {
       content: [
@@ -233,6 +236,7 @@ async function handleAccountDeposit(
     revenueUsdc: Number(creditMicro) / 1_000_000,
     latencyMs: Date.now() - depositStart,
     client: clientUA,
+    internal: isInternal,
   }, ctx);
 
   return successResponse(id, {
@@ -289,7 +293,8 @@ export async function dispatch(
   isAdmin = false,
   ctx: ExecutionContext,
   clientUA = "",
-  sessionId = ""
+  sessionId = "",
+  isInternal = false
 ): Promise<JsonRpcResponse | null> {
   const id: string | number | null =
     request.id !== undefined ? (request.id ?? null) : null;
@@ -428,7 +433,7 @@ export async function dispatch(
         return handleAccountBalance(id, toolArgs, env);
       }
       if (toolName === "account_deposit") {
-        return handleAccountDeposit(id, params, env, ctx, clientUA);
+        return handleAccountDeposit(id, params, env, ctx, clientUA, isInternal);
       }
 
       // -----------------------------------------------------------------------
@@ -452,6 +457,7 @@ export async function dispatch(
               revenueUsdc: 0,
               latencyMs: Date.now() - t0,
               client: clientUA,
+              internal: isInternal,
             }, ctx);
             return successResponse(id, { content: [{ type: "text", text: result }] });
           } catch (err) {
@@ -464,6 +470,7 @@ export async function dispatch(
               latencyMs: Date.now() - t0,
               detail: message,
               client: clientUA,
+              internal: isInternal,
             }, ctx);
             return successResponse(id, {
               content: [{ type: "text", text: message }],
@@ -493,6 +500,7 @@ export async function dispatch(
                   revenueUsdc: 0,
                   latencyMs: Date.now() - t0,
                   client: clientUA,
+                  internal: isInternal,
                 }, ctx);
                 return successResponse(id, { content: [{ type: "text", text: result }] });
               } catch (err) {
@@ -505,6 +513,7 @@ export async function dispatch(
                   latencyMs: Date.now() - t0,
                   detail: message,
                   client: clientUA,
+                  internal: isInternal,
                 }, ctx);
                 return successResponse(id, {
                   content: [{ type: "text", text: message }],
@@ -532,6 +541,7 @@ export async function dispatch(
               latencyMs: Date.now() - t0,
               detail: v.reason,
               client: clientUA,
+              internal: isInternal,
             }, ctx);
             return successResponse(id, {
               content: [{ type: "text", text: `Prepaid authorization rejected: ${v.reason}` }],
@@ -558,6 +568,7 @@ export async function dispatch(
                 latencyMs: Date.now() - t0,
                 detail: `have ${microToUsdc(bal)} USDC, need ${price.prepaidStr}`,
                 client: clientUA,
+                internal: isInternal,
               }, ctx);
               return buildDepositRequiredResponse(
                 id,
@@ -573,6 +584,7 @@ export async function dispatch(
               latencyMs: Date.now() - t0,
               detail: "replay: spend authorization already used",
               client: clientUA,
+              internal: isInternal,
             }, ctx);
             return successResponse(id, {
               content: [
@@ -600,6 +612,7 @@ export async function dispatch(
               latencyMs: Date.now() - t0,
               detail: message,
               client: clientUA,
+              internal: isInternal,
             }, ctx);
             return successResponse(id, {
               content: [{ type: "text", text: message }],
@@ -624,6 +637,7 @@ export async function dispatch(
             revenueUsdc: Number(prepaidPriceMicro) / 1_000_000,
             latencyMs: Date.now() - t0,
             client: clientUA,
+            internal: isInternal,
           }, ctx);
 
           return successResponse(id, {
@@ -663,6 +677,7 @@ export async function dispatch(
             latencyMs: Date.now() - t0,
             detail: "no_payment_payload",
             client: clientUA,
+            internal: isInternal,
           }, ctx);
           // No payment payload at all → agent likely has no wallet yet.
           // Inject a wallet_setup hint into the standard x402 response so the
@@ -689,6 +704,7 @@ export async function dispatch(
             latencyMs: Date.now() - t0,
             detail: verifyResult.reason,
             client: clientUA,
+            internal: isInternal,
           }, ctx);
           return buildPaymentRequiredResponse(
             config,
@@ -720,6 +736,7 @@ export async function dispatch(
             latencyMs: Date.now() - t0,
             detail: message,
             client: clientUA,
+            internal: isInternal,
           }, ctx);
           return successResponse(id, {
             content: [{ type: "text", text: message }],
@@ -737,6 +754,7 @@ export async function dispatch(
             revenueUsdc: 0,
             latencyMs: Date.now() - t0,
             client: clientUA,
+            internal: isInternal,
           }, ctx);
           return successResponse(id, {
             content: [{ type: "text", text: toolResult }],
@@ -774,6 +792,7 @@ export async function dispatch(
             latencyMs: Date.now() - t0,
             detail: settleErr,
             client: clientUA,
+            internal: isInternal,
           }, ctx);
           return successResponse(id, {
             content: [{ type: "text", text: toolResult }],
@@ -796,6 +815,7 @@ export async function dispatch(
           revenueUsdc: Number(price.payPerCallStr),
           latencyMs: Date.now() - t0,
           client: clientUA,
+          internal: isInternal,
         }, ctx);
 
         // Step 7: return tool result with settlement metadata
@@ -826,6 +846,7 @@ export async function dispatch(
             revenueUsdc: 0,
             latencyMs: Date.now() - t0,
             client: clientUA,
+            internal: isInternal,
           }, ctx);
           return successResponse(id, {
             content: [{ type: "text", text: result }],
@@ -840,6 +861,7 @@ export async function dispatch(
             latencyMs: Date.now() - t0,
             detail: message,
             client: clientUA,
+            internal: isInternal,
           }, ctx);
           return successResponse(id, {
             content: [{ type: "text", text: message }],
@@ -880,7 +902,8 @@ export async function handleMcpRequest(
   isAdmin = false,
   ctx: ExecutionContext,
   clientUA = "",
-  sessionId = ""
+  sessionId = "",
+  isInternal = false
 ): Promise<{ response: string | null; status: number }> {
   let request: JsonRpcRequest;
   try {
@@ -890,7 +913,7 @@ export async function handleMcpRequest(
     return { response: JSON.stringify(err), status: 400 };
   }
 
-  const result = await dispatch(request, env, isAdmin, ctx, clientUA, sessionId);
+  const result = await dispatch(request, env, isAdmin, ctx, clientUA, sessionId, isInternal);
 
   if (result === null) {
     // Notification — no response body

@@ -55,13 +55,20 @@ export interface Env {
   // fal.ai API key for remove_background and future generative tools (set via: wrangler secret put FAL_API_KEY).
   FAL_API_KEY?: string;
 
+  // Marks our own dev/testing traffic in analytics (Fase 19).
+  // Clients send X-ToolSnap-Internal: <token>; set via: wrangler secret put TOOLSNAP_INTERNAL_TOKEN.
+  TOOLSNAP_INTERNAL_TOKEN?: string;
+
+  // Comma-separated EVM addresses of our own wallets — their paid calls are marked internal.
+  INTERNAL_WALLETS?: string;
+
 }
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version, X-Admin-Key",
+    "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version, X-Admin-Key, X-ToolSnap-Internal",
 };
 
 function withCors(response: Response): Response {
@@ -114,8 +121,12 @@ export default {
       const isAdmin = Boolean(env.ADMIN_API_KEY && adminKey === env.ADMIN_API_KEY);
       const clientUA = request.headers.get("user-agent") ?? "";
       const sessionId = request.headers.get("mcp-session-id") ?? "";
+      const internalHeader = request.headers.get("x-toolsnap-internal");
+      const isInternal = Boolean(
+        env.TOOLSNAP_INTERNAL_TOKEN && internalHeader === env.TOOLSNAP_INTERNAL_TOKEN
+      );
 
-      const { response, status } = await handleMcpRequest(body, env, isAdmin, ctx, clientUA, sessionId);
+      const { response, status } = await handleMcpRequest(body, env, isAdmin, ctx, clientUA, sessionId, isInternal);
 
       if (response === null) {
         // Notification — 202 empty body with CORS
@@ -218,9 +229,11 @@ export default {
     }
 
     // Analytics data API — called by the dashboard panel via fetch('/analytics/data')
+    // ?include_internal=1 also counts our own dev/testing traffic (excluded by default).
     if (method === "GET" && url.pathname === "/analytics/data") {
       try {
-        const data = await getDashboardData(env.PREPAID_DB);
+        const includeInternal = url.searchParams.get("include_internal") === "1";
+        const data = await getDashboardData(env.PREPAID_DB, includeInternal);
         return jsonResponse(data);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
