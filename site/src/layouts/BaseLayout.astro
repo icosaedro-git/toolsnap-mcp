@@ -47,5 +47,19 @@ const ogImage = new URL('/img/og-default.png', Astro.site).toString();
     </main>
     <Footer />
     <script src="../scripts/client.js"></script>
+    <!--
+      Cloudflare Web Analytics (Fase 21.1). Cookie-free, no consent banner
+      needed. The token below is a PLACEHOLDER — our API token has no
+      analytics scope, so this couldn't be provisioned automatically.
+      To activate: Cloudflare dashboard -> Analytics & Logs -> Web Analytics
+      -> Add a site -> mcp.toolsnap.app -> copy the "token" value from the
+      generated snippet and paste it in place of REPLACE_WITH_CF_BEACON_TOKEN
+      below (one line, no code changes needed elsewhere).
+    -->
+    <script
+      defer
+      src="https://static.cloudflareinsights.com/beacon.min.js"
+      data-cf-beacon='{"token": "REPLACE_WITH_CF_BEACON_TOKEN"}'
+    ></script>
   </body>
 </html>
