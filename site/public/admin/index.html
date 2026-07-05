@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex" />
   <title>CMS — ToolSnap MCP</title>
+  <!--
+    Absolute path on purpose: the site canonicalizes /admin (no trailing
+    slash), and Decap's default relative "config.yml" lookup resolves
+    against that as a sibling of /admin -> https://.../config.yml (404).
+    This explicit tag makes the lookup independent of trailing-slash
+    handling.
+  -->
+  <link href="/admin/config.yml" type="text/yaml" rel="cms-config-url" />
 </head>
 <body>
   <script src="https://unpkg.com/decap-cms@^3.0.0/dist/decap-cms.js"></script>
