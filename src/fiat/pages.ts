@@ -191,7 +191,7 @@ export function renderTermsPage(): string {
   return layout(
     "Terms",
     `<h1>Terms of Service</h1>
-    <p>ToolSnap MCP is operated by Icosaedro One LLC. By purchasing credits or using paid tools, you agree to these terms.</p>
+    <p>ToolSnap MCP is operated by <strong>Icosaedro Music &amp; Human Development LLC</strong>, 2201 Menaul Blvd NE Ste A, Albuquerque, NM 87107, USA. By purchasing credits or using paid tools, you agree to these terms.</p>
     <h2>Service</h2><p>ToolSnap provides API access to microtools for AI agents, billed per call from a prepaid balance funded by card (via Polar) or cryptocurrency (USDC on Base).</p>
     <h2>Credits</h2><p>Credits are prepaid and non-refundable (see <a href="/refunds">Refund Policy</a>). Unused balance does not expire.</p>
     <h2>API keys</h2><p>You are responsible for keeping your API key confidential. We store only a cryptographic hash of your key, never the key itself, and cannot recover a lost key — only revoke and reissue.</p>
@@ -204,6 +204,7 @@ export function renderPrivacyPage(): string {
   return layout(
     "Privacy",
     `<h1>Privacy Policy</h1>
+    <p>Data controller: <strong>Icosaedro Music &amp; Human Development LLC</strong>, 2201 Menaul Blvd NE Ste A, Albuquerque, NM 87107, USA.</p>
     <p>We collect the minimum needed to operate the service: your email (via Polar, for account identification and receipts), a hash of your API key, and per-call usage metadata (tool name, timestamp, latency) for billing and abuse prevention.</p>
     <p>We do not sell personal data. Payment card data is handled entirely by Polar (our Merchant of Record) and never touches our servers.</p>
     <p>Contact: support@toolsnap.app</p>`
