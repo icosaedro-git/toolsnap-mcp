@@ -1,0 +1,44 @@
+backend:
+  name: github
+  repo: icosaedro-git/toolsnap-mcp
+  branch: main
+  base_url: https://cms-auth-web-unairodriguez.icosaedro-academy.workers.dev
+
+media_folder: "site/public/img/blog"
+public_folder: "/img/blog"
+
+collections:
+  - name: "blog"
+    label: "Blog"
+    folder: "site/src/content/blog"
+    create: true
+    slug: "{{slug}}"
+    fields:
+      - {label: "Title", name: "title", widget: "string"}
+      - label: "Publish date"
+        name: "date"
+        widget: "datetime"
+        format: "YYYY-MM-DD"
+        date_format: "DD/MM/YYYY"
+        time_format: false
+      - {label: "Description (card + SEO, ~160 chars)", name: "description", widget: "text"}
+      - label: "Category"
+        name: "category"
+        widget: "select"
+        options: ["Context engineering", "Recipes", "Product", "Engineering"]
+      - {label: "Tags (comma separated)", name: "tags", widget: "list", default: []}
+      - {label: "Read time (minutes)", name: "read_time", widget: "number", default: 5}
+      - {label: "Cover image", name: "image", widget: "image", required: false}
+      - label: "Feature on the blog homepage"
+        name: "featured"
+        widget: "boolean"
+        default: false
+        required: false
+        hint: "If none are marked, the most recent post is featured automatically."
+      - label: "Save as draft"
+        name: "draft"
+        widget: "boolean"
+        default: false
+        required: false
+        hint: "Drafts are not published even after a deploy."
+      - {label: "Content", name: "body", widget: "markdown"}

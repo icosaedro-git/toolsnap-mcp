@@ -1,0 +1,189 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+
+const posts = (await getCollection('blog', ({ data }) => !data.draft)).sort(
+  (a, b) => b.data.date.getTime() - a.data.date.getTime()
+);
+
+const featured = posts.find((p) => p.data.featured) ?? posts[0];
+const rest = posts.filter((p) => p.id !== featured.id);
+
+const blogLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Blog',
+  name: 'ToolSnap MCP Blog',
+  url: 'https://mcp.toolsnap.app/blog/',
+  author: { '@type': 'Organization', name: 'ToolSnap' },
+  blogPost: posts.slice(0, 10).map((p) => ({
+    '@type': 'BlogPosting',
+    headline: p.data.title,
+    url: `https://mcp.toolsnap.app/blog/${p.id.replace(/\.md$/, '')}/`,
+    datePublished: p.data.date.toISOString(),
+  })),
+};
+---
+
+<BaseLayout title="Blog — ToolSnap MCP" description="Context engineering, agent recipes and product notes from ToolSnap MCP.">
+  <Fragment slot="head">
+    <link rel="alternate" type="application/rss+xml" title="ToolSnap MCP Blog" href="/rss.xml" />
+    <script type="application/ld+json" set:html={JSON.stringify(blogLd)} />
+  </Fragment>
+
+  <section class="blog-hero">
+    <div class="container hero-inner">
+      <header class="blog-header">
+        <h1>Blog</h1>
+        <p>Context engineering, recipes and product notes — everything we learn making agents cheaper and more capable.</p>
+      </header>
+      <article class="card card--featured">
+        <div class="card__img">
+          <h2 class="card__title">
+            <a href={`/blog/${featured.id.replace(/\.md$/, '')}`}>{featured.data.title}</a>
+          </h2>
+        </div>
+        <div class="card__body">
+          <span class="card__tag">{featured.data.category}</span>
+          <p>{featured.data.description}</p>
+          <div class="card__meta">
+            {featured.data.date.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })} &middot; {featured.data.read_time} min
+          </div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  {rest.length > 0 && (
+    <section class="blog-more">
+      <div class="container">
+        <h2 class="more-label">More articles</h2>
+        <div class="grid">
+          {rest.map((p) => {
+            const slug = p.id.replace(/\.md$/, '');
+            return (
+              <article class="card reveal">
+                <div class="card__img">
+                  <h3 class="card__title">
+                    <a href={`/blog/${slug}`}>{p.data.title}</a>
+                  </h3>
+                </div>
+                <div class="card__body">
+                  <span class="card__tag">{p.data.category}</span>
+                  <p>{p.data.description}</p>
+                  <div class="card__meta">
+                    {p.data.date.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })} &middot; {p.data.read_time} min
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  )}
+</BaseLayout>
+
+<style>
+  .blog-hero {
+    min-height: calc(100svh - 68px);
+    padding: clamp(18px, 3vw, 32px) 0 clamp(24px, 3.5vw, 36px);
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+  }
+  .hero-inner { flex: 1; display: flex; flex-direction: column; }
+
+  .blog-header { text-align: center; margin-bottom: clamp(14px, 2vw, 22px); }
+  .blog-header h1 { font-size: clamp(2rem, 5vw, 3.6rem); letter-spacing: -0.02em; line-height: 1.08; margin-bottom: 10px; }
+  .blog-header p { color: var(--text-soft); font-size: 1.06rem; max-width: 520px; margin-inline: auto; line-height: 1.65; }
+
+  .card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--r);
+    overflow: hidden;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 20px 40px -16px rgba(163, 230, 53, 0.18); }
+
+  /* Regular card: dark metallic green with a lime sheen sweep */
+  .card__img {
+    background:
+      radial-gradient(ellipse 65% 50% at 84% 8%, rgba(163, 230, 53, 0.07) 0%, transparent 58%),
+      linear-gradient(135deg, rgba(163, 230, 53, 0) 22%, rgba(163, 230, 53, 0.08) 42%, rgba(190, 242, 100, 0.12) 50%, rgba(163, 230, 53, 0.07) 58%, rgba(163, 230, 53, 0) 78%),
+      linear-gradient(150deg, #0f1a0c 0%, #1e3a14 30%, #2b4a18 50%, #17300f 72%, #0b1408 100%);
+    min-height: 168px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 24px 28px;
+  }
+  .card__title {
+    font-weight: 650;
+    font-size: clamp(1.12rem, 1.8vw, 1.5rem);
+    color: #fff;
+    line-height: 1.2;
+    text-wrap: balance;
+    text-align: center;
+    margin: 0;
+    letter-spacing: -0.015em;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
+  }
+  .card__title a { color: inherit; text-decoration: none; }
+  .card__title a::after { content: ''; position: absolute; inset: 0; z-index: 1; }
+
+  .card__body {
+    flex: 1;
+    padding: 16px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    background: color-mix(in srgb, var(--lime) 6%, var(--surface));
+  }
+  .card__tag { display: inline-block; font-size: 0.74rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--lime); }
+  .card__body p { color: var(--text-soft); font-size: 0.93rem; line-height: 1.62; flex: 1; margin: 0; }
+  .card__meta { color: var(--text-mute); font-size: 0.82rem; font-variant-numeric: tabular-nums; margin-top: auto; }
+
+  /* Featured card: lime -> teal, must read as clearly different/livelier */
+  .card--featured { flex: 1; }
+  .card--featured .card__img {
+    background:
+      radial-gradient(ellipse 70% 55% at 80% 10%, rgba(45, 212, 191, 0.16) 0%, transparent 60%),
+      linear-gradient(145deg, #3f6212 0%, #65a30d 34%, #0d9488 68%, #0b1f1c 100%);
+    flex: 1;
+    min-height: 200px;
+    padding: clamp(28px, 5vw, 56px) clamp(28px, 6vw, 72px);
+  }
+  .card--featured .card__title { font-size: clamp(1.9rem, 3.8vw, 3rem); line-height: 1.12; max-width: 800px; text-shadow: none; }
+  .card--featured .card__body {
+    flex: 0 0 auto;
+    padding: clamp(16px, 2.5vw, 22px) clamp(28px, 6vw, 72px) clamp(18px, 3vw, 26px);
+    gap: 12px;
+    align-items: center;
+  }
+  .card--featured p { font-size: 1rem; line-height: 1.65; max-width: 640px; width: 100%; }
+  .card--featured .card__meta { margin-top: 0; }
+
+  .blog-more { padding: clamp(48px, 7vw, 80px) 0 clamp(56px, 9vw, 104px); }
+  .more-label {
+    font-size: 0.78rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-mute); margin-bottom: clamp(18px, 2.5vw, 28px);
+    padding-bottom: 14px; border-bottom: 1px solid var(--border);
+  }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+
+  @media (max-width: 720px) {
+    .grid { grid-template-columns: 1fr; }
+    .card__img { min-height: 148px; padding: 18px 22px; }
+    .card__title { font-size: clamp(1rem, 4vw, 1.3rem); }
+    .card__body { padding: 14px 16px 18px; }
+  }
+  @media (max-width: 480px) {
+    .card__img { min-height: 132px; }
+    .card--featured .card__img { padding: 24px 20px; }
+  }
+</style>

@@ -1,0 +1,35 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout title="404 — ToolSnap MCP" description="Page not found.">
+  <section class="not-found container">
+    <p class="code404 mono">404</p>
+    <h1>Nothing at this URL</h1>
+    <p class="text-soft">
+      The page you're after doesn't exist (or moved). If you were looking for the MCP endpoint, it's a POST to
+      <code class="inline">https://mcp.toolsnap.app/mcp</code> — this website is just its human face.
+    </p>
+    <a href="/" class="btn btn--primary">Back home</a>
+  </section>
+</BaseLayout>
+
+<style>
+  .not-found {
+    min-height: calc(100svh - 68px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 20px;
+    padding-block: 80px;
+  }
+  .code404 {
+    font-size: clamp(6rem, 16vw, 10rem);
+    color: var(--lime);
+    opacity: 0.9;
+    line-height: 1;
+  }
+  .not-found p.text-soft { max-width: 480px; }
+</style>

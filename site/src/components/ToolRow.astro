@@ -1,0 +1,39 @@
+---
+interface Props {
+  name: string;
+  description: string;
+  tier: 'free' | 'paid';
+  priceUsdc: number | null;
+  prepaidUsdc: number | null;
+}
+const { name, description, tier, priceUsdc, prepaidUsdc } = Astro.props;
+---
+
+<div class="tool-row">
+  <span class="tool-name mono">{name}</span>
+  <span class="tool-desc">{description}</span>
+  {tier === 'free' ? (
+    <span class="badge badge--free">FREE</span>
+  ) : (
+    <span class="badge badge--price mono">${priceUsdc?.toFixed(2)} &middot; ${prepaidUsdc?.toFixed(3).replace(/0$/, '')} prepaid</span>
+  )}
+</div>
+
+<style>
+  .tool-row {
+    display: grid;
+    grid-template-columns: 200px 1fr auto;
+    gap: 20px;
+    align-items: center;
+    padding: 14px 12px;
+    border-radius: 6px;
+    transition: background var(--dur) var(--ease);
+  }
+  .tool-row:hover { background: var(--surface); }
+  .tool-name { color: var(--head); font-size: 0.92rem; }
+  .tool-desc { color: var(--text-soft); font-size: 0.9rem; line-height: 1.5; }
+
+  @media (max-width: 720px) {
+    .tool-row { grid-template-columns: 1fr; gap: 6px; }
+  }
+</style>

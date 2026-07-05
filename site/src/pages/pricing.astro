@@ -1,0 +1,143 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import InnerHero from '../components/InnerHero.astro';
+
+const title = 'Pricing — ToolSnap MCP';
+const description = '35 free tools. 3 paid tools from $0.02 per call. Pay with card credits (Polar) or USDC on Base (x402). No subscriptions, no expiry.';
+
+const paidTools = [
+  { name: 'screenshot_url', desc: 'Full-page or viewport screenshots, returned as a URL', pay: '$0.04', credit: '$0.025' },
+  { name: 'keyword_research', desc: 'Search volume, CPC and competition from Google Ads data', pay: '$0.04', credit: '$0.025' },
+  { name: 'remove_background', desc: 'ML background removal, returns a hosted PNG', pay: '$0.03', credit: '$0.02' },
+];
+
+const faq = [
+  { q: 'Do credits expire?', a: 'No. They stay on your balance until you spend them.' },
+  { q: 'Are credits refundable?', a: 'As a rule, no — see the refund policy for the two exceptions (purchase errors and tool failures reported within 14 days).' },
+  { q: 'Is there a free trial of paid tools?', a: "The three paid tools have real per-call costs, so every call settles. At $0.02–$0.04 a call, the trial is the price." },
+];
+---
+
+<BaseLayout title={title} description={description}>
+  <InnerHero
+    title="Pricing"
+    lead="No subscriptions. No seats. No expiry. You pay per call, only for the three tools that cost us real money to run."
+  />
+
+  <div class="container pricing-page">
+    <section class="reveal">
+      <h2>Free — 35 tools, no limits that matter</h2>
+      <p class="text-soft">The free tier isn't a trial, it's the product. Web extraction, SEO parsing, data queries, PDF text, utilities — all free, no account, no key. We keep it free because an agent that saves context with ToolSnap every day is worth more to us than a toll booth.</p>
+    </section>
+
+    <section class="reveal">
+      <h2>The paid three</h2>
+      <div class="table-card card">
+        <div class="table-row table-head mono text-mute">
+          <span>Tool</span><span>What it does</span><span>Pay-per-call</span><span>With credits</span>
+        </div>
+        {paidTools.map((t) => (
+          <div class="table-row">
+            <span class="mono">{t.name}</span>
+            <span class="text-soft">{t.desc}</span>
+            <span class="mono">{t.pay}</span>
+            <span class="mono">{t.credit}</span>
+          </div>
+        ))}
+      </div>
+      <p class="text-mute note">Credits prices are ~35% cheaper because settlement is off-chain (we skip per-call gas).</p>
+    </section>
+
+    <section class="reveal">
+      <h2>Two ways to pay</h2>
+      <div class="rails-grid">
+        <div class="card">
+          <h3>Credits (card)</h3>
+          <dl>
+            <dt>Setup</dt><dd>2 minutes: checkout &rarr; API key</dd>
+            <dt>Best for</dt><dd>Humans who don't want crypto</dd>
+            <dt>Minimum</dt><dd>$5</dd>
+            <dt>How it settles</dt><dd>Deducted from your balance per call</dd>
+          </dl>
+          <a href="/checkout" class="btn btn--ghost btn--sm">Buy credits &rarr;</a>
+        </div>
+        <div class="card">
+          <h3>x402 (USDC on Base)</h3>
+          <dl>
+            <dt>Setup</dt><dd>Give your agent a wallet (guide takes ~3 min)</dd>
+            <dt>Best for</dt><dd>Autonomous agents, no account at all</dd>
+            <dt>Minimum</dt><dd>$0.50 deposit for prepaid, or none for pay-per-call</dd>
+            <dt>How it settles</dt><dd>Signed by your agent, settled on-chain</dd>
+          </dl>
+          <a href="/wallet-guide" class="btn btn--ghost btn--sm">Wallet guide &rarr;</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="reveal">
+      <h2>FAQ</h2>
+      <div class="faq-list">
+        {faq.map((item) => (
+          <details class="faq-item">
+            <summary>{item.q}</summary>
+            <p class="text-soft">{item.a}</p>
+          </details>
+        ))}
+      </div>
+    </section>
+  </div>
+</BaseLayout>
+
+<style>
+  .pricing-page { display: flex; flex-direction: column; gap: 64px; padding-bottom: var(--sect-y); }
+  .pricing-page h2 { font-size: 1.5rem; margin-bottom: 16px; }
+  .pricing-page section > p { max-width: 680px; }
+
+  .table-card { padding: 0; overflow: hidden; }
+  .table-row {
+    display: grid;
+    grid-template-columns: 1fr 2fr 1fr 1fr;
+    gap: 16px;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+  }
+  .table-row:last-child { border-bottom: none; }
+  .table-head { text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.06em; }
+  .note { margin-top: 12px; font-size: 0.85rem; }
+
+  .rails-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .rails-grid h3 { font-size: 1.1rem; margin-bottom: 16px; }
+  .rails-grid dl { margin-bottom: 20px; }
+  .rails-grid dt { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; color: var(--text-mute); margin-top: 12px; }
+  .rails-grid dd { margin: 4px 0 0; color: var(--text-soft); font-size: 0.92rem; }
+
+  .faq-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); border-radius: var(--r); overflow: hidden; }
+  .faq-item { background: var(--surface); padding: 20px 24px; }
+  .faq-item summary {
+    cursor: pointer;
+    font-weight: 650;
+    color: var(--head);
+    list-style: none;
+    position: relative;
+    padding-right: 28px;
+  }
+  .faq-item summary::-webkit-details-marker { display: none; }
+  .faq-item summary::after {
+    content: '+';
+    position: absolute;
+    right: 0;
+    top: -2px;
+    font-size: 1.3rem;
+    color: var(--lime);
+    transition: transform var(--dur) var(--ease);
+  }
+  .faq-item[open] summary::after { transform: rotate(45deg); }
+  .faq-item p { margin-top: 12px; }
+
+  @media (max-width: 720px) {
+    .table-row { grid-template-columns: 1fr 1fr; }
+    .table-row span:nth-child(2) { grid-column: 1 / -1; }
+    .rails-grid { grid-template-columns: 1fr; }
+  }
+</style>

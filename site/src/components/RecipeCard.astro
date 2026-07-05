@@ -1,0 +1,62 @@
+---
+interface Props {
+  title: string;
+  summary: string;
+  audience: string;
+  tools: string[];
+  estCost: string;
+  prompt: string;
+  full?: boolean;
+}
+const { title, summary, audience, tools, estCost, prompt, full = false } = Astro.props;
+---
+
+<article class={`recipe-card card reveal ${full ? 'recipe-card--full' : ''}`}>
+  <h3>{title}</h3>
+  <p class="summary">{summary}</p>
+  <p class="audience"><strong class="mono">Audience:</strong> {audience}</p>
+  <div class="chips">
+    {tools.map((t) => {
+      const paid = t.includes('(paid)');
+      const clean = t.replace(/\s*\((free|paid)\)/, '');
+      return <span class={`badge ${paid ? 'badge--price' : 'badge--free'} mono`}>{clean}</span>;
+    })}
+  </div>
+  <p class="est-cost mono">{estCost}</p>
+
+  {full ? (
+    <details class="recipe-details">
+      <summary class="btn btn--ghost btn--sm">Show full prompt</summary>
+      <div class="code-panel recipe-prompt">
+        <pre id={`prompt-${title.slice(0, 8).replace(/\W/g, '')}`}><code>{prompt}</code></pre>
+        <button class="copy-btn" data-copy-target={`#prompt-${title.slice(0, 8).replace(/\W/g, '')}`} aria-label="Copy prompt">
+          <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+          <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+          <span class="copy-btn-label label-copy">Copy</span>
+          <span class="copy-btn-label label-copied">Copied</span>
+        </button>
+      </div>
+    </details>
+  ) : (
+    <div class="recipe-actions">
+      <button class="btn btn--ghost btn--sm" data-copy={prompt}>Copy prompt</button>
+      <a href="/recipes" class="details-link">Details &rarr;</a>
+    </div>
+  )}
+</article>
+
+<style>
+  .recipe-card h3 { font-size: 1.15rem; margin-bottom: 10px; }
+  .recipe-card .summary { color: var(--text-soft); margin-bottom: 14px; }
+  .recipe-card .audience { font-size: 0.88rem; color: var(--text-mute); margin-bottom: 16px; }
+  .recipe-card .audience strong { color: var(--text-soft); font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .est-cost { font-size: 0.85rem; color: var(--text-soft); margin-bottom: 18px; }
+  .recipe-actions { display: flex; align-items: center; gap: 20px; }
+  .details-link { font-size: 0.9rem; color: var(--lime); }
+  .recipe-details summary { cursor: pointer; list-style: none; width: fit-content; }
+  .recipe-details summary::-webkit-details-marker { display: none; }
+  .recipe-prompt { margin-top: 16px; }
+  .recipe-prompt pre { white-space: pre-wrap; font-size: 0.82rem; }
+  .recipe-card--full { padding: 32px; }
+</style>

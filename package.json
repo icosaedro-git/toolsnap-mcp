@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "build:site": "npm --prefix site run build",
+    "dev": "npm run build:site && wrangler dev",
+    "deploy": "npm run build:site && wrangler deploy",
     "typecheck": "tsc --noEmit",
     "start": "bash scripts/start-glama.sh"
   },

@@ -1,0 +1,38 @@
+---
+interface Props {
+  num?: string;
+  title: string;
+  id: string;
+}
+const { num, title, id } = Astro.props;
+---
+
+<section class="doc-section reveal" id={id}>
+  <h2>{num && <span class="doc-num mono">{num}</span>}{title}</h2>
+  <div class="doc-body">
+    <slot />
+  </div>
+</section>
+
+<style>
+  .doc-section {
+    padding-block: 36px;
+    border-top: 1px solid var(--border);
+  }
+  .doc-section:first-of-type { border-top: none; padding-top: 0; }
+  .doc-section h2 {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    font-size: 1.4rem;
+    margin-bottom: 16px;
+  }
+  .doc-num {
+    color: var(--lime);
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+  .doc-body :global(p) { color: var(--text); margin-block: 14px; }
+  .doc-body :global(ul) { padding-left: 1.3em; }
+  .doc-body :global(li) { margin-block: 8px; color: var(--text); }
+</style>

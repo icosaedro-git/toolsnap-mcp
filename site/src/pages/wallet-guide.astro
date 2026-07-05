@@ -1,0 +1,130 @@
+---
+import DocsLayout from '../layouts/DocsLayout.astro';
+import DocSection from '../components/DocSection.astro';
+import CodeBlock from '../components/CodeBlock.astro';
+import Callout from '../components/Callout.astro';
+
+const title = 'Give your agent a wallet — ToolSnap MCP';
+const description = 'Set up a self-custodied wallet for your AI agent in ~3 minutes. We never see the private key. USDC on Base, minimal-balance safety model, pay-proxy included.';
+
+const toc = [
+  { id: 'how-it-works', label: 'How it works' },
+  { id: 'diy', label: 'Create it yourself' },
+];
+---
+
+<DocsLayout
+  title={title}
+  description={description}
+  heroTitle="Give your agent a wallet"
+  lead="~3 minutes. Your agent generates its own wallet on its own machine — we never create, see or store the key. You just send it a few dollars of USDC on Base."
+  toc={toc}
+>
+  <DocSection title="How it works" id="how-it-works">
+    <ol class="steps">
+      <li><strong>The agent creates it itself.</strong> When your agent hits a paid tool without a wallet, ToolSnap points it to the free wallet_setup tool. That tool doesn't generate anything on our servers — it hands your agent an open, auditable procedure to generate the key on its own machine and store it in the OS keychain (Keychain / Credential Manager / Secret Service, with a locked-down file fallback on headless Linux). The private key never passes through the conversation or our infrastructure.</li>
+      <li><strong>You get the public address (and a QR).</strong> The agent shows you its public 0x… address and an EIP-681 QR. A public address is safe to share — it can only receive.</li>
+      <li><strong>You fund it.</strong> Send USDC on Base from your usual wallet. Signing that transfer is the only irreducibly human step.</li>
+      <li><strong>Wire the pay-proxy (once).</strong> A funded wallet isn't enough: your MCP client must answer the 402 charge (sign + retry), and most can't. The pay-proxy does it for you — point your client at it and payments become invisible. See <a href="/docs#pay-proxy">Docs &sect;5</a>.</li>
+      <li><strong>Done.</strong> Your agent now pays per call. Ask it for its address anytime.</li>
+    </ol>
+
+    <Callout variant="tip" label="Want your money back?">
+      Tell your agent: "Send your wallet balance to my address 0x…". It controls the key, so it can sign the transfer. Your funds are never trapped.
+    </Callout>
+    <Callout variant="note" label="Several agents on one computer?">
+      Same OS user &rarr; same keychain &rarr; same wallet, automatically. One wallet, all your agents.
+    </Callout>
+    <Callout variant="warning" label="This is a hot wallet">
+      The key lives on the agent's machine so it can pay autonomously — if that machine is compromised, the key is compromised. That's the nature of any hot wallet, not a flaw in this design. The rule that actually protects you: treat it like pocket change, never like a vault. Keep a few dollars in it, top up little and often. Worst case is then capped at pocket change. (Prepaid balance caps exposure even harder: deposit a fixed amount, spend it down.)
+    </Callout>
+    <Callout variant="trust" label="Confidence by transparency">
+      The procedure your agent runs is public and auditable, and your agent can show you exactly what it will execute before running it. We never receive the key — only signatures.
+    </Callout>
+  </DocSection>
+
+  <DocSection title="Prefer to create the wallet yourself?" id="diy">
+    <p>Also supported — you keep a backup and custody. Golden rules: use a dedicated fresh wallet (never reuse one that holds funds or identity), and never paste a private key into the chat — it goes straight from a hidden terminal prompt into the OS keychain.</p>
+
+    <h3>Method A (recommended): Import via hidden stdin</h3>
+    <p>One-time requirement: <code class="inline">pip install eth-account keyring</code>. Then run this in YOUR terminal (not in the chat) — it will prompt for the key with hidden input:</p>
+    <CodeBlock lang="python" code={`python3 - <<'PY'
+import keyring, getpass
+from eth_account import Account
+
+# getpass = HIDDEN prompt: what you paste is never displayed, never enters
+# your shell history and never touches the chat.
+pk = getpass.getpass("Paste the private key (hidden) and press Enter: ").strip()
+
+acct = Account.from_key(pk)                                    # validates the key
+keyring.set_password("toolsnap-agent-wallet", "default", pk)   # stores it in the OS keychain
+assert keyring.get_password("toolsnap-agent-wallet", "default") == pk   # verifies re-read
+print("OK. Wallet imported. Public address:", acct.address)
+del pk
+PY`} />
+    <p class="text-mute small">Line by line: reads the key through a hidden prompt &rarr; validates it &rarr; writes it to the native keychain (Keychain / Credential Manager / Secret Service, file fallback on headless Linux) &rarr; confirms it can be read back &rarr; prints only the public address. Then tell your agent just the address; it signs from the keychain from now on.</p>
+
+    <h3>Method B: Encrypted keystore JSON (V3) + passphrase</h3>
+    <p>Use this if you created the wallet in MetaMask/Foundry/geth, or you want an encrypted backup. The file is low-risk at rest — without the passphrase it's useless.</p>
+    <p><strong>B.1</strong> — No wallet yet? Create a dedicated one + encrypted backup in one step:</p>
+    <CodeBlock lang="python" code={`python3 - <<'PY'
+import json, getpass
+from eth_account import Account
+
+acct = Account.create()                                  # fresh wallet, dedicated to the agent
+pw = getpass.getpass("Passphrase to ENCRYPT the backup (remember it): ")
+enc = Account.encrypt(acct.key, pw)                      # keystore JSON V3 (key encrypted)
+open("agent-wallet-backup.json", "w").write(json.dumps(enc))
+print("Encrypted backup written to agent-wallet-backup.json")
+print("Public address:", acct.address)
+PY`} />
+    <p><strong>B.2</strong> — Load that keystore into the agent (decrypts in memory &rarr; OS keychain):</p>
+    <CodeBlock lang="python" code={`python3 - <<'PY'
+import json, getpass, keyring
+from eth_account import Account
+
+blob = open("agent-wallet-backup.json").read()
+pw = getpass.getpass("Backup passphrase (hidden): ")
+pk = Account.decrypt(json.loads(blob), pw).hex()          # decrypts in memory, never to disk
+acct = Account.from_key(pk)
+keyring.set_password("toolsnap-agent-wallet", "default", pk)
+assert keyring.get_password("toolsnap-agent-wallet", "default") == pk
+print("OK. Loaded into the keychain. Public address:", acct.address)
+del pk
+PY`} />
+    <p class="text-mute small">Exported the JSON from MetaMask/Foundry? Skip B.1 and point B.2 at that file.</p>
+
+    <Callout variant="warning" label="Never">
+      Pasting the key in the chat. If you already did, consider it burned: create a fresh wallet, move the funds, abandon the old one.
+    </Callout>
+    <p class="text-soft"><strong>Hygiene:</strong> clear your clipboard, shred any plaintext temp file, keep the encrypted backup in your password manager. Keep the minimal-balance rule either way.</p>
+
+    <div class="compare-table card">
+      <div class="compare-row compare-head mono text-mute"><span></span><span>Route 1 — agent creates it</span><span>Route 2 — you create it</span></div>
+      <div class="compare-row"><span class="mono">Exposure</span><span>Minimal — key never moves</span><span>One handover step to protect</span></div>
+      <div class="compare-row"><span class="mono">Backup</span><span>None (host dies &rarr; funds gone)</span><span>You keep a copy</span></div>
+      <div class="compare-row"><span class="mono">Custody</span><span>Agent</span><span>You</span></div>
+      <div class="compare-row"><span class="mono">Best for</span><span>Autonomous agents, small balances</span><span>People who already manage keys</span></div>
+    </div>
+  </DocSection>
+</DocsLayout>
+
+<style>
+  .steps { padding-left: 1.4em; display: flex; flex-direction: column; gap: 16px; margin-bottom: 32px; }
+  .steps li { color: var(--text); }
+  .steps strong { color: var(--head); }
+  .small { font-size: 0.85rem; }
+  h3 { font-size: 1.1rem; margin-top: 2em; margin-bottom: 0.6em; color: var(--head); }
+
+  .compare-table { padding: 0; margin-top: 24px; overflow-x: auto; }
+  .compare-row {
+    display: grid;
+    grid-template-columns: 110px 1fr 1fr;
+    gap: 16px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+  }
+  .compare-row:last-child { border-bottom: none; }
+  .compare-head { text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.05em; }
+</style>

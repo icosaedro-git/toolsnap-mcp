@@ -22,12 +22,15 @@ import {
   renderKeyRevealPage,
   renderTopUpPage,
   renderAlreadyClaimedPage,
-  renderTermsPage,
-  renderPrivacyPage,
-  renderRefundsPage,
 } from "./fiat/pages.js";
 
 export interface Env {
+  // Fase 21.1 — Workers Static Assets binding for the public website
+  // (site/dist, built from site/). Cloudflare serves matching static files
+  // before this fetch() ever runs; ASSETS.fetch() here is only the fallback
+  // for paths with no static match (renders the Astro 404 page).
+  ASSETS: Fetcher;
+
   // x402 payment config (vars in wrangler.jsonc)
   X402_NETWORK: string;
   X402_PRICE_USDC: string;
@@ -131,12 +134,6 @@ export default {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
-    // Favicon
-    if (method === "GET" && (url.pathname === "/favicon.svg" || url.pathname === "/favicon.ico")) {
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#4338ca"/></linearGradient></defs><rect width="256" height="256" rx="73" fill="url(#g)"/><svg x="64" y="64" width="128" height="128" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></svg>`;
-      return new Response(svg, { headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" } });
-    }
-
     // MCP endpoint. Also accepts POST /mcp/<sk_...> for clients that can't
     // send custom headers (Fase 17 — fiat API key embedded in the URL).
     const mcpKeyInPath = url.pathname.match(/^\/mcp\/(sk_[A-Za-z0-9_]+)$/);
@@ -204,7 +201,7 @@ export default {
         well_known: "/.well-known/mcp.json",
         pricing: "/.well-known/pricing.json",
         tools: tools.length,
-        docs: "https://toolsnap.app/agents",
+        docs: "https://mcp.toolsnap.app",
       });
     }
 
@@ -252,7 +249,7 @@ export default {
             first_call_free: firstCallFreeEligible(name),
           };
         }),
-        docs: "https://toolsnap.app/agents",
+        docs: "https://mcp.toolsnap.app",
       });
     }
 
@@ -270,7 +267,7 @@ export default {
           `Deterministic, context-efficient microtools for AI agents — free tools need no account. ${tools.length} tools total. Flagship: fetch_extract converts raw HTML to clean text with a median 98.1% token reduction (53,820 → 2,001 tokens, 11 real pages) via pure parsing, no LLM in the loop — free, like fetch_html and most of the catalog. Paid: screenshot_url, keyword_research, remove_background — real per-call COGS, $0.02–$0.04 USDC on Base via x402, or fiat credits with a card. Prepaid: deposit once ($0.50 min), debit off-chain at a discount.`,
         categories: ["developer-tools", "web-scraping", "data-extraction", "paid"],
         transport: "streamable-http",
-        homepage: "https://toolsnap.app/agents",
+        homepage: "https://mcp.toolsnap.app",
         endpoint: "https://mcp.toolsnap.app/mcp",
         pricing_endpoint: "https://mcp.toolsnap.app/.well-known/pricing.json",
         maintainers: [{ email: "icosaedro.one@proton.me" }],
@@ -497,9 +494,9 @@ export default {
       }
     }
 
-    if (method === "GET" && url.pathname === "/terms") return html(renderTermsPage());
-    if (method === "GET" && url.pathname === "/privacy") return html(renderPrivacyPage());
-    if (method === "GET" && url.pathname === "/refunds") return html(renderRefundsPage());
+    // /terms, /privacy, /refunds are now served as static pages by the
+    // Astro site (Fase 21.1) — Cloudflare serves those files before this
+    // Worker ever runs, so no route is needed here anymore.
 
     // Admin-only key management (pre-portal). Same x-admin-key gate as /mcp.
     if (method === "POST" && (url.pathname === "/admin/keys/issue" || url.pathname === "/admin/keys/revoke")) {
@@ -563,7 +560,14 @@ export default {
       return new Response(obj.body, { status: 200, headers: { "Content-Type": ct, ...CORS_HEADERS } });
     }
 
-    // 404
+    // Fase 21.1 — no API route matched. For GET requests, fall back to the
+    // Astro site's 404 page (env.ASSETS.fetch resolves unmatched paths to
+    // site/dist/404.html per not_found_handling in wrangler.jsonc); anything
+    // else (POST/PUT/... on an unknown path) gets the plain JSON 404.
+    if (method === "GET") {
+      const assetResponse = await env.ASSETS.fetch(request);
+      return withCors(assetResponse);
+    }
     return jsonResponse({ error: "Not found" }, 404);
   },
 
