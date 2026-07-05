@@ -32,12 +32,12 @@
     // (no key, free tier). If SCREENSHOT_API_KEY is unset, automatically falls back
     // to microlink so the tool works with zero external account.
     "SCREENSHOT_PROVIDER": "screenshotone",
-    // Fase 17 — fiat rail (Polar). POLAR_ENV="sandbox" while testing against
-    // sandbox-api.polar.sh with a sandbox account; unset/"production" for live.
-    // POLAR_PRODUCT_ID is the "ToolSnap Credits" pay-what-you-want product id
-    // (set once the Polar product exists — /checkout/start fails clearly until then).
-    "POLAR_ENV": "sandbox"
-    // "POLAR_PRODUCT_ID": "<polar-product-id>"
+    // Fase 17 — fiat rail (Polar). "production" (live, api.polar.sh) since
+    // 2026-07-05 — real card charges via the "ToolSnap Credits" PWYW product
+    // (min $5). Set to "sandbox" to point at sandbox-api.polar.sh for testing.
+    "POLAR_ENV": "production",
+    // "ToolSnap Credits" pay-what-you-want product id (production).
+    "POLAR_PRODUCT_ID": "60360bec-a564-4716-9187-f62272a5a356"
   },
   // KV namespace for x402 nonce replay-protection (created 2026-06-23).
   // Also holds prepaid spend-authorization nonces (single-use) and
