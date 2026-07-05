@@ -1,0 +1,64 @@
+---
+import { getCollection, render } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('blog', ({ data }) => !data.draft);
+  return posts.map((post) => ({
+    params: { slug: post.id.replace(/\.md$/, '') },
+    props: { post },
+  }));
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+
+const postLd = {
+  '@context': 'https://schema.org',
+  '@type': 'BlogPosting',
+  headline: post.data.title,
+  datePublished: post.data.date.toISOString(),
+  description: post.data.description,
+  author: { '@type': 'Organization', name: 'ToolSnap' },
+  url: `https://mcp.toolsnap.app/blog/${post.id.replace(/\.md$/, '')}/`,
+};
+---
+
+<BaseLayout title={`${post.data.title} — ToolSnap MCP Blog`} description={post.data.description}>
+  <Fragment slot="head">
+    <script type="application/ld+json" set:html={JSON.stringify(postLd)} />
+  </Fragment>
+
+  <article class="post container">
+    <a href="/blog" class="back-link">&larr; All articles</a>
+    <span class="tag-cat">{post.data.category}</span>
+    <h1>{post.data.title}</h1>
+    <div class="post-meta mono text-mute">
+      {post.data.date.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })} &middot; {post.data.read_time} min read
+    </div>
+
+    <div class="prose">
+      <Content />
+    </div>
+
+    <div class="post-footer">
+      <a href="/blog" class="back-link">&larr; All articles</a>
+      <a href="/rss.xml" class="mono">RSS</a>
+    </div>
+  </article>
+</BaseLayout>
+
+<style>
+  .post { max-width: 720px; padding-top: 80px; padding-bottom: var(--sect-y); }
+  .back-link { color: var(--text-soft); font-size: 0.9rem; display: inline-block; margin-bottom: 20px; }
+  .back-link:hover { color: var(--head); }
+  .post h1 { font-size: clamp(2rem, 4.5vw, 3rem); line-height: 1.15; margin-top: 12px; margin-bottom: 16px; letter-spacing: -0.02em; }
+  .post-meta { font-size: 0.85rem; margin-bottom: 40px; }
+  .post-footer {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 56px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+</style>

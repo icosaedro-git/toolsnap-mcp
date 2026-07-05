@@ -1,0 +1,124 @@
+---
+const year = new Date().getFullYear();
+---
+
+<footer class="site-footer">
+  <div class="container footer-grid">
+    <div class="footer-col footer-brand">
+      <a href="/" class="brand">
+        <img src="/img/logo.png" width="24" height="24" alt="" />
+        <span>ToolSnap MCP</span>
+      </a>
+      <p class="text-mute">One connection. Superpowers for your agent.</p>
+    </div>
+
+    <div class="footer-col">
+      <h3>Product</h3>
+      <a href="/tools">Tools</a>
+      <a href="/recipes">Recipes</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/docs">Docs</a>
+      <a href="/wallet-guide">Wallet guide</a>
+      <a href="/blog">Blog</a>
+    </div>
+
+    <div class="footer-col">
+      <h3>Endpoint</h3>
+      <div class="endpoint-row mono">
+        <span>https://mcp.toolsnap.app/mcp</span>
+        <button class="copy-btn copy-btn--icon" data-copy="https://mcp.toolsnap.app/mcp" aria-label="Copy to clipboard">
+          <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+          <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+        </button>
+      </div>
+      <a href="/.well-known/mcp.json">Server card</a>
+      <a href="/.well-known/pricing.json">Pricing JSON</a>
+    </div>
+
+    <div class="footer-col">
+      <h3>Legal</h3>
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/refunds">Refunds</a>
+    </div>
+
+    <div class="footer-col">
+      <h3>Contact</h3>
+      <a href="mailto:support@toolsnap.app">support@toolsnap.app</a>
+      <a href="https://x.com/ToolSnapMCP" rel="me">@ToolSnapMCP</a>
+      <a href="https://x.com/icosaedro_one" rel="me">@icosaedro_one</a>
+    </div>
+  </div>
+
+  <div class="container footer-bottom">
+    <p class="text-mute">
+      &copy; {year} Icosaedro Music &amp; Human Development LLC &middot; ToolSnap MCP — One connection. Superpowers for your agent.
+    </p>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    background: var(--ink-2);
+    border-top: 1px solid var(--border);
+    padding-block: 64px 32px;
+  }
+  .footer-grid {
+    display: grid;
+    grid-template-columns: 1.6fr repeat(4, 1fr);
+    gap: 32px;
+  }
+  .footer-brand .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 650;
+    color: var(--head);
+    margin-bottom: 10px;
+  }
+  .footer-brand p { font-size: 0.88rem; max-width: 220px; }
+  .footer-col h3 {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-mute);
+    margin-bottom: 14px;
+    font-weight: 600;
+  }
+  .footer-col a {
+    display: block;
+    color: var(--text-soft);
+    font-size: 0.92rem;
+    margin-bottom: 10px;
+    transition: color var(--dur) var(--ease);
+  }
+  .footer-col a:hover { color: var(--head); }
+  .endpoint-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.78rem;
+    color: var(--text-soft);
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .endpoint-row .copy-btn {
+    position: static;
+    padding: 4px 6px;
+  }
+  .footer-bottom {
+    margin-top: 48px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+  .footer-bottom p { font-size: 0.82rem; }
+
+  @media (max-width: 900px) {
+    .footer-grid { grid-template-columns: 1fr 1fr; }
+    .footer-brand { grid-column: 1 / -1; }
+  }
+  @media (max-width: 520px) {
+    .footer-grid { grid-template-columns: 1fr; }
+  }
+</style>

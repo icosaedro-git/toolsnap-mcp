@@ -1,0 +1,132 @@
+---
+const nav = [
+  { href: '/tools', label: 'Tools' },
+  { href: '/recipes', label: 'Recipes' },
+  { href: '/pricing', label: 'Pricing' },
+  { href: '/docs', label: 'Docs' },
+  { href: '/blog', label: 'Blog' },
+];
+---
+
+<header class="site-header" data-header>
+  <div class="container header-inner">
+    <a href="/" class="brand">
+      <img src="/img/logo.png" width="28" height="28" alt="" class="brand-mark" />
+      <span class="brand-word">ToolSnap<span class="brand-sub">MCP</span></span>
+    </a>
+
+    <nav class="nav-desktop" aria-label="Main">
+      {nav.map((item) => (
+        <a href={item.href}>{item.label}</a>
+      ))}
+    </nav>
+
+    <a href="/#connect" class="btn btn--primary btn--compact nav-cta">Connect free</a>
+
+    <button class="nav-toggle" data-nav-toggle aria-label="Open menu" aria-expanded="false" aria-controls="mobile-nav">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+
+  <div class="nav-overlay" id="mobile-nav" data-nav-overlay>
+    <nav aria-label="Mobile">
+      {nav.map((item) => (
+        <a href={item.href}>{item.label}</a>
+      ))}
+    </nav>
+    <a href="/#connect" class="btn btn--primary">Connect free</a>
+  </div>
+</header>
+
+<style>
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(11, 14, 20, 0);
+    transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+    border-bottom: 1px solid transparent;
+  }
+  .site-header.is-scrolled {
+    background: rgba(11, 14, 20, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom-color: var(--border);
+  }
+  .header-inner {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    height: 68px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-right: auto;
+  }
+  .brand-mark { border-radius: 6px; }
+  .brand-word {
+    font-weight: 650;
+    color: var(--head);
+    font-size: 1.05rem;
+    letter-spacing: -0.01em;
+  }
+  .brand-sub { font-weight: 400; color: var(--text-soft); margin-left: 4px; }
+
+  .nav-desktop {
+    display: flex;
+    gap: 28px;
+    font-size: 0.92rem;
+  }
+  .nav-desktop a { color: var(--text-soft); transition: color var(--dur) var(--ease); }
+  .nav-desktop a:hover { color: var(--head); }
+
+  .nav-toggle {
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    width: 32px;
+    height: 32px;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  .nav-toggle span {
+    display: block;
+    width: 100%;
+    height: 2px;
+    background: var(--head);
+    border-radius: 2px;
+  }
+
+  .nav-overlay {
+    display: none;
+    position: fixed;
+    inset: 68px 0 0 0;
+    background: var(--ink);
+    z-index: 99;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 32px 24px 40px;
+  }
+  .nav-overlay nav {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .nav-overlay nav a {
+    font-family: var(--font-mono);
+    font-size: 1.4rem;
+    color: var(--head);
+    padding: 14px 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-overlay.is-open { display: flex; }
+
+  @media (max-width: 820px) {
+    .nav-desktop, .nav-cta { display: none; }
+    .nav-toggle { display: flex; }
+  }
+</style>

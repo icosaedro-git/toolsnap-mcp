@@ -1,0 +1,68 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import InnerHero from '../components/InnerHero.astro';
+
+interface TocItem { id: string; label: string }
+interface Props {
+  title: string;
+  description: string;
+  heroTitle: string;
+  lead: string;
+  toc?: TocItem[];
+}
+const { title, description, heroTitle, lead, toc = [] } = Astro.props;
+---
+
+<BaseLayout title={title} description={description}>
+  <InnerHero title={heroTitle} lead={lead} />
+  <div class="container docs-shell">
+    <div class="docs-content">
+      <slot />
+    </div>
+    {toc.length > 0 && (
+      <aside class="docs-toc">
+        <p class="toc-label mono">On this page</p>
+        <nav>
+          {toc.map((item) => (
+            <a href={`#${item.id}`} data-toc-link>{item.label}</a>
+          ))}
+        </nav>
+      </aside>
+    )}
+  </div>
+</BaseLayout>
+
+<style>
+  .docs-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 760px) 220px;
+    gap: 64px;
+    padding-bottom: var(--sect-y);
+    align-items: start;
+  }
+  .docs-content { max-width: 760px; }
+  .docs-toc {
+    position: sticky;
+    top: 96px;
+  }
+  .toc-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-mute);
+    margin-bottom: 12px;
+  }
+  .docs-toc nav { display: flex; flex-direction: column; gap: 10px; }
+  .docs-toc a {
+    font-size: 0.88rem;
+    color: var(--text-mute);
+    transition: color var(--dur) var(--ease);
+  }
+  .docs-toc a:hover { color: var(--text-soft); }
+  .docs-toc a.is-active { color: var(--lime); }
+
+  @media (max-width: 1100px) {
+    .docs-shell { grid-template-columns: minmax(0, 760px); }
+    .docs-toc { display: none; }
+  }
+</style>

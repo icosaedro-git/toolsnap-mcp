@@ -1,0 +1,31 @@
+---
+interface Props {
+  title: string;
+  lead: string;
+}
+const { title, lead } = Astro.props;
+---
+
+<div class="inner-hero container">
+  <h1>{title}</h1>
+  <p class="lead">{lead}</p>
+</div>
+
+<style>
+  .inner-hero {
+    padding-top: 96px;
+    padding-bottom: 48px;
+  }
+  .inner-hero h1 {
+    font-size: clamp(2.1rem, 4.5vw, 3rem);
+    letter-spacing: -0.025em;
+    line-height: 1.1;
+  }
+  .inner-hero .lead {
+    margin-top: 16px;
+    max-width: 640px;
+    color: var(--text-soft);
+    font-size: 1.08rem;
+    line-height: 1.65;
+  }
+</style>

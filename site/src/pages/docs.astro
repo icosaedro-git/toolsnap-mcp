@@ -1,0 +1,70 @@
+---
+import DocsLayout from '../layouts/DocsLayout.astro';
+import DocSection from '../components/DocSection.astro';
+import CodeBlock from '../components/CodeBlock.astro';
+
+const title = 'Docs — connect, pay, build | ToolSnap MCP';
+const description = 'Technical reference: connecting from Claude Code, Claude Desktop, claude.ai and Cursor; API keys; x402 payments; prepaid balance; pay-proxy.';
+
+const toc = [
+  { id: 'endpoint', label: 'Endpoint' },
+  { id: 'connect', label: 'Connect by client' },
+  { id: 'api-keys', label: 'API keys' },
+  { id: 'x402', label: 'Paying with x402' },
+  { id: 'pay-proxy', label: 'The pay-proxy' },
+  { id: 'prepaid', label: 'Prepaid balance' },
+  { id: 'limits', label: 'Limits' },
+];
+---
+
+<DocsLayout
+  title={title}
+  description={description}
+  heroTitle="Docs"
+  lead="Everything you need to wire ToolSnap into any MCP client, and to understand exactly how payment works when you use the paid three."
+  toc={toc}
+>
+  <DocSection num="01" title="Endpoint" id="endpoint">
+    <p>The server speaks Streamable HTTP MCP at:</p>
+    <CodeBlock lang="" code={`https://mcp.toolsnap.app/mcp`} />
+    <p>Server card: <code class="inline">/.well-known/mcp.json</code> &middot; Machine-readable pricing: <code class="inline">/.well-known/pricing.json</code></p>
+    <p>On first connection your agent sees a curated core of 18 tools (~1.6k tokens). The other 20 are listed by the free tool_catalog tool and callable directly by name or through use_tool.</p>
+  </DocSection>
+
+  <DocSection num="02" title="Connect by client" id="connect">
+    <p><strong>Claude Code</strong></p>
+    <CodeBlock lang="bash" code={`claude mcp add --transport http toolsnap https://mcp.toolsnap.app/mcp\n# with an API key (paid tools):\nclaude mcp add --transport http toolsnap https://mcp.toolsnap.app/mcp --header "Authorization: Bearer sk_live_…"`} />
+    <p><strong>Claude Desktop / claude.ai</strong> — Settings &rarr; Connectors &rarr; Add custom connector &rarr; URL: <code class="inline">https://mcp.toolsnap.app/mcp</code>. These clients can't set custom headers; if you have an API key, embed it in the URL instead: <code class="inline">https://mcp.toolsnap.app/mcp/sk_live_…</code></p>
+    <p><strong>Cursor / generic JSON</strong></p>
+    <CodeBlock lang="json" code={`{ "mcpServers": { "toolsnap": { "url": "https://mcp.toolsnap.app/mcp", "headers": { "Authorization": "Bearer sk_live_…" } } } }`} />
+  </DocSection>
+
+  <DocSection num="03" title="API keys (credits rail)" id="api-keys">
+    <p>Buy credits at <a href="/checkout">/checkout</a> ($5, $10 or $25 — card checkout by Polar). You get an API key shown exactly once: <code class="inline">sk_live_…</code>. We store only its hash.</p>
+    <ul>
+      <li>Send it as <code class="inline">Authorization: Bearer &lt;key&gt;</code> or <code class="inline">x-api-key: &lt;key&gt;</code> — or embed it in the path (<code class="inline">/mcp/&lt;key&gt;</code>) for clients without header support.</li>
+      <li>Header beats URL if both are present. URL keys can end up in logs — prefer the header when your client allows it.</li>
+      <li>Lost a key? Keys are revocable and reissuable — contact <a href="mailto:support@toolsnap.app">support@toolsnap.app</a> (self-serve portal coming).</li>
+    </ul>
+  </DocSection>
+
+  <DocSection num="04" title="Paying with x402 (crypto rail)" id="x402">
+    <p>Paid tools respond with HTTP 402 + payment requirements. A capable client signs an EIP-3009 USDC authorization (Base mainnet) and retries; we verify and settle on-chain. No account, no key — the wallet is the identity.</p>
+    <p>Most MCP clients can't sign x402 out of the box. That's what the pay-proxy is for:</p>
+  </DocSection>
+
+  <DocSection num="05" title="The pay-proxy" id="pay-proxy">
+    <p>A tiny local stdio MCP server that wraps the remote endpoint. On a 402 it signs with your agent's wallet and retries automatically. The key never leaves your machine; only signatures travel.</p>
+    <CodeBlock lang="json" code={`{ "mcpServers": { "toolsnap": { "command": "node", "args": ["/ABS/PATH/toolsnap-mcp/scripts/pay-proxy.mjs"] } } }`} />
+    <p>Key resolution order: <code class="inline">TOOLSNAP_WALLET_KEY</code> env &rarr; <code class="inline">~/.toolsnap/wallet.key</code> &rarr; OS keychain (<code class="inline">toolsnap-agent-wallet</code>). Useful env: <code class="inline">TOOLSNAP_MAX_PRICE_USDC</code> (per-call cap, default 0.10), <code class="inline">TOOLSNAP_PREPAID=1</code>, <code class="inline">TOOLSNAP_AUTO_DEPOSIT_USDC</code>.</p>
+    <p>No wallet yet? &rarr; <a href="/wallet-guide">Wallet guide</a>.</p>
+  </DocSection>
+
+  <DocSection num="06" title="Prepaid balance (crypto)" id="prepaid">
+    <p>Deposit once (&ge; $0.50 USDC), spend per call at the discounted prepaid price (~35% off). Your agent signs a SpendAuthorization per call — off-chain, instant, no gas. Check anytime with the free account_balance tool. Deposits are non-refundable; spend them down.</p>
+  </DocSection>
+
+  <DocSection num="07" title="Limits & good citizenship" id="limits">
+    <p>Free tools are genuinely free; don't hammer them from a load tester. Practical limits: link_check batches &le;20 URLs, csv_query &le;5000 rows returned, fetch tools read up to ~512 KB–2 MB depending on the tool. If you need more, talk to us.</p>
+  </DocSection>
+</DocsLayout>

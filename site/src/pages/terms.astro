@@ -1,0 +1,30 @@
+---
+import DocsLayout from '../layouts/DocsLayout.astro';
+---
+
+<DocsLayout
+  title="Terms of Service — ToolSnap MCP"
+  description="Terms of Service for ToolSnap MCP, operated by Icosaedro Music &amp; Human Development LLC."
+  heroTitle="Terms of Service"
+  lead="Last updated 2026-07-05."
+>
+  <div class="legal">
+    <p>ToolSnap MCP is operated by <strong>Icosaedro Music &amp; Human Development LLC</strong>, 2201 Menaul Blvd NE Ste A, Albuquerque, NM 87107, USA. By purchasing credits or using paid tools, you agree to these terms.</p>
+    <h2>Service</h2>
+    <p>ToolSnap provides API access to microtools for AI agents, billed per call from a prepaid balance funded by card (via Polar) or cryptocurrency (USDC on Base).</p>
+    <h2>Credits</h2>
+    <p>Credits are prepaid and non-refundable (see <a href="/refunds">Refund Policy</a>). Unused balance does not expire.</p>
+    <h2>API keys</h2>
+    <p>You are responsible for keeping your API key confidential. We store only a cryptographic hash of your key, never the key itself, and cannot recover a lost key — only revoke and reissue.</p>
+    <h2>Acceptable use</h2>
+    <p>Automated abuse, resale without agreement, or circumventing rate limits may result in account suspension.</p>
+    <p>Contact: <a href="mailto:support@toolsnap.app">support@toolsnap.app</a></p>
+  </div>
+</DocsLayout>
+
+<style>
+  .legal { color: var(--text); }
+  .legal h2 { font-size: 1.15rem; margin-top: 2em; margin-bottom: 0.5em; }
+  .legal p { color: var(--text-soft); margin-bottom: 1.1em; line-height: 1.7; }
+  .legal a { color: var(--cyan-soft); text-decoration: underline; }
+</style>

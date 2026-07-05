@@ -1,0 +1,24 @@
+{
+  "name": "toolsnap-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate-data": "tsx scripts/generate-data.mts",
+    "dev": "npm run generate-data && astro dev",
+    "build": "npm run generate-data && astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.2.6",
+    "@fontsource/jetbrains-mono": "^5.2.6",
+    "astro": "^5.7.14"
+  },
+  "devDependencies": {
+    "@astrojs/rss": "^4.0.11",
+    "@astrojs/sitemap": "^3.2.1",
+    "tsx": "^4.22.4",
+    "typescript": "^5.8.3"
+  }
+}

@@ -7,3 +7,8 @@ dist
 .DS_Store
 *.log
 registry-key.pem
+
+# Fase 21.1 — Astro site: generated data (regenerated from src/ before every
+# dev/build, see site/scripts/generate-data.mts) and Astro's own cache.
+site/src/data/*.json
+site/.astro

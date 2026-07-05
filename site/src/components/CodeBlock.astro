@@ -1,0 +1,18 @@
+---
+interface Props {
+  code: string;
+  lang?: string;
+}
+const { code, lang = '' } = Astro.props;
+const id = 'code-' + Math.random().toString(36).slice(2, 9);
+---
+
+<div class="code-panel">
+  <pre id={id}><code class={lang}>{code}</code></pre>
+  <button class="copy-btn" data-copy-target={`#${id}`} aria-label="Copy to clipboard">
+    <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+    <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+    <span class="copy-btn-label label-copy">Copy</span>
+    <span class="copy-btn-label label-copied">Copied</span>
+  </button>
+</div>

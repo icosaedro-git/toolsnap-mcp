@@ -1,0 +1,36 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import InnerHero from '../components/InnerHero.astro';
+import RecipeCard from '../components/RecipeCard.astro';
+import recipes from '../data/recipes.json';
+
+const title = 'Recipes — ready-made agent workflows | ToolSnap MCP';
+const description = 'Copy-paste prompts that make your agent execute complete jobs — site migration, SEO audits — using ToolSnap tools, with cost estimates.';
+---
+
+<BaseLayout title={title} description={description}>
+  <InnerHero
+    title="Recipes"
+    lead="A recipe is a complete job, pre-planned: the prompt tells your agent which ToolSnap tools to use, in what order, and what it will cost. Paste it, add your URL, walk away. Your agent can also fetch these itself with the free task_recipes tool."
+  />
+
+  <div class="container recipes-body">
+    {recipes.map((r: any) => (
+      <RecipeCard title={r.title} summary={r.summary} audience={r.audience} tools={r.tools} estCost={r.est_cost} prompt={r.prompt} full />
+    ))}
+  </div>
+
+  <div class="container closing-note">
+    <p class="text-mute">More recipes are coming — each one battle-tested on real work before it ships. Suggest one: <a href="mailto:support@toolsnap.app" class="mono">support@toolsnap.app</a>.</p>
+  </div>
+</BaseLayout>
+
+<style>
+  .recipes-body {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    padding-bottom: 40px;
+  }
+  .closing-note { padding-bottom: 80px; }
+</style>

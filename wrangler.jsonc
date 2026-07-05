@@ -6,6 +6,16 @@
   "workers_dev": false,
   "observability": { "enabled": true },
   "routes": [{ "pattern": "mcp.toolsnap.app", "custom_domain": true }],
+  // Fase 21.1 — public website (Astro, static) served by this same Worker.
+  // Cloudflare serves matching static files (/, /terms, /tools, /img/*...)
+  // WITHOUT invoking the Worker at all; unmatched paths (/mcp, /.well-known/*,
+  // /checkout*, etc.) fall through to fetch() below as before.
+  "assets": {
+    "directory": "./site/dist",
+    "binding": "ASSETS",
+    "html_handling": "drop-trailing-slash",
+    "not_found_handling": "404-page"
+  },
   // Daily cron (09:00 UTC) → usage alerts for COGS tools (screenshot_url quota
   // vs ScreenshotOne free tier). Fires Telegram at 50/90/100 + Monday digest.
   // Also purges analytics_events older than 730 days / 2y (retention; money

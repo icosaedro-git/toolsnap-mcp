@@ -1,0 +1,86 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import InnerHero from '../components/InnerHero.astro';
+import ToolRow from '../components/ToolRow.astro';
+import Callout from '../components/Callout.astro';
+import families from '../data/families.json';
+
+const title = 'All 38 tools — ToolSnap MCP';
+const description = 'The full ToolSnap MCP catalog: 35 free tools and 3 paid ones, with per-call prices. Web extraction, SEO, data, documents, images, utilities.';
+---
+
+<BaseLayout title={title} description={description}>
+  <InnerHero
+    title="The catalog"
+    lead="Everything below is callable the moment you connect — no key needed for free tools. Prices shown are pay-per-call / with credits. Data on this page is generated from the live registry, the same one your agent reads."
+  />
+
+  <div class="container jump-nav">
+    {families.map((f: any) => (
+      <a href={`#${f.id}`}>{f.label}</a>
+    ))}
+  </div>
+
+  <div class="container tools-body">
+    {families.map((f: any, i: number) => (
+      <section id={f.id} class="family-section reveal">
+        <h2>{f.label}</h2>
+        <p class="family-blurb text-soft">{f.oneLiner}</p>
+        <div class="tool-rows">
+          {f.tools.map((t: any) => (
+            <ToolRow name={t.name} description={t.description} tier={t.tier} priceUsdc={t.price_usdc} prepaidUsdc={t.prepaid_price_usdc} />
+          ))}
+        </div>
+        {f.id === 'images' && (
+          <Callout label="Why only three paid tools?">
+            Because only three have real per-call costs on our side (headless rendering, keyword data, ML inference). Everything we can serve for near-zero cost, we serve free.
+          </Callout>
+        )}
+      </section>
+    ))}
+  </div>
+
+  <div class="container json-note">
+    <p class="text-mute">Machine-readable version: <a href="/.well-known/pricing.json" class="mono">/.well-known/pricing.json</a></p>
+  </div>
+</BaseLayout>
+
+<style>
+  .jump-nav {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding-block: 12px;
+    position: sticky;
+    top: 68px;
+    background: var(--ink);
+    z-index: 10;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  .jump-nav a {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    white-space: nowrap;
+    color: var(--text-soft);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-pill);
+    padding: 8px 16px;
+    transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  }
+  .jump-nav a:hover { color: var(--lime); border-color: var(--lime); }
+
+  .tools-body { padding-bottom: 40px; }
+  .family-section {
+    padding-block: 48px;
+    border-top: 1px solid var(--border);
+    scroll-margin-top: 120px;
+  }
+  .family-section:first-child { border-top: none; }
+  .family-section h2 { font-size: 1.5rem; margin-bottom: 8px; }
+  .family-blurb { margin-bottom: 24px; max-width: 640px; }
+  .tool-rows { display: flex; flex-direction: column; }
+
+  .json-note { padding-bottom: 80px; }
+</style>
