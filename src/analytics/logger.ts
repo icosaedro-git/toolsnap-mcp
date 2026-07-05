@@ -18,7 +18,13 @@ export type PaymentType =
   | "deposit_success"
   | "deposit_failed"
   | "settle_failed"
-  | "tool_error";
+  | "tool_error"
+  // Fase 17 — fiat rail (API key + Polar).
+  | "api_key"
+  | "api_key_insufficient"
+  | "api_key_rejected"
+  | "fiat_deposit_success"
+  | "fiat_deposit_failed";
 
 /** Payment types that represent a failure worth surfacing in logs/panel. */
 const ERROR_PAYMENT_TYPES: ReadonlySet<PaymentType> = new Set([
@@ -28,6 +34,9 @@ const ERROR_PAYMENT_TYPES: ReadonlySet<PaymentType> = new Set([
   "deposit_failed",
   "settle_failed",
   "tool_error",
+  "api_key_insufficient",
+  "api_key_rejected",
+  "fiat_deposit_failed",
 ]);
 
 const MAX_DETAIL_LEN = 500;

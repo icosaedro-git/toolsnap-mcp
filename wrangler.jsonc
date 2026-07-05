@@ -31,7 +31,13 @@
     // Screenshot provider: "screenshotone" (uses SCREENSHOT_API_KEY) or "microlink"
     // (no key, free tier). If SCREENSHOT_API_KEY is unset, automatically falls back
     // to microlink so the tool works with zero external account.
-    "SCREENSHOT_PROVIDER": "screenshotone"
+    "SCREENSHOT_PROVIDER": "screenshotone",
+    // Fase 17 — fiat rail (Polar). POLAR_ENV="sandbox" while testing against
+    // sandbox-api.polar.sh with a sandbox account; unset/"production" for live.
+    // POLAR_PRODUCT_ID is the "ToolSnap Credits" pay-what-you-want product id
+    // (set once the Polar product exists — /checkout/start fails clearly until then).
+    "POLAR_ENV": "sandbox"
+    // "POLAR_PRODUCT_ID": "<polar-product-id>"
   },
   // KV namespace for x402 nonce replay-protection (created 2026-06-23).
   // Also holds prepaid spend-authorization nonces (single-use) and
@@ -63,4 +69,10 @@
   //   wrangler secret put RELAYER_PRIVATE_KEY    (already done)
   //   wrangler secret put SCREENSHOT_API_KEY     (optional — ScreenshotOne access key;
   //                                               without it screenshot_url uses microlink)
+  //   wrangler secret put POLAR_ACCESS_TOKEN     (Fase 17 — Polar API token, sandbox or live
+  //                                               matching POLAR_ENV; checkout/welcome fail
+  //                                               clearly without it)
+  //   wrangler secret put POLAR_WEBHOOK_SECRET   (Fase 17 — Polar webhook signing secret,
+  //                                               "whsec_..."; /webhooks/polar rejects with
+  //                                               401 without it)
 }

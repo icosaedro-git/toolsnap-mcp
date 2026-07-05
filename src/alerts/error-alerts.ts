@@ -24,7 +24,7 @@ interface ErrorEventParams {
 }
 
 const HOUR_SEC = 60 * 60;
-const MONEY_TYPES = new Set(["settle_failed", "deposit_failed"]);
+const MONEY_TYPES = new Set(["settle_failed", "deposit_failed", "fiat_deposit_failed"]);
 
 /** Provider tools prefix their thrown errors with the provider name (see src/tools/*). */
 const PROVIDER_PREFIXES = ["fal.ai", "ScreenshotOne", "Microlink", "DataForSEO"];
@@ -57,7 +57,14 @@ export function maybeAlertError(env: AlertEnv, ctx: ExecutionContext, params: Er
         const { toolName, paymentType, payer, client, detail } = params;
 
         // User-side rejections already surfaced to the caller and visible in the panel.
-        if (paymentType === "prepaid_rejected" || paymentType === "prepaid_insufficient") return;
+        if (
+          paymentType === "prepaid_rejected" ||
+          paymentType === "prepaid_insufficient" ||
+          paymentType === "api_key_rejected" ||
+          paymentType === "api_key_insufficient"
+        ) {
+          return;
+        }
 
         // Normal x402 discovery handshake (agent probing without a wallet yet), not an error.
         if (paymentType === "402_rejected" && detail === "no_payment_payload") return;
