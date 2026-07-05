@@ -1,0 +1,246 @@
+/**
+ * Polar integration for the fiat rail (Fase 17).
+ *
+ * Money is credited ONLY from the `order.paid` webhook (source of truth for
+ * the exact amount paid). The /welcome page never credits — it mints/reveals
+ * the API key (idempotent via checkout_claims) and shows the best-effort
+ * current balance, refreshing if the webhook hasn't landed yet. This avoids
+ * any dual-write race between webhook and page load.
+ */
+
+import { creditDeposit } from "../x402/prepaid.js";
+import { accountAddress } from "./keys.js";
+
+export interface PolarEnv {
+  PREPAID_DB: D1Database;
+  POLAR_ACCESS_TOKEN?: string;
+  POLAR_WEBHOOK_SECRET?: string;
+  POLAR_PRODUCT_ID?: string;
+  POLAR_ENV?: string; // "sandbox" | "production" (default production)
+}
+
+function apiBase(env: PolarEnv): string {
+  return (env.POLAR_ENV ?? "production") === "sandbox"
+    ? "https://sandbox-api.polar.sh"
+    : "https://api.polar.sh";
+}
+
+// ---------------------------------------------------------------------------
+// Standard Webhooks signature verification (HMAC-SHA256, WebCrypto)
+// ---------------------------------------------------------------------------
+
+function base64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * Verify a Polar webhook per the Standard Webhooks spec:
+ * headers `webhook-id` / `webhook-timestamp` / `webhook-signature`,
+ * signed content = `${id}.${timestamp}.${rawBody}`, HMAC-SHA256 base64,
+ * secret format `whsec_<base64>`. 5-minute timestamp tolerance.
+ */
+export async function verifyPolarSignature(
+  rawBody: string,
+  headers: Headers,
+  secret: string
+): Promise<boolean> {
+  const id = headers.get("webhook-id");
+  const timestamp = headers.get("webhook-timestamp");
+  const sigHeader = headers.get("webhook-signature");
+  if (!id || !timestamp || !sigHeader || !secret) return false;
+
+  const ts = parseInt(timestamp, 10);
+  const now = Math.floor(Date.now() / 1000);
+  if (!Number.isFinite(ts) || Math.abs(now - ts) > 300) return false;
+
+  const secretB64 = secret.startsWith("whsec_") ? secret.slice("whsec_".length) : secret;
+  let keyBytes: Uint8Array;
+  try {
+    keyBytes = base64ToBytes(secretB64);
+  } catch {
+    return false;
+  }
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyBytes as BufferSource,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signedContent = `${id}.${timestamp}.${rawBody}`;
+  const sigBuf = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signedContent));
+  const expected = bytesToBase64(new Uint8Array(sigBuf));
+
+  // Header may carry multiple space-separated "v1,<sig>" candidates.
+  const candidates = sigHeader
+    .split(" ")
+    .map((s) => s.split(",")[1])
+    .filter((s): s is string => Boolean(s));
+
+  return candidates.some((c) => timingSafeEqual(c, expected));
+}
+
+// ---------------------------------------------------------------------------
+// Checkout session (Polar API v1)
+// ---------------------------------------------------------------------------
+
+export interface CheckoutSession {
+  id: string;
+  url: string;
+}
+
+/**
+ * Create a Polar checkout session for a fixed USD amount (pay-what-you-want
+ * product). `accountId` is passed as metadata for recharges (an existing
+ * account topping up) — omit it for a brand-new signup.
+ */
+export async function createCheckoutSession(
+  env: PolarEnv,
+  amountUsd: number,
+  opts: { successUrl: string; accountId?: string }
+): Promise<CheckoutSession> {
+  if (!env.POLAR_ACCESS_TOKEN || !env.POLAR_PRODUCT_ID) {
+    throw new Error("Polar is not configured (POLAR_ACCESS_TOKEN / POLAR_PRODUCT_ID missing)");
+  }
+  const body: Record<string, unknown> = {
+    products: [env.POLAR_PRODUCT_ID],
+    amount: Math.round(amountUsd * 100), // cents — PWYW custom price
+    success_url: opts.successUrl,
+    metadata: opts.accountId ? { account_id: opts.accountId } : {},
+  };
+  const res = await fetch(`${apiBase(env)}/v1/checkouts/`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.POLAR_ACCESS_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Polar checkout creation failed (${res.status}): ${text.slice(0, 300)}`);
+  }
+  const data = (await res.json()) as { id: string; url: string };
+  return { id: data.id, url: data.url };
+}
+
+export interface PolarCheckout {
+  id: string;
+  status: "open" | "expired" | "confirmed" | "succeeded" | "failed";
+  customerEmail: string | null;
+  metadata: Record<string, unknown>;
+}
+
+/** Fetch a checkout session's current status (for the /welcome page). */
+export async function getCheckout(env: PolarEnv, checkoutId: string): Promise<PolarCheckout | null> {
+  if (!env.POLAR_ACCESS_TOKEN) return null;
+  const res = await fetch(`${apiBase(env)}/v1/checkouts/${encodeURIComponent(checkoutId)}`, {
+    headers: { Authorization: `Bearer ${env.POLAR_ACCESS_TOKEN}` },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as {
+    id: string;
+    status: PolarCheckout["status"];
+    customer_email: string | null;
+    metadata?: Record<string, unknown>;
+  };
+  return {
+    id: data.id,
+    status: data.status,
+    customerEmail: data.customer_email,
+    metadata: data.metadata ?? {},
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Account resolution + idempotent crediting (webhook only)
+// ---------------------------------------------------------------------------
+
+/** Find or create an account by email. Email is lowercased for uniqueness. */
+export async function getOrCreateAccountByEmail(
+  db: D1Database,
+  email: string,
+  polarCustomerId?: string
+): Promise<string> {
+  const normalized = email.trim().toLowerCase();
+  const existing = await db
+    .prepare("SELECT account_id FROM accounts WHERE email = ?")
+    .bind(normalized)
+    .first<{ account_id: string }>();
+  if (existing) return existing.account_id;
+
+  const accountId = crypto.randomUUID();
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    await db
+      .prepare(
+        "INSERT INTO accounts (account_id, email, polar_customer_id, created_at) VALUES (?, ?, ?, ?)"
+      )
+      .bind(accountId, normalized, polarCustomerId ?? null, now)
+      .run();
+    return accountId;
+  } catch {
+    // Concurrent insert won the race — read back the winner.
+    const row = await db
+      .prepare("SELECT account_id FROM accounts WHERE email = ?")
+      .bind(normalized)
+      .first<{ account_id: string }>();
+    if (!row) throw new Error(`Failed to resolve account for ${normalized}`);
+    return row.account_id;
+  }
+}
+
+export interface PolarOrderPaid {
+  orderId: string;
+  amountMicro: bigint; // gross amount paid, credited 1:1
+  accountId: string; // resolved by caller (metadata.account_id or by email)
+}
+
+/**
+ * Idempotently credit a paid order to an account's prepaid balance.
+ * Returns { credited: false } if this order_id was already processed
+ * (webhook replay) — never double-credits.
+ */
+export async function creditOrder(
+  db: D1Database,
+  order: PolarOrderPaid
+): Promise<{ credited: boolean; balanceAfter?: bigint }> {
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    await db
+      .prepare(
+        "INSERT INTO polar_orders (order_id, account_id, amount_micro, credited_at) VALUES (?, ?, ?, ?)"
+      )
+      .bind(order.orderId, order.accountId, Number(order.amountMicro), now)
+      .run();
+  } catch {
+    // Already credited (PK conflict on order_id) — no-op.
+    return { credited: false };
+  }
+
+  const balanceAfter = await creditDeposit(
+    db,
+    accountAddress(order.accountId),
+    order.amountMicro,
+    `polar:${order.orderId}`,
+    order.orderId
+  );
+  return { credited: true, balanceAfter };
+}

@@ -359,6 +359,10 @@ export function buildPaymentRequiredResponse(
         },
       },
     ],
+    fiat: {
+      checkout: "https://mcp.toolsnap.app/checkout",
+      how: "No crypto? Buy credits with a card and get an API key — send it as an Authorization: Bearer header, or embed it in the URL as /mcp/<key> if your client can't send custom headers.",
+    },
     extensions: {},
   };
 

@@ -1,6 +1,6 @@
 # ToolSnap MCP
 
-> One connection, superpowers for your agent: deterministic microtools — no accounts, no API keys, pay per call with USDC on Base.
+> One connection, superpowers for your agent: deterministic microtools. Pay per call with USDC on Base — no account needed — or buy fiat credits with a card if you'd rather not touch crypto.
 
 [![toolsnap-mcp MCP server](https://glama.ai/mcp/servers/icosaedro-git/toolsnap-mcp/badges/score.svg)](https://glama.ai/mcp/servers/icosaedro-git/toolsnap-mcp)
 [![MCP](https://img.shields.io/badge/MCP-streamable--http-6366f1)](https://mcp.toolsnap.app/.well-known/mcp.json)
@@ -34,7 +34,7 @@ ToolSnap is built around three ideas:
 
 `fetch_extract` is free — this saving costs nothing.
 
-**3. No accounts, no API keys.** Free tools work the second you connect. Paid tools settle per call with USDC on Base via [x402](https://x402.org) — an agent with a wallet can pay cold: no signup, no subscription, no key management.
+**3. No account required (crypto path).** Free tools work the second you connect. Paid tools settle per call with USDC on Base via [x402](https://x402.org) — an agent with a wallet can pay cold: no signup, no subscription, no key management. Rather not touch crypto? [Buy fiat credits with a card](https://mcp.toolsnap.app/checkout) and get an API key instead — same discounted per-call price, no wallet needed.
 
 ---
 
@@ -82,6 +82,28 @@ order: `TOOLSNAP_WALLET_KEY` → `~/.toolsnap/wallet.key` → macOS Keychain
 Useful env: `TOOLSNAP_MAX_PRICE_USDC` (per-call spend cap, default `0.10`),
 `TOOLSNAP_PREPAID=1` + `TOOLSNAP_AUTO_DEPOSIT_USDC` (use the cheaper prepaid balance).
 
+### Paid tools — no wallet, pay with a card
+
+Buy credits at [mcp.toolsnap.app/checkout](https://mcp.toolsnap.app/checkout) (handled by
+Polar, our Merchant of Record). You'll get an API key in a one-time pop-up —
+connect with it directly, no proxy needed:
+
+```json
+{
+  "mcpServers": {
+    "toolsnap": {
+      "url": "https://mcp.toolsnap.app/mcp",
+      "headers": { "Authorization": "Bearer sk_live_..." }
+    }
+  }
+}
+```
+
+Clients that can't send custom headers (some claude.ai connectors) can embed
+the key in the URL instead: `https://mcp.toolsnap.app/mcp/sk_live_...` (the
+key may then appear in that client's request logs — prefer the header when
+your client supports it).
+
 ### Direct MCP call
 
 ```bash
@@ -104,7 +126,7 @@ curl -X POST https://mcp.toolsnap.app/mcp \
 | `keyword_research` | Google Ads volume/CPC/competition via DataForSEO. | $0.04 USDC |
 | `remove_background` | Remove an image's background → transparent PNG URL. | $0.03 USDC |
 
-No first-call-free: these three tools have real per-call cost, so every call settles from the start. Pay-per-call is $0.03–$0.04 USDC on Base using [x402 v2](https://x402.org) (EIP-3009 `transferWithAuthorization`); prepaid (deposit once, debit off-chain) is cheaper per call. No API key, no subscription.
+No first-call-free: these three tools have real per-call cost, so every call settles from the start. Pay-per-call is $0.03–$0.04 USDC on Base using [x402 v2](https://x402.org) (EIP-3009 `transferWithAuthorization`); prepaid (deposit once, debit off-chain, crypto or [card](https://mcp.toolsnap.app/checkout)) is cheaper per call.
 
 ### Free (always)
 

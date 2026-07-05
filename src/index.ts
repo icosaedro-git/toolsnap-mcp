@@ -5,6 +5,27 @@ import { PRICING_DATA } from "./tools/pricing.js";
 import { getDashboardData } from "./analytics/queries.js";
 import { PANEL_HTML } from "./analytics/panel.js";
 import { checkUsageAlerts } from "./alerts/usage-alerts.js";
+import { looksLikeApiKey, issueKey, revokeKey, accountExists, accountAddress } from "./fiat/keys.js";
+import {
+  verifyPolarSignature,
+  createCheckoutSession,
+  getCheckout,
+  getOrCreateAccountByEmail,
+  creditOrder,
+} from "./fiat/polar.js";
+import { getBalanceMicro, microToUsdc } from "./x402/prepaid.js";
+import { writeEvent } from "./analytics/logger.js";
+import {
+  renderCheckoutPage,
+  renderCheckoutErrorPage,
+  renderProcessingPage,
+  renderKeyRevealPage,
+  renderTopUpPage,
+  renderAlreadyClaimedPage,
+  renderTermsPage,
+  renderPrivacyPage,
+  renderRefundsPage,
+} from "./fiat/pages.js";
 
 export interface Env {
   // x402 payment config (vars in wrangler.jsonc)
@@ -62,13 +83,21 @@ export interface Env {
   // Comma-separated EVM addresses of our own wallets — their paid calls are marked internal.
   INTERNAL_WALLETS?: string;
 
+  // Fiat rail (Fase 17) — Polar (Merchant of Record) checkout + webhook.
+  // Secrets (set via: wrangler secret put POLAR_ACCESS_TOKEN / POLAR_WEBHOOK_SECRET).
+  POLAR_ACCESS_TOKEN?: string;
+  POLAR_WEBHOOK_SECRET?: string;
+  // Product id for the "ToolSnap Credits" pay-what-you-want product (var, not secret).
+  POLAR_PRODUCT_ID?: string;
+  // "sandbox" (sandbox-api.polar.sh) or unset/"production" (api.polar.sh).
+  POLAR_ENV?: string;
 }
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version, X-Admin-Key, X-ToolSnap-Internal",
+    "Content-Type, Authorization, X-Api-Key, Mcp-Session-Id, Mcp-Protocol-Version, X-Admin-Key, X-ToolSnap-Internal",
 };
 
 function withCors(response: Response): Response {
@@ -108,8 +137,10 @@ export default {
       return new Response(svg, { headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" } });
     }
 
-    // MCP endpoint
-    if (method === "POST" && url.pathname === "/mcp") {
+    // MCP endpoint. Also accepts POST /mcp/<sk_...> for clients that can't
+    // send custom headers (Fase 17 — fiat API key embedded in the URL).
+    const mcpKeyInPath = url.pathname.match(/^\/mcp\/(sk_[A-Za-z0-9_]+)$/);
+    if (method === "POST" && (url.pathname === "/mcp" || mcpKeyInPath)) {
       let body: string;
       try {
         body = await request.text();
@@ -126,7 +157,29 @@ export default {
         env.TOOLSNAP_INTERNAL_TOKEN && internalHeader === env.TOOLSNAP_INTERNAL_TOKEN
       );
 
-      const { response, status } = await handleMcpRequest(body, env, isAdmin, ctx, clientUA, sessionId, isInternal);
+      // API key: header wins over URL if both are present. x-api-key and a
+      // bare (non-"Bearer ") Authorization value are both accepted.
+      const authHeader = request.headers.get("authorization") ?? "";
+      const bearerKey = authHeader.toLowerCase().startsWith("bearer ")
+        ? authHeader.slice(7).trim()
+        : authHeader.trim();
+      const headerKey = request.headers.get("x-api-key") ?? bearerKey;
+      const rawApiKey = looksLikeApiKey(headerKey)
+        ? headerKey
+        : mcpKeyInPath && looksLikeApiKey(mcpKeyInPath[1])
+        ? mcpKeyInPath[1]
+        : null;
+
+      const { response, status } = await handleMcpRequest(
+        body,
+        env,
+        isAdmin,
+        ctx,
+        clientUA,
+        sessionId,
+        isInternal,
+        rawApiKey
+      );
 
       if (response === null) {
         // Notification — 202 empty body with CORS
@@ -146,7 +199,7 @@ export default {
       return jsonResponse({
         name: "toolsnap-mcp",
         description:
-          "Deterministic microtools for AI agents — no accounts, no API keys. Free flagship fetch_extract (98.1% median token reduction vs raw HTML, pure parsing, no LLM in the loop) + fetch_html + a wide free utility catalog. Paid: screenshot_url, keyword_research, remove_background (real-COGS tools), pay per call via x402 USDC on Base.",
+          "Deterministic microtools for AI agents — no account needed for free tools or crypto payment. Free flagship fetch_extract (98.1% median token reduction vs raw HTML, pure parsing, no LLM in the loop) + fetch_html + a wide free utility catalog. Paid: screenshot_url, keyword_research, remove_background (real-COGS tools) — pay per call via x402 USDC on Base, or buy fiat credits with a card at /checkout (API key).",
         mcp_endpoint: "/mcp",
         well_known: "/.well-known/mcp.json",
         pricing: "/.well-known/pricing.json",
@@ -163,7 +216,7 @@ export default {
         name: "toolsnap-mcp",
         version: "0.1.0",
         description:
-          `Deterministic, context-efficient microtools for AI agents — no accounts, no API keys. ${tools.length} tools total. Extraction is pure parsing (no LLM in the loop): exact quotes, stable output, zero added inference cost. Free flagships fetch_extract (median 98.1% token reduction, 53,820 → 2,001 tokens, 11 real pages) and fetch_html, plus a wide free utility catalog (CSV/JSON/PDF query, HTML→Markdown, RSS, sitemap, metadata, token count, and more). Paid: screenshot_url, keyword_research, remove_background — real per-call COGS tools, $0.02–$0.04 USDC on Base via x402 (no first-call-free). Or deposit once ($0.50 min) and debit off-chain at a discount, no per-call gas.`,
+          `Deterministic, context-efficient microtools for AI agents — free tools and crypto payment need no account. ${tools.length} tools total. Extraction is pure parsing (no LLM in the loop): exact quotes, stable output, zero added inference cost. Free flagships fetch_extract (median 98.1% token reduction, 53,820 → 2,001 tokens, 11 real pages) and fetch_html, plus a wide free utility catalog (CSV/JSON/PDF query, HTML→Markdown, RSS, sitemap, metadata, token count, and more). Paid: screenshot_url, keyword_research, remove_background — real per-call COGS tools, $0.02–$0.04 USDC on Base via x402 (no first-call-free), or fiat credits with a card (API key) at /checkout. Prepaid balances (deposit once, debit off-chain, no per-call gas) work either way.`,
         transport: "streamable-http",
         endpoint: "/mcp",
         pricing_endpoint: "/.well-known/pricing.json",
@@ -178,6 +231,12 @@ export default {
             deposit_tool: "account_deposit",
             balance_tool: "account_balance",
             spend_meta_key: "x402/prepaid-spend",
+          },
+          fiat: {
+            checkout: "/checkout",
+            method: "Card via Polar, no crypto — returns an API key",
+            usage: "Authorization: Bearer <key> header, or /mcp/<key> URL for clients without custom headers",
+            non_refundable: true,
           },
         },
         tools: listTools("full").map(({ name, description }) => {
@@ -208,7 +267,7 @@ export default {
         $schema: "https://glama.ai/mcp/schemas/connector.json",
         name: "ToolSnap MCP",
         description:
-          `Deterministic, context-efficient microtools for AI agents — no accounts, no API keys. ${tools.length} tools total. Flagship: fetch_extract converts raw HTML to clean text with a median 98.1% token reduction (53,820 → 2,001 tokens, 11 real pages) via pure parsing, no LLM in the loop — free, like fetch_html and most of the catalog. Paid: screenshot_url, keyword_research, remove_background — real per-call COGS, $0.02–$0.04 USDC on Base via x402. Prepaid: deposit once ($0.50 min), debit off-chain at a discount.`,
+          `Deterministic, context-efficient microtools for AI agents — free tools need no account. ${tools.length} tools total. Flagship: fetch_extract converts raw HTML to clean text with a median 98.1% token reduction (53,820 → 2,001 tokens, 11 real pages) via pure parsing, no LLM in the loop — free, like fetch_html and most of the catalog. Paid: screenshot_url, keyword_research, remove_background — real per-call COGS, $0.02–$0.04 USDC on Base via x402, or fiat credits with a card. Prepaid: deposit once ($0.50 min), debit off-chain at a discount.`,
         categories: ["developer-tools", "web-scraping", "data-extraction", "paid"],
         transport: "streamable-http",
         homepage: "https://toolsnap.app/agents",
@@ -239,6 +298,234 @@ export default {
         const message = err instanceof Error ? err.message : String(err);
         return jsonResponse({ error: message }, 502);
       }
+    }
+
+    // -----------------------------------------------------------------------
+    // Fiat rail (Fase 17) — checkout, key reveal, Polar webhook, legal pages.
+    // Provisional home on mcp.toolsnap.app; /checkout + /welcome move to
+    // portal.toolsnap.app in F21.2 (billing/keys move, legal URLs don't).
+    // -----------------------------------------------------------------------
+
+    function html(body: string, status = 200): Response {
+      return withCors(new Response(body, { status, headers: { "Content-Type": "text/html; charset=utf-8" } }));
+    }
+
+    if (method === "GET" && url.pathname === "/checkout") {
+      return html(renderCheckoutPage({ accountId: url.searchParams.get("account") ?? undefined }));
+    }
+
+    // GET /checkout/start?amount=5[&account=<account_id>] -> create a Polar
+    // checkout session and redirect. account= is present for a recharge of an
+    // existing account; omitted for a brand-new signup (a key is minted at
+    // /welcome once the payment succeeds).
+    if (method === "GET" && url.pathname === "/checkout/start") {
+      const amount = Number(url.searchParams.get("amount"));
+      if (!Number.isFinite(amount) || amount < 5 || amount > 1000) {
+        return html(renderCheckoutErrorPage("Invalid amount — must be between $5 and $1000."), 400);
+      }
+      const accountParam = url.searchParams.get("account") ?? undefined;
+      const accountId = accountParam && (await accountExists(env.PREPAID_DB, accountParam)) ? accountParam : undefined;
+      try {
+        const session = await createCheckoutSession(env, amount, {
+          successUrl: `${url.origin}/welcome?checkout_id={CHECKOUT_ID}`,
+          accountId,
+        });
+        return withCors(new Response(null, { status: 302, headers: { Location: session.url } }));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return html(renderCheckoutErrorPage(message), 502);
+      }
+    }
+
+    // GET /welcome?checkout_id=... — reveals the API key exactly once (new
+    // signup), confirms a top-up (recharge), or shows a "processing" page
+    // that auto-refreshes until the order.paid webhook has landed. Money is
+    // credited ONLY by the webhook handler below — this route never credits,
+    // it only mints/reveals the key (idempotent via checkout_claims).
+    if (method === "GET" && url.pathname === "/welcome") {
+      const checkoutId = url.searchParams.get("checkout_id");
+      if (!checkoutId) return html(renderCheckoutErrorPage("Missing checkout_id."), 400);
+
+      const existingClaim = await env.PREPAID_DB
+        .prepare("SELECT account_id, key_id FROM checkout_claims WHERE checkout_id = ?")
+        .bind(checkoutId)
+        .first<{ account_id: string; key_id: string | null }>();
+
+      if (existingClaim) {
+        const bal = await getBalanceMicro(env.PREPAID_DB, accountAddress(existingClaim.account_id));
+        return html(
+          existingClaim.key_id
+            ? renderAlreadyClaimedPage({ balanceUsdc: microToUsdc(bal) })
+            : renderTopUpPage({ balanceUsdc: microToUsdc(bal) })
+        );
+      }
+
+      const checkout = await getCheckout(env, checkoutId);
+      if (!checkout) return html(renderCheckoutErrorPage("Could not verify this checkout."), 502);
+      if (checkout.status === "failed" || checkout.status === "expired") {
+        return html(renderCheckoutErrorPage(`Checkout ${checkout.status} — please start a new purchase.`), 400);
+      }
+      if (checkout.status !== "succeeded") {
+        return html(renderProcessingPage(checkoutId));
+      }
+
+      const metaAccountId =
+        typeof checkout.metadata.account_id === "string" ? checkout.metadata.account_id : null;
+      const isRecharge = Boolean(metaAccountId && (await accountExists(env.PREPAID_DB, metaAccountId)));
+
+      let accountId: string;
+      if (isRecharge) {
+        accountId = metaAccountId!;
+      } else if (checkout.customerEmail) {
+        accountId = await getOrCreateAccountByEmail(env.PREPAID_DB, checkout.customerEmail);
+      } else {
+        return html(renderCheckoutErrorPage("No email on this checkout — contact support@toolsnap.app."), 502);
+      }
+
+      const now = Math.floor(Date.now() / 1000);
+      try {
+        await env.PREPAID_DB
+          .prepare("INSERT INTO checkout_claims (checkout_id, account_id, key_id, claimed_at) VALUES (?, ?, NULL, ?)")
+          .bind(checkoutId, accountId, now)
+          .run();
+      } catch {
+        // Lost a concurrent race (double page load) — re-read and render from the winner's row.
+        const winner = await env.PREPAID_DB
+          .prepare("SELECT account_id, key_id FROM checkout_claims WHERE checkout_id = ?")
+          .bind(checkoutId)
+          .first<{ account_id: string; key_id: string | null }>();
+        const bal = winner ? await getBalanceMicro(env.PREPAID_DB, accountAddress(winner.account_id)) : 0n;
+        return html(
+          winner?.key_id
+            ? renderAlreadyClaimedPage({ balanceUsdc: microToUsdc(bal) })
+            : renderTopUpPage({ balanceUsdc: microToUsdc(bal) })
+        );
+      }
+
+      if (isRecharge) {
+        const bal = await getBalanceMicro(env.PREPAID_DB, accountAddress(accountId));
+        return html(renderTopUpPage({ balanceUsdc: microToUsdc(bal) }));
+      }
+
+      const { keyId, rawKey } = await issueKey(env.PREPAID_DB, accountId, env);
+      await env.PREPAID_DB
+        .prepare("UPDATE checkout_claims SET key_id = ? WHERE checkout_id = ?")
+        .bind(keyId, checkoutId)
+        .run();
+      const bal = await getBalanceMicro(env.PREPAID_DB, accountAddress(accountId));
+      return html(renderKeyRevealPage({ rawKey, balanceUsdc: microToUsdc(bal) }));
+    }
+
+    // POST /webhooks/polar — the SOLE source of crediting for the fiat rail.
+    // Verifies the Standard Webhooks signature, then idempotently credits
+    // order.paid events (polar_orders PK on order_id guards against replay).
+    if (method === "POST" && url.pathname === "/webhooks/polar") {
+      const rawBody = await request.text();
+      const verified = await verifyPolarSignature(rawBody, request.headers, env.POLAR_WEBHOOK_SECRET ?? "");
+      if (!verified) return jsonResponse({ error: "Invalid webhook signature" }, 401);
+
+      let payload: { type?: string; data?: Record<string, unknown> };
+      try {
+        payload = JSON.parse(rawBody);
+      } catch {
+        return jsonResponse({ error: "Invalid JSON" }, 400);
+      }
+
+      if (payload.type !== "order.paid" || !payload.data) {
+        return jsonResponse({ ok: true, ignored: payload.type ?? "unknown" });
+      }
+
+      const data = payload.data;
+      const orderId = String(data.id ?? "");
+      const totalAmountCents = Number(data.total_amount ?? data.amount ?? 0);
+      const metadata = (data.metadata ?? {}) as Record<string, unknown>;
+      const metaAccountId = typeof metadata.account_id === "string" ? metadata.account_id : null;
+      const customer = (data.customer ?? {}) as Record<string, unknown>;
+      const email =
+        (typeof data.customer_email === "string" && data.customer_email) ||
+        (typeof customer.email === "string" && customer.email) ||
+        null;
+      const customerId = typeof data.customer_id === "string" ? data.customer_id : undefined;
+
+      if (!orderId || !Number.isFinite(totalAmountCents) || totalAmountCents <= 0) {
+        writeEvent(env, {
+          toolName: "fiat_webhook",
+          paymentType: "fiat_deposit_failed",
+          payer: "anon",
+          revenueUsdc: 0,
+          latencyMs: 0,
+          detail: `malformed order.paid payload (order_id=${orderId})`,
+          internal: false,
+        }, ctx);
+        return jsonResponse({ ok: false, error: "malformed payload" }, 200);
+      }
+
+      try {
+        const accountId =
+          metaAccountId && (await accountExists(env.PREPAID_DB, metaAccountId))
+            ? metaAccountId
+            : email
+            ? await getOrCreateAccountByEmail(env.PREPAID_DB, email, customerId)
+            : null;
+        if (!accountId) {
+          throw new Error(`No account_id in metadata and no customer email (order ${orderId})`);
+        }
+        const amountMicro = BigInt(Math.round(totalAmountCents)) * 10_000n; // cents -> micro-USD
+        const result = await creditOrder(env.PREPAID_DB, { orderId, amountMicro, accountId });
+        writeEvent(env, {
+          toolName: "fiat_webhook",
+          paymentType: "fiat_deposit_success",
+          payer: `account:${accountId}`,
+          revenueUsdc: result.credited ? Number(amountMicro) / 1_000_000 : 0,
+          latencyMs: 0,
+          detail: result.credited ? undefined : "replay (already credited)",
+          internal: false,
+        }, ctx);
+        return jsonResponse({ ok: true, credited: result.credited });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        writeEvent(env, {
+          toolName: "fiat_webhook",
+          paymentType: "fiat_deposit_failed",
+          payer: "anon",
+          revenueUsdc: 0,
+          latencyMs: 0,
+          detail: message,
+          internal: false,
+        }, ctx);
+        return jsonResponse({ ok: false, error: message }, 200);
+      }
+    }
+
+    if (method === "GET" && url.pathname === "/terms") return html(renderTermsPage());
+    if (method === "GET" && url.pathname === "/privacy") return html(renderPrivacyPage());
+    if (method === "GET" && url.pathname === "/refunds") return html(renderRefundsPage());
+
+    // Admin-only key management (pre-portal). Same x-admin-key gate as /mcp.
+    if (method === "POST" && (url.pathname === "/admin/keys/issue" || url.pathname === "/admin/keys/revoke")) {
+      const adminKey = request.headers.get("x-admin-key");
+      if (!env.ADMIN_API_KEY || adminKey !== env.ADMIN_API_KEY) {
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+      let payload: Record<string, unknown>;
+      try {
+        payload = await request.json();
+      } catch {
+        return jsonResponse({ error: "Invalid JSON body" }, 400);
+      }
+
+      if (url.pathname === "/admin/keys/issue") {
+        const email = typeof payload.email === "string" ? payload.email.trim() : "";
+        if (!email) return jsonResponse({ error: "email is required" }, 400);
+        const accountId = await getOrCreateAccountByEmail(env.PREPAID_DB, email);
+        const { keyId, rawKey } = await issueKey(env.PREPAID_DB, accountId, env);
+        return jsonResponse({ account_id: accountId, key_id: keyId, raw_key: rawKey });
+      }
+
+      const keyId = typeof payload.key_id === "string" ? payload.key_id.trim() : "";
+      if (!keyId) return jsonResponse({ error: "key_id is required" }, 400);
+      const revoked = await revokeKey(env.PREPAID_DB, keyId);
+      return jsonResponse({ revoked });
     }
 
     // File upload — POST /upload

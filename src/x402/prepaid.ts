@@ -36,6 +36,15 @@ export function usdcToMicro(usdc: string): bigint {
   return BigInt(whole || "0") * 1_000_000n + BigInt(fracPadded || "0");
 }
 
+/** Format integer micro-USDC as a decimal USDC string (e.g. 10000n -> "0.010000"). */
+export function microToUsdc(micro: bigint): string {
+  const neg = micro < 0n;
+  const a = neg ? -micro : micro;
+  const whole = a / 1_000_000n;
+  const frac = (a % 1_000_000n).toString().padStart(6, "0");
+  return `${neg ? "-" : ""}${whole}.${frac}`;
+}
+
 /** Max validity window for a spend authorization (seconds). */
 const SPEND_AUTH_MAX_WINDOW_SEC = 600n;
 
