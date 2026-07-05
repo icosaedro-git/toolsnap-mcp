@@ -1,0 +1,12 @@
+# Standalone Cloudflare Worker: GitHub OAuth provider for the Decap CMS at
+# mcp.toolsnap.app/admin. Deployed separately from the main toolsnap-mcp
+# Worker on purpose — it's generic auth infrastructure, not part of the MCP
+# server or the site's static assets, and deploying it independently keeps
+# its (very rare) redeploys from ever touching the production MCP.
+name = "cms-auth-toolsnap"
+main = "src/index.ts"
+compatibility_date = "2026-06-01"
+
+# Secrets (never stored here — upload via wrangler secret put):
+#   wrangler secret put GITHUB_CLIENT_ID
+#   wrangler secret put GITHUB_CLIENT_SECRET

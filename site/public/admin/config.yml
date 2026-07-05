@@ -2,7 +2,7 @@ backend:
   name: github
   repo: icosaedro-git/toolsnap-mcp
   branch: main
-  base_url: https://cms-auth-web-unairodriguez.icosaedro-academy.workers.dev
+  base_url: https://cms-auth-toolsnap.icosaedro-academy.workers.dev
 
 media_folder: "site/public/img/blog"
 public_folder: "/img/blog"
