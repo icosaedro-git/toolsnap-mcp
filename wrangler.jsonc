@@ -8,13 +8,31 @@
   "routes": [{ "pattern": "mcp.toolsnap.app", "custom_domain": true }],
   // Fase 21.1 — public website (Astro, static) served by this same Worker.
   // Cloudflare serves matching static files (/, /terms, /tools, /img/*...)
-  // WITHOUT invoking the Worker at all; unmatched paths (/mcp, /.well-known/*,
-  // /checkout*, etc.) fall through to fetch() below as before.
+  // WITHOUT invoking the Worker at all; unmatched paths normally fall through
+  // to fetch() below — EXCEPT for real browser top-level navigations (GET
+  // with Sec-Fetch-Dest: document). For those, Cloudflare's asset router
+  // serves not_found_handling's 404-page directly and never calls the Worker
+  // at all, regardless of whether the Worker would have handled that path
+  // (found in production 2026-07-06: /checkout, /welcome and even
+  // /.well-known/mcp.json 404'd for a real browser while a plain curl to the
+  // same URL correctly hit the Worker and got its normal response). Any
+  // Worker-only path a human might open directly in a browser MUST be listed
+  // in run_worker_first below, or it will silently 404 for real visitors
+  // while looking fine to any tool that doesn't send navigation headers.
   "assets": {
     "directory": "./site/dist",
     "binding": "ASSETS",
     "html_handling": "drop-trailing-slash",
-    "not_found_handling": "404-page"
+    "not_found_handling": "404-page",
+    "run_worker_first": [
+      "/checkout",
+      "/checkout/start",
+      "/welcome",
+      "/.well-known/*",
+      "/analytics",
+      "/analytics/data",
+      "/files/*"
+    ]
   },
   // Daily cron (09:00 UTC) → usage alerts for COGS tools (screenshot_url quota
   // vs ScreenshotOne free tier). Fires Telegram at 50/90/100 + Monday digest.
