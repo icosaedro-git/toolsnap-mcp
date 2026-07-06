@@ -129,4 +129,13 @@ const nav = [
     .nav-desktop, .nav-cta { display: none; }
     .nav-toggle { display: flex; }
   }
+
+  /* Below the mobile hero breakpoint, take the header out of flow so the
+     hero image can start at the true top of the page — the (transparent,
+     until scrolled) header then floats over it as an overlay instead of
+     pushing it down. Pages without a full-bleed hero compensate with
+     padding-top on <main>, see global.css. */
+  @media (max-width: 720px) {
+    .site-header { position: fixed; width: 100%; }
+  }
 </style>
