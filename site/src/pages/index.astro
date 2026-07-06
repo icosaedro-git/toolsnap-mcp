@@ -13,45 +13,51 @@ const description =
 ---
 
 <BaseLayout title={title} description={description}>
-  <!-- ═══════════════ HERO (image-led variant) ═══════════════ -->
+  <!-- ═══════════════ HERO (image-led variant, full-bleed) ═══════════════ -->
   <section class="hero section section--ink">
+    <picture class="hero-image">
+      <source media="(max-width: 720px)" srcset="/img/hero-mobile.jpg" />
+      <img
+        src="/img/hero-desktop.jpg"
+        width="1800"
+        height="578"
+        alt="ToolSnap MCP — One connection. Superpowers for your agent."
+        fetchpriority="high"
+      />
+    </picture>
+
     <div class="container hero-stack">
-      <picture class="hero-image">
-        <source media="(max-width: 720px)" srcset="/img/hero-mobile.jpg" />
-        <img
-          src="/img/hero-desktop.jpg"
-          width="1800"
-          height="578"
-          alt="ToolSnap MCP — One connection. Superpowers for your agent."
-          fetchpriority="high"
-        />
-      </picture>
-
-      <p class="hero-sub">
-        ToolSnap gives any MCP-capable agent {toolsData.total} server-side tools — web extraction, SEO, documents, data, images. {toolsData.free} are free. Zero new accounts. Your agent's context window stays clean, and your bill stays small.
-      </p>
-      <div class="hero-cta">
-        <a href="#connect" class="btn btn--primary">Connect in 30 seconds</a>
-        <a href="/tools" class="btn btn--ghost">Browse the tools</a>
-      </div>
-
-      <div class="stat-strip">
-        <div class="stat-item">
-          <p class="stat-num">98.1%</p>
-          <p class="stat-label text-mute">median token savings on web content</p>
+      <div class="hero-cols">
+        <div class="hero-col">
+          <p class="hero-sub">
+            ToolSnap gives any MCP-capable agent {toolsData.total} server-side tools — web extraction, SEO, documents, data, images. {toolsData.free} are free. Zero new accounts. Your agent's context window stays clean, and your bill stays small.
+          </p>
+          <div class="hero-cta">
+            <a href="#connect" class="btn btn--primary">Connect in 30 seconds</a>
+            <a href="/tools" class="btn btn--ghost">Browse the tools</a>
+          </div>
         </div>
-        <div class="stat-item">
-          <p class="stat-num">{toolsData.free} / {toolsData.total}</p>
-          <p class="stat-label text-mute">tools free to call</p>
-        </div>
-        <div class="stat-item">
-          <p class="stat-num">$0</p>
-          <p class="stat-label text-mute">accounts, subscriptions or sign-ups required</p>
+
+        <div class="hero-col">
+          <div class="stat-strip">
+            <div class="stat-item">
+              <p class="stat-num">98.1%</p>
+              <p class="stat-label text-mute">median token savings on web content</p>
+            </div>
+            <div class="stat-item">
+              <p class="stat-num">{toolsData.free} / {toolsData.total}</p>
+              <p class="stat-label text-mute">tools free to call</p>
+            </div>
+            <div class="stat-item">
+              <p class="stat-num">$0</p>
+              <p class="stat-label text-mute">accounts, subscriptions or sign-ups required</p>
+            </div>
+          </div>
+          <p class="hero-caption text-mute">
+            Benchmark: fetch_extract turns a 53,820-token page into 2,001 tokens. That's ~$0.156 saved on a single Sonnet call — more than most paid tools here cost.
+          </p>
         </div>
       </div>
-      <p class="hero-caption text-mute">
-        Benchmark: fetch_extract turns a 53,820-token page into 2,001 tokens. That's ~$0.156 saved on a single Sonnet call — more than most paid tools here cost.
-      </p>
     </div>
   </section>
 
@@ -235,14 +241,15 @@ const description =
 </BaseLayout>
 
 <style>
-  /* ── Hero (image-led variant) ── */
+  /* ── Hero (image-led variant, full-bleed) ── */
   .hero {
     position: relative;
     min-height: calc(100svh - 68px);
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    justify-content: center;
     overflow: hidden;
-    padding-block: 32px;
+    padding-block: 28px;
   }
   .hero-stack {
     display: flex;
@@ -250,47 +257,59 @@ const description =
     align-items: center;
     text-align: center;
   }
+  /* Full-bleed: breaks out of .container to span the entire viewport width,
+     regardless of where this element sits in the DOM tree. */
   .hero-image {
     display: block;
-    width: 100%;
-    max-width: 640px;
-    margin-bottom: 28px;
+    width: 100vw;
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+    margin-bottom: 32px;
   }
   .hero-image img {
     width: 100%;
     height: auto;
     display: block;
-    border-radius: var(--r);
+  }
+  /* Desktop: two columns side by side below the image (left: pitch + CTAs,
+     right: stats + benchmark) — cuts the stacked height roughly in half. */
+  .hero-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    align-items: center;
+    text-align: left;
+    width: 100%;
   }
   .hero-sub {
     color: var(--text-soft);
-    max-width: 560px;
+    max-width: 480px;
     font-size: 1.05rem;
     line-height: 1.6;
   }
-  .hero-cta { display: flex; gap: 16px; margin-top: 24px; flex-wrap: wrap; justify-content: center; }
+  .hero-cta { display: flex; gap: 16px; margin-top: 24px; flex-wrap: wrap; }
 
   .stat-strip {
     display: flex;
-    justify-content: center;
     gap: 0;
-    margin-top: 40px;
   }
   .stat-item {
-    padding-right: 28px;
-    margin-right: 28px;
+    padding-right: 22px;
+    margin-right: 22px;
     border-right: 1px solid var(--border);
   }
   .stat-item:last-child { border-right: none; margin-right: 0; padding-right: 0; }
   .stat-num { white-space: nowrap; }
   .stat-label { font-size: 0.85rem; margin-top: 6px; max-width: 150px; }
-  .hero-caption { font-size: 0.8rem; max-width: 560px; margin-top: 20px; margin-inline: auto; }
+  .hero-caption { font-size: 0.8rem; max-width: 480px; margin-top: 20px; }
 
+  @media (max-width: 860px) {
+    .hero-cols { grid-template-columns: 1fr; text-align: center; gap: 32px; }
+    .hero-sub, .hero-caption { max-width: 560px; margin-inline: auto; }
+    .hero-cta { justify-content: center; }
+    .stat-strip { justify-content: center; }
+  }
   @media (max-width: 720px) {
-    /* Mobile hero art is a tall portrait crop — constrain by height, not
-       width, or it swallows the whole first screen on its own. */
-    .hero-image { max-width: none; width: auto; max-height: 38svh; margin-inline: auto; }
-    .hero-image img { width: auto; height: 100%; max-height: 38svh; margin-inline: auto; }
     .stat-strip { flex-wrap: wrap; row-gap: 20px; }
     .stat-item { padding-right: 18px; margin-right: 18px; }
   }
