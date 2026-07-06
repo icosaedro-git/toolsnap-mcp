@@ -53,6 +53,15 @@ const nav = [
     -webkit-backdrop-filter: blur(12px);
     border-bottom-color: var(--border);
   }
+  /* The top 68px bar (logo/hamburger) sits above the nav-overlay, which
+     only covers from 68px down — without this it stays translucent while
+     the mobile menu is open, blending with whatever is scrolled behind it. */
+  .site-header:has(.nav-overlay.is-open) {
+    background: var(--ink);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-bottom-color: var(--border);
+  }
   .header-inner {
     display: flex;
     align-items: center;
