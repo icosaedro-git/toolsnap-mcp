@@ -6,23 +6,8 @@ import { getDashboardData } from "./analytics/queries.js";
 import { PANEL_HTML } from "./analytics/panel.js";
 import { checkUsageAlerts } from "./alerts/usage-alerts.js";
 import { looksLikeApiKey, issueKey, revokeKey, accountExists, accountAddress } from "./fiat/keys.js";
-import {
-  verifyPolarSignature,
-  createCheckoutSession,
-  getCheckout,
-  getOrCreateAccountByEmail,
-  creditOrder,
-} from "./fiat/polar.js";
-import { getBalanceMicro, microToUsdc } from "./x402/prepaid.js";
+import { verifyPolarSignature, getOrCreateAccountByEmail, creditOrder } from "./fiat/polar.js";
 import { writeEvent } from "./analytics/logger.js";
-import {
-  renderCheckoutPage,
-  renderCheckoutErrorPage,
-  renderProcessingPage,
-  renderKeyRevealPage,
-  renderTopUpPage,
-  renderAlreadyClaimedPage,
-} from "./fiat/pages.js";
 
 export interface Env {
   // Fase 21.1 — Workers Static Assets binding for the public website
@@ -298,119 +283,24 @@ export default {
     }
 
     // -----------------------------------------------------------------------
-    // Fiat rail (Fase 17) — checkout, key reveal, Polar webhook, legal pages.
-    // Provisional home on mcp.toolsnap.app; /checkout + /welcome move to
-    // portal.toolsnap.app in F21.2 (billing/keys move, legal URLs don't).
+    // Fiat rail — the Polar webhook stays here (sole crediting source);
+    // checkout/key UX lives on portal.toolsnap.app since F21.2.
     // -----------------------------------------------------------------------
 
-    function html(body: string, status = 200): Response {
-      return withCors(new Response(body, { status, headers: { "Content-Type": "text/html; charset=utf-8" } }));
-    }
-
-    if (method === "GET" && url.pathname === "/checkout") {
-      return html(renderCheckoutPage({ accountId: url.searchParams.get("account") ?? undefined }));
-    }
-
-    // GET /checkout/start?amount=5[&account=<account_id>] -> create a Polar
-    // checkout session and redirect. account= is present for a recharge of an
-    // existing account; omitted for a brand-new signup (a key is minted at
-    // /welcome once the payment succeeds).
-    if (method === "GET" && url.pathname === "/checkout/start") {
-      const amount = Number(url.searchParams.get("amount"));
-      if (!Number.isFinite(amount) || amount < 5 || amount > 1000) {
-        return html(renderCheckoutErrorPage("Invalid amount — must be between $5 and $1000."), 400);
-      }
-      const accountParam = url.searchParams.get("account") ?? undefined;
-      const accountId = accountParam && (await accountExists(env.PREPAID_DB, accountParam)) ? accountParam : undefined;
-      try {
-        const session = await createCheckoutSession(env, amount, {
-          successUrl: `${url.origin}/welcome?checkout_id={CHECKOUT_ID}`,
-          accountId,
-        });
-        return withCors(new Response(null, { status: 302, headers: { Location: session.url } }));
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return html(renderCheckoutErrorPage(message), 502);
-      }
-    }
-
-    // GET /welcome?checkout_id=... — reveals the API key exactly once (new
-    // signup), confirms a top-up (recharge), or shows a "processing" page
-    // that auto-refreshes until the order.paid webhook has landed. Money is
-    // credited ONLY by the webhook handler below — this route never credits,
-    // it only mints/reveals the key (idempotent via checkout_claims).
-    if (method === "GET" && url.pathname === "/welcome") {
-      const checkoutId = url.searchParams.get("checkout_id");
-      if (!checkoutId) return html(renderCheckoutErrorPage("Missing checkout_id."), 400);
-
-      const existingClaim = await env.PREPAID_DB
-        .prepare("SELECT account_id, key_id FROM checkout_claims WHERE checkout_id = ?")
-        .bind(checkoutId)
-        .first<{ account_id: string; key_id: string | null }>();
-
-      if (existingClaim) {
-        const bal = await getBalanceMicro(env.PREPAID_DB, accountAddress(existingClaim.account_id));
-        return html(
-          existingClaim.key_id
-            ? renderAlreadyClaimedPage({ balanceUsdc: microToUsdc(bal) })
-            : renderTopUpPage({ balanceUsdc: microToUsdc(bal) })
-        );
-      }
-
-      const checkout = await getCheckout(env, checkoutId);
-      if (!checkout) return html(renderCheckoutErrorPage("Could not verify this checkout."), 502);
-      if (checkout.status === "failed" || checkout.status === "expired") {
-        return html(renderCheckoutErrorPage(`Checkout ${checkout.status} — please start a new purchase.`), 400);
-      }
-      if (checkout.status !== "succeeded") {
-        return html(renderProcessingPage(checkoutId));
-      }
-
-      const metaAccountId =
-        typeof checkout.metadata.account_id === "string" ? checkout.metadata.account_id : null;
-      const isRecharge = Boolean(metaAccountId && (await accountExists(env.PREPAID_DB, metaAccountId)));
-
-      let accountId: string;
-      if (isRecharge) {
-        accountId = metaAccountId!;
-      } else if (checkout.customerEmail) {
-        accountId = await getOrCreateAccountByEmail(env.PREPAID_DB, checkout.customerEmail);
-      } else {
-        return html(renderCheckoutErrorPage("No email on this checkout — contact support@toolsnap.app."), 502);
-      }
-
-      const now = Math.floor(Date.now() / 1000);
-      try {
-        await env.PREPAID_DB
-          .prepare("INSERT INTO checkout_claims (checkout_id, account_id, key_id, claimed_at) VALUES (?, ?, NULL, ?)")
-          .bind(checkoutId, accountId, now)
-          .run();
-      } catch {
-        // Lost a concurrent race (double page load) — re-read and render from the winner's row.
-        const winner = await env.PREPAID_DB
-          .prepare("SELECT account_id, key_id FROM checkout_claims WHERE checkout_id = ?")
-          .bind(checkoutId)
-          .first<{ account_id: string; key_id: string | null }>();
-        const bal = winner ? await getBalanceMicro(env.PREPAID_DB, accountAddress(winner.account_id)) : 0n;
-        return html(
-          winner?.key_id
-            ? renderAlreadyClaimedPage({ balanceUsdc: microToUsdc(bal) })
-            : renderTopUpPage({ balanceUsdc: microToUsdc(bal) })
-        );
-      }
-
-      if (isRecharge) {
-        const bal = await getBalanceMicro(env.PREPAID_DB, accountAddress(accountId));
-        return html(renderTopUpPage({ balanceUsdc: microToUsdc(bal) }));
-      }
-
-      const { keyId, rawKey } = await issueKey(env.PREPAID_DB, accountId, env);
-      await env.PREPAID_DB
-        .prepare("UPDATE checkout_claims SET key_id = ? WHERE checkout_id = ?")
-        .bind(keyId, checkoutId)
-        .run();
-      const bal = await getBalanceMicro(env.PREPAID_DB, accountAddress(accountId));
-      return html(renderKeyRevealPage({ rawKey, balanceUsdc: microToUsdc(bal) }));
+    // F21.2: the fiat purchase flow moved to portal.toolsnap.app. Permanent
+    // redirects preserve the query string so in-flight Polar success_urls
+    // (…/welcome?checkout_id=…) keep working — the portal's /welcome reads the
+    // same checkout_claims table, so claim idempotency carries over unchanged.
+    if (
+      method === "GET" &&
+      (url.pathname === "/checkout" || url.pathname === "/checkout/start" || url.pathname === "/welcome")
+    ) {
+      return withCors(
+        new Response(null, {
+          status: 301,
+          headers: { Location: `https://portal.toolsnap.app${url.pathname}${url.search}` },
+        })
+      );
     }
 
     // POST /webhooks/polar — the SOLE source of crediting for the fiat rail.
