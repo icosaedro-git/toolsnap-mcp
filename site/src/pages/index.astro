@@ -46,7 +46,7 @@ const description =
               <p class="stat-label text-mute">median token savings on web content</p>
             </div>
             <div class="stat-item">
-              <p class="stat-num">{toolsData.free} / {toolsData.total}</p>
+              <p class="stat-num">{toolsData.free}/{toolsData.total}</p>
               <p class="stat-label text-mute">tools free to call</p>
             </div>
             <div class="stat-item">
@@ -302,7 +302,7 @@ const description =
   }
   .stat-item:last-child { border-right: none; margin-right: 0; padding-right: 0; }
   .stat-num { white-space: nowrap; }
-  .stat-label { font-size: 0.85rem; margin-top: 6px; max-width: 150px; }
+  .stat-label { font-size: 0.85rem; margin-top: 6px; max-width: 150px; margin-inline: auto; }
   .hero-caption { font-size: 0.8rem; max-width: 480px; margin-top: 20px; }
 
   @media (max-width: 860px) {
