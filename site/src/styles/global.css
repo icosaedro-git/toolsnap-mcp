@@ -52,6 +52,13 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* Below 720px the header becomes position:fixed (see Header.astro) so a
+   full-bleed mobile hero can sit under it as an overlay. Every other page's
+   content needs this padding instead, or it renders under the header. */
+@media (max-width: 720px) {
+  main { padding-top: 68px; }
+}
+
 img, video { max-width: 100%; display: block; }
 
 a { color: inherit; text-decoration: none; }

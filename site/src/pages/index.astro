@@ -16,9 +16,10 @@ const description =
   <!-- ═══════════════ HERO (image-led variant, full-bleed) ═══════════════ -->
   <section class="hero section section--ink">
     <picture class="hero-image">
-      <source media="(max-width: 720px)" srcset="/img/hero-mobile.jpg" />
+      <source media="(max-width: 720px)" srcset="/img/hero-mobile.jpg 1x, /img/hero-mobile-2x.jpg 2x" />
       <img
         src="/img/hero-desktop.jpg"
+        srcset="/img/hero-desktop.jpg 1x, /img/hero-desktop-2x.jpg 2x"
         width="1800"
         height="578"
         alt="ToolSnap MCP — One connection. Superpowers for your agent."
@@ -311,6 +312,11 @@ const description =
     .stat-strip { justify-content: center; }
   }
   @media (max-width: 720px) {
+    /* Cancel out main's compensating padding-top (added because the header
+       is position:fixed below this breakpoint) so the hero image reaches
+       the very top of the page, with the transparent header floating over
+       it as an overlay. */
+    .hero { margin-top: -68px; }
     .stat-strip { flex-wrap: wrap; row-gap: 20px; }
     .stat-item { padding-right: 18px; margin-right: 18px; }
   }
