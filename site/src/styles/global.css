@@ -251,7 +251,11 @@ a.card:hover, .card--link:hover {
   font-family: var(--font-mono);
   font-size: 0.9rem;
   color: var(--text);
-  white-space: pre;
+  /* Wrap long single-line commands instead of forcing horizontal scroll /
+     page overflow — this is visual only, textContent (what copy buttons
+     read) keeps the original unwrapped single line. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .copy-btn {
   position: absolute;
