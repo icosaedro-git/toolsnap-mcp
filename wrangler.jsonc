@@ -19,12 +19,23 @@
   // Worker-only path a human might open directly in a browser MUST be listed
   // in run_worker_first below, or it will silently 404 for real visitors
   // while looking fine to any tool that doesn't send navigation headers.
+  // ALSO (found in production 2026-07-07): once run_worker_first is a list,
+  // the asset router intercepts EVERY unlisted path — non-GET methods get an
+  // empty 405 and GETs get the 404 page, so the Worker never runs. That took
+  // down POST /mcp (every MCP client), /webhooks/polar (fiat credits) and
+  // /upload. Every Worker route must be listed here, not just browser-facing
+  // ones.
   "assets": {
     "directory": "./site/dist",
     "binding": "ASSETS",
     "html_handling": "drop-trailing-slash",
     "not_found_handling": "404-page",
     "run_worker_first": [
+      "/mcp",
+      "/mcp/*",
+      "/webhooks/*",
+      "/upload",
+      "/admin/*",
       "/checkout",
       "/checkout/start",
       "/welcome",
