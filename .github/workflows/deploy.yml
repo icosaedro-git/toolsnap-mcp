@@ -26,3 +26,26 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           command: deploy
+
+      # Post-deploy smoke test: a real MCP initialize against production.
+      # Catches routing regressions the asset router can cause (2026-07-07:
+      # /mcp returned a bare 405 for a day because run_worker_first didn't
+      # list it — every MCP client saw "Server disconnected"). Retries to
+      # ride out edge propagation after the deploy.
+      - name: Smoke test /mcp (initialize + tools/list)
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5; do
+            code=$(curl -sS -o /tmp/init.json -w '%{http_code}' -X POST https://mcp.toolsnap.app/mcp \
+              -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+              --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci-smoke","version":"1.0"}}}' \
+              --max-time 20 || echo 000)
+            if [ "$code" = "200" ] && grep -q '"serverInfo"' /tmp/init.json; then break; fi
+            echo "attempt $i: HTTP $code — retrying in 10s"; sleep 10
+            if [ "$i" = "5" ]; then echo "::error::POST /mcp initialize failed after deploy (HTTP $code)"; cat /tmp/init.json; exit 1; fi
+          done
+          curl -sSf -X POST https://mcp.toolsnap.app/mcp \
+            -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+            --data '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' --max-time 20 | grep -q '"tools"'
+          curl -sSf https://mcp.toolsnap.app/.well-known/mcp.json --max-time 20 >/dev/null
+          echo "smoke test OK: /mcp initialize + tools/list + .well-known"
