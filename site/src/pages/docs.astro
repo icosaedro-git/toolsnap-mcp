@@ -40,11 +40,11 @@ const toc = [
   </DocSection>
 
   <DocSection num="03" title="API keys (credits rail)" id="api-keys">
-    <p>Buy credits at <a href="/checkout">/checkout</a> ($5, $10 or $25 — card checkout by Polar). You get an API key shown exactly once: <code class="inline">sk_live_…</code>. We store only its hash.</p>
+    <p>Sign in, then buy credits at <a href="/checkout">/checkout</a> ($5, $10 or $25 — card checkout by Polar). You get an API key shown exactly once: <code class="inline">sk_live_…</code>. We store only its hash.</p>
     <ul>
       <li>Send it as <code class="inline">Authorization: Bearer &lt;key&gt;</code> or <code class="inline">x-api-key: &lt;key&gt;</code> — or embed it in the path (<code class="inline">/mcp/&lt;key&gt;</code>) for clients without header support.</li>
       <li>Header beats URL if both are present. URL keys can end up in logs — prefer the header when your client allows it.</li>
-      <li>Lost a key? Keys are revocable and reissuable — contact <a href="mailto:support@toolsnap.app">support@toolsnap.app</a> (self-serve portal coming).</li>
+      <li>Manage, revoke or rotate keys anytime from the <a href="https://portal.toolsnap.app">portal</a>.</li>
     </ul>
   </DocSection>
 
