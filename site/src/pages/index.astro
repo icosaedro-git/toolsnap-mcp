@@ -95,42 +95,81 @@ const description =
     <div class="container section-head reveal">
       <p class="eyebrow mono">GET STARTED</p>
       <h2 class="h-section">Connect in 30 seconds. Pay only if you want the paid three.</h2>
-      <p class="lead">One URL. No API key needed for the {toolsData.free} free tools.</p>
+      <p class="lead">One URL, pasted directly — no proxy, no extra install. Pick your client.</p>
     </div>
 
     <div class="container">
       <div class="tabs-outer reveal" data-tabs>
-        <div class="tabs" role="tablist">
-          <button class="tab-btn" role="tab" aria-selected="true" data-tab-target="free">Free — just the URL</button>
-          <button class="tab-btn" role="tab" aria-selected="false" data-tab-target="paid">Paid — credits or crypto</button>
+        <div class="tabs client-tabs" role="tablist">
+          <button class="tab-btn" role="tab" aria-selected="true" data-tab-target="claude-desktop">Claude Desktop / claude.ai</button>
+          <button class="tab-btn" role="tab" aria-selected="false" data-tab-target="claude-code">Claude Code</button>
+          <button class="tab-btn" role="tab" aria-selected="false" data-tab-target="cursor">Cursor / VS Code</button>
+          <button class="tab-btn" role="tab" aria-selected="false" data-tab-target="any-agent">Any agent</button>
         </div>
 
-        <div class="tab-panel" role="tabpanel" data-tab-panel="free">
+        <div class="tab-panel" role="tabpanel" data-tab-panel="claude-desktop">
+          <p class="client-step">Settings &rarr; Connectors &rarr; Add custom connector &rarr; paste this URL:</p>
+          <div class="endpoint-pill mono">
+            <span id="connect-endpoint-desktop">https://mcp.toolsnap.app/mcp</span>
+            <button class="copy-btn" data-copy-target="#connect-endpoint-desktop" aria-label="Copy to clipboard">
+              <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+              <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+              <span class="copy-btn-label label-copy">Copy</span>
+              <span class="copy-btn-label label-copied">Copied</span>
+            </button>
+          </div>
+          <p class="caption text-mute">No mcp-remote, no local process. {toolsData.free} free tools show up right away — verified live: pasting just the URL surfaces 18 tools instantly.</p>
+          <a href="/docs#connect" class="btn btn--ghost btn--sm">Full docs for this client &rarr;</a>
+        </div>
+
+        <div class="tab-panel" role="tabpanel" data-tab-panel="claude-code" hidden>
+          <p class="client-step">One command:</p>
           <CodeBlock lang="bash" code={`claude mcp add --transport http toolsnap https://mcp.toolsnap.app/mcp`} />
-          <div class="client-switcher mono">
-            <span>Claude Desktop / claude.ai:</span> <code class="inline">Add a custom connector with URL https://mcp.toolsnap.app/mcp</code>
-          </div>
-          <CodeBlock lang="json" code={`{ "mcpServers": { "toolsnap": { "url": "https://mcp.toolsnap.app/mcp" } } }`} />
-          <p class="caption text-mute">That's it. Your agent now has {toolsData.free} free tools. Ask it to call tool_catalog to see everything.</p>
+          <p class="caption text-mute">Or add it to <code class="inline">.mcp.json</code> directly. {toolsData.free} free tools, no account.</p>
+          <a href="/docs#connect" class="btn btn--ghost btn--sm">Full docs for this client &rarr;</a>
         </div>
 
-        <div class="tab-panel" role="tabpanel" data-tab-panel="paid" hidden>
-          <p class="paid-intro text-soft">Three tools have real per-call costs (screenshots, keyword data, background removal). Pay per call from $0.02 — two rails, pick one:</p>
-          <div class="paid-cards">
-            <div class="card">
-              <h3>Card &rarr; credits (no crypto)</h3>
-              <p class="text-soft">Sign in, buy credits with a card ($5 minimum), get an API key, done.</p>
-              <CodeBlock lang="bash" code={`claude mcp add --transport http toolsnap https://mcp.toolsnap.app/mcp --header "Authorization: Bearer sk_live_…"`} />
-              <p class="text-mute small">Clients that can't set headers can embed the key in the URL: <code class="inline">https://mcp.toolsnap.app/mcp/sk_live_…</code></p>
-              <a href="/checkout" class="btn btn--ghost btn--sm">Sign in &amp; get credits &rarr;</a>
-            </div>
-            <div class="card">
-              <h3>Crypto (x402) — agent pays autonomously</h3>
-              <p class="text-soft">Give your agent its own wallet with a few USDC on Base. It pays per call, no account at all.</p>
-              <a href="/wallet-guide" class="btn btn--ghost btn--sm">Wallet guide &rarr;</a>
-            </div>
+        <div class="tab-panel" role="tabpanel" data-tab-panel="cursor" hidden>
+          <p class="client-step">Add to your MCP config:</p>
+          <CodeBlock lang="json" code={`{ "mcpServers": { "toolsnap": { "url": "https://mcp.toolsnap.app/mcp" } } }`} />
+          <p class="caption text-mute">Same shape works for VS Code, Windsurf and most streamable-HTTP clients.</p>
+          <a href="/docs#connect" class="btn btn--ghost btn--sm">Full docs for this client &rarr;</a>
+        </div>
+
+        <div class="tab-panel" role="tabpanel" data-tab-panel="any-agent" hidden>
+          <p class="client-step">Generic streamable-HTTP config:</p>
+          <CodeBlock lang="json" code={`{ "mcpServers": { "toolsnap": { "url": "https://mcp.toolsnap.app/mcp", "transport": "streamable-http" } } }`} />
+          <p class="client-step">Or, for agentic clients that can edit their own config, hand it this prompt:</p>
+          <div class="endpoint-pill mono">
+            <span id="connect-prompt-any">Connect to https://mcp.toolsnap.app/mcp as an MCP server and save it for future sessions.</span>
+            <button class="copy-btn" data-copy-target="#connect-prompt-any" aria-label="Copy to clipboard">
+              <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+              <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+              <span class="copy-btn-label label-copy">Copy</span>
+              <span class="copy-btn-label label-copied">Copied</span>
+            </button>
+          </div>
+          <a href="/docs#connect" class="btn btn--ghost btn--sm">Full docs for this client &rarr;</a>
+        </div>
+      </div>
+
+      <div class="connect-paid reveal">
+        <p class="paid-intro text-soft">Want the paid three (screenshots, keyword data, background removal)? Pay per call from $0.02 — two rails, pick one:</p>
+        <div class="paid-cards">
+          <div class="card">
+            <h3>Card &rarr; credits (no crypto)</h3>
+            <p class="text-soft">Sign in, buy credits with a card ($5 minimum), get an API key, done.</p>
+            <CodeBlock lang="bash" code={`claude mcp add --transport http toolsnap https://mcp.toolsnap.app/mcp --header "Authorization: Bearer sk_live_…"`} />
+            <p class="text-mute small">Clients that can't set headers can embed the key in the URL: <code class="inline">https://mcp.toolsnap.app/mcp/sk_live_…</code></p>
+            <a href="/checkout" class="btn btn--ghost btn--sm">Sign in &amp; get credits &rarr;</a>
+          </div>
+          <div class="card">
+            <h3>Crypto (x402) — agent pays autonomously</h3>
+            <p class="text-soft">Give your agent its own wallet with a few USDC on Base. It pays per call, no account at all.</p>
+            <a href="/wallet-guide" class="btn btn--ghost btn--sm">Wallet guide &rarr;</a>
           </div>
         </div>
+        <p class="text-mute small oauth-note">OAuth sign-in (skip the API key entirely) is coming.</p>
       </div>
     </div>
   </section>
@@ -347,16 +386,27 @@ const description =
     pointer-events: none;
   }
   .tabs-outer { position: relative; }
+  .client-tabs { flex-wrap: wrap; }
   .tab-panel { margin-top: 28px; }
-  .client-switcher { margin-block: 16px; font-size: 0.85rem; color: var(--text-soft); }
+  .client-step { margin-bottom: 12px; font-size: 0.92rem; color: var(--text); }
   .caption { margin-top: 16px; font-size: 0.88rem; }
+  .connect-paid {
+    margin-top: 56px;
+    padding-top: 40px;
+    border-top: 1px solid var(--border);
+  }
   .paid-intro { margin-bottom: 24px; }
   .paid-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
   .paid-cards > .card { min-width: 0; }
   .paid-cards h3 { font-size: 1.05rem; margin-bottom: 10px; }
   .paid-cards p { margin-bottom: 14px; }
   .paid-cards .small { font-size: 0.8rem; margin-top: -4px; }
+  .oauth-note { margin-top: 20px; }
   @media (max-width: 860px) { .paid-cards { grid-template-columns: 1fr; } }
+  @media (max-width: 560px) {
+    .client-tabs { width: 100%; }
+    .tabs.client-tabs .tab-btn { flex: 1 1 calc(50% - 4px); text-align: center; }
+  }
 
   /* ── Family grid ── */
   .family-grid {

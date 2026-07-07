@@ -57,6 +57,20 @@ Free tools work immediately with the URL connection above. **Paid tools need an
 x402 payment client** — a wallet alone is not enough, because most MCP clients
 can't satisfy a `402 Payment Required` on their own. Use the pay-proxy below.
 
+### Claude Code
+
+```bash
+claude mcp add --transport http toolsnap https://mcp.toolsnap.app/mcp
+```
+
+Or install the [Claude Code plugin](https://github.com/icosaedro-git/toolsnap-claude-plugin)
+(MCP connection + the `toolsnap` skill, bundled):
+
+```
+/plugin marketplace add icosaedro-git/toolsnap-claude-plugin
+/plugin install toolsnap
+```
+
 ### Paid tools — connect through the pay-proxy
 
 `scripts/pay-proxy.mjs` is a local stdio MCP server that wraps the remote
