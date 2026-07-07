@@ -5,6 +5,7 @@ import { PRICING_DATA } from "./tools/pricing.js";
 import { getDashboardData } from "./analytics/queries.js";
 import { PANEL_HTML } from "./analytics/panel.js";
 import { checkUsageAlerts } from "./alerts/usage-alerts.js";
+import { checkSurfaceDigest } from "./alerts/surface-digest.js";
 import { looksLikeApiKey, issueKey, revokeKey, accountExists, accountAddress } from "./fiat/keys.js";
 import { verifyPolarSignature, getOrCreateAccountByEmail, creditOrder } from "./fiat/polar.js";
 import { writeEvent } from "./analytics/logger.js";
@@ -29,6 +30,11 @@ export interface Env {
 
   // Admin bypass key (set via: wrangler secret put ADMIN_API_KEY)
   ADMIN_API_KEY?: string;
+
+  // Fase 24.4 — read-only token for GET /reports/analytics (monthly Claude
+  // review routine; separate from ADMIN_API_KEY, which can call paid tools
+  // for free). Set via: wrangler secret put ANALYTICS_READ_TOKEN
+  ANALYTICS_READ_TOKEN?: string;
 
   // Comma-separated EVM addresses whitelisted for free tool access via wallet signature
   WHITELISTED_ADDRESSES?: string;
@@ -282,6 +288,29 @@ export default {
       }
     }
 
+    // Fase 24.4 — read-only analytics for the monthly Claude review routine.
+    // Deliberately NOT under /analytics* (that prefix is gated by Cloudflare
+    // Access, an interactive SSO login a cloud agent can't complete) — this
+    // path does its own token check instead. No PII: payers are wallet
+    // addresses/hashes, clients are MCP surface names.
+    if (method === "GET" && url.pathname === "/reports/analytics") {
+      const token = url.searchParams.get("token");
+      if (!env.ANALYTICS_READ_TOKEN || token !== env.ANALYTICS_READ_TOKEN) {
+        return jsonResponse({ error: "Invalid or missing token." }, 401);
+      }
+      try {
+        const { getWeeklySurfaceDigest } = await import("./analytics/queries.js");
+        const [dashboard, weeklyDigest] = await Promise.all([
+          getDashboardData(env.PREPAID_DB, false),
+          getWeeklySurfaceDigest(env.PREPAID_DB),
+        ]);
+        return jsonResponse({ dashboard, weekly_digest: weeklyDigest });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return jsonResponse({ error: message }, 502);
+      }
+    }
+
     // -----------------------------------------------------------------------
     // Fiat rail — the Polar webhook stays here (sole crediting source);
     // checkout/key UX lives on portal.toolsnap.app since F21.2.
@@ -461,11 +490,17 @@ export default {
     return jsonResponse({ error: "Not found" }, 404);
   },
 
-  // Cron Trigger (daily) — usage alerts for COGS tools (screenshot_url quota).
+  // Cron Trigger (daily) — usage alerts for COGS tools (screenshot_url quota)
+  // + weekly surface digest (Fase 24.3, Mondays only).
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
       checkUsageAlerts(env).catch((err) =>
         console.error("usage-alerts cron failed:", err instanceof Error ? err.message : err)
+      )
+    );
+    ctx.waitUntil(
+      checkSurfaceDigest(env).catch((err) =>
+        console.error("surface-digest cron failed:", err instanceof Error ? err.message : err)
       )
     );
   },

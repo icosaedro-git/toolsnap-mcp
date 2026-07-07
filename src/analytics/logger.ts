@@ -8,6 +8,8 @@
 import { maybeAlertError } from "../alerts/error-alerts.js";
 
 export type PaymentType =
+  // Fase 24 — one per successful MCP `initialize` (a new connection/session).
+  | "connect"
   | "free_tool"
   | "x402_paid"
   | "x402_free_first"
@@ -53,6 +55,12 @@ export interface AnalyticsEvent {
   client?: string;
   /** True when the call was flagged as our own dev/testing traffic (X-ToolSnap-Internal header). */
   internal?: boolean;
+  /** Normalized client surface (Fase 24) — e.g. "claude-desktop", "claude-code", "mcp-remote". See src/analytics/surface.ts. */
+  clientName?: string | null;
+  /** Client version, when the MCP clientInfo provided one. */
+  clientVersion?: string | null;
+  /** Mcp-Session-Id (Fase 24) — enables the per-session CP-tarea-completa funnel. Not a human identity. */
+  sessionId?: string | null;
 }
 
 export interface AnalyticsEnv {
@@ -105,8 +113,8 @@ export function writeEvent(
   // before the async op completes (fire-and-forget without waitUntil is a no-op).
   ctx.waitUntil(
     env.PREPAID_DB.prepare(
-      `INSERT INTO analytics_events (ts, tool_name, payment_type, payer, revenue_usdc, latency_ms, detail, client, internal)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO analytics_events (ts, tool_name, payment_type, payer, revenue_usdc, latency_ms, detail, client, internal, client_name, client_version, session_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
       .bind(
         Date.now(),
@@ -117,7 +125,10 @@ export function writeEvent(
         event.latencyMs,
         detail,
         event.client ?? null,
-        isInternalEvent(env, event) ? 1 : 0
+        isInternalEvent(env, event) ? 1 : 0,
+        event.clientName ?? null,
+        event.clientVersion ?? null,
+        event.sessionId ?? null
       )
       .run()
       .catch(() => {

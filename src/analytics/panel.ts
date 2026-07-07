@@ -225,6 +225,33 @@ function errorRateChart(items) {
   </div>\`).join('');
 }
 
+// Fase 24 — per-surface funnel table (connect -> call -> family-complete -> paid).
+function surfaceFunnelTable(surface) {
+  const funnel = (surface && surface.funnel_by_client) || [];
+  const connects = new Map((surface && surface.connects_by_client || []).map(r => [r.client, r.connects]));
+  const revenue = new Map((surface && surface.revenue_by_client || []).map(r => [r.client, r.revenue]));
+  if (funnel.length === 0 && connects.size === 0) {
+    return '<div style="color:var(--muted);font-size:12px">no connections yet</div>';
+  }
+  const clients = new Set([...connects.keys(), ...funnel.map(f => f.client)]);
+  const rows = Array.from(clients).map(client => {
+    const f = funnel.find(x => x.client === client) || { sessions: 0, sessions_with_call: 0, sessions_family_complete: 0, sessions_paid: 0 };
+    const pct = (num, den) => den > 0 ? Math.round((num / den) * 100) + '%' : '—';
+    return \`<tr>
+      <td>\${esc(client)}</td>
+      <td>\${fmt(connects.get(client) ?? 0, 0)}</td>
+      <td>\${fmt(f.sessions_with_call, 0)} <span style="color:var(--muted)">(\${pct(f.sessions_with_call, f.sessions)})</span></td>
+      <td>\${fmt(f.sessions_family_complete, 0)} <span style="color:var(--muted)">(\${pct(f.sessions_family_complete, f.sessions)})</span></td>
+      <td>\${fmt(f.sessions_paid, 0)} <span style="color:var(--muted)">(\${pct(f.sessions_paid, f.sessions)})</span></td>
+      <td>\${fmtUsd(revenue.get(client) ?? 0)}</td>
+    </tr>\`;
+  }).join('');
+  return \`<table class="err-table">
+    <thead><tr><th>Surface</th><th>Connects</th><th>≥1 call</th><th>≥3 same family</th><th>Paid</th><th>Revenue</th></tr></thead>
+    <tbody>\${rows}</tbody>
+  </table>\`;
+}
+
 function conversion(breakdown) {
   if (!breakdown || breakdown.length === 0) return { rate: 0, paid402: 0, total402: 0 };
   const paid = (breakdown.find(b => b.type === 'x402_paid')?.calls ?? 0)
@@ -541,6 +568,17 @@ function render(d) {
         <div class="stat-row"><span>Count</span><span class="stat-val accent">\${d.deposits.count}</span></div>
         <div class="stat-row"><span>Total deposited</span><span class="stat-val green">$\${fmt(d.deposits.total_usdc, 4)}</span></div>
         <div class="stat-row"><span>Avg / p50 / p95 latency</span><span class="stat-val">\${d.summary.avg_latency_ms} / \${d.summary.p50_latency_ms} / \${d.summary.p95_latency_ms} ms</span></div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>Calls by surface · 30d</h3>
+        <div class="bar-chart">\${barChart(d.surface && d.surface.calls_by_client, 'calls', 'client', '#2f81f7')}</div>
+      </div>
+      <div class="card">
+        <h3>Surface funnel · 30d — connect → ≥1 call → ≥3 same family → paid</h3>
+        \${surfaceFunnelTable(d.surface)}
       </div>
     </div>
 

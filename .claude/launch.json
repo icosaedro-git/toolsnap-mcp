@@ -9,6 +9,12 @@
         "source ~/.nvm/nvm.sh && nvm use 22 >/dev/null && cd site && npm run dev -- --port 4321"
       ],
       "port": 4321
+    },
+    {
+      "name": "worker-dev",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["wrangler", "dev", "--port", "8799"],
+      "port": 8799
     }
   ]
 }
