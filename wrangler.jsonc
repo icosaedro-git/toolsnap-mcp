@@ -34,6 +34,7 @@
       "/mcp",
       "/mcp/*",
       "/webhooks/*",
+      "/reports/*",
       "/upload",
       "/admin/*",
       "/checkout",

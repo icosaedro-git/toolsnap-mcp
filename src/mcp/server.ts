@@ -30,7 +30,8 @@ import {
   getBalanceMicro,
   creditDeposit,
 } from "../x402/prepaid.js";
-import { writeEvent } from "../analytics/logger.js";
+import { writeEvent, type AnalyticsEvent } from "../analytics/logger.js";
+import { classifySurface, persistSessionClient, readSessionClient } from "../analytics/surface.js";
 import { verifyApiKey, touchKey, accountAddress, accountExists, type VerifiedKey } from "../fiat/keys.js";
 
 /** x402 MCP meta key (per x402 v2 MCP transport spec). */
@@ -155,7 +156,9 @@ async function handleAccountDeposit(
   env: Env,
   ctx: ExecutionContext,
   clientUA = "",
-  isInternal = false
+  isInternal = false,
+  clientName: string | null = null,
+  clientVersion: string | null = null
 ): Promise<JsonRpcResponse> {
   const minMicro = usdcToMicro(env.X402_MIN_DEPOSIT_USDC);
   const config: PaymentConfig = {
@@ -192,6 +195,8 @@ async function handleAccountDeposit(
       detail: msg,
       client: clientUA,
       internal: isInternal,
+      clientName,
+      clientVersion,
     }, ctx);
     return successResponse(id, {
       content: [{ type: "text", text: `Deposit settlement failed (not charged): ${msg}` }],
@@ -230,6 +235,8 @@ async function handleAccountDeposit(
       detail: `credit_failed after settlement tx ${settlement.txHash}: ${msg}`,
       client: clientUA,
       internal: isInternal,
+      clientName,
+      clientVersion,
     }, ctx);
     return successResponse(id, {
       content: [
@@ -259,6 +266,8 @@ async function handleAccountDeposit(
     latencyMs: Date.now() - depositStart,
     client: clientUA,
     internal: isInternal,
+    clientName,
+    clientVersion,
   }, ctx);
 
   return successResponse(id, {
@@ -330,6 +339,21 @@ export async function dispatch(
     return null;
   }
 
+  // Fase 24 — resolve the client surface once per request (analytics
+  // attribution). "initialize" resolves its own surface directly from the
+  // clientInfo it just received (see its case below) rather than from this
+  // pre-persistence read, which would be empty on a session's first call.
+  const persistedClient = sessionId && method !== "initialize"
+    ? await readSessionClient(env.X402_NONCES, sessionId)
+    : null;
+  const surface = classifySurface(clientUA, persistedClient);
+  const log = (event: Omit<AnalyticsEvent, "clientName" | "clientVersion" | "sessionId">) =>
+    writeEvent(
+      env,
+      { ...event, clientName: surface.name, clientVersion: surface.version, sessionId: sessionId || null },
+      ctx
+    );
+
   switch (method) {
     case "initialize": {
       const params = (request.params ?? {}) as InitializeParams;
@@ -337,6 +361,32 @@ export async function dispatch(
         typeof params.protocolVersion === "string" && params.protocolVersion.length > 0
           ? params.protocolVersion
           : "2025-06-18";
+
+      // Fase 24 — persist the clientInfo for this session (MCP only sends it
+      // here, at initialize) so later tool-calls in the same session can be
+      // attributed to the right surface, and log the connection itself.
+      const clientInfo = params.clientInfo ?? {};
+      if (sessionId && clientInfo.name) {
+        await persistSessionClient(env.X402_NONCES, sessionId, clientInfo);
+      }
+      const connectSurface = classifySurface(clientUA, clientInfo.name ? clientInfo : null);
+      writeEvent(
+        env,
+        {
+          toolName: "initialize",
+          paymentType: "connect",
+          payer: "anon",
+          revenueUsdc: 0,
+          latencyMs: 0,
+          client: clientUA,
+          internal: isInternal,
+          clientName: connectSurface.name,
+          clientVersion: connectSurface.version,
+          sessionId: sessionId || null,
+        },
+        ctx
+      );
+
       return successResponse(id, {
         protocolVersion,
         capabilities: { tools: { listChanged: true } },
@@ -457,7 +507,7 @@ export async function dispatch(
       // -----------------------------------------------------------------------
       const apiKeyAccount = rawApiKey ? await verifyApiKey(env.PREPAID_DB, rawApiKey) : null;
       if (rawApiKey && !apiKeyAccount) {
-        writeEvent(env, {
+        log({
           toolName,
           paymentType: "api_key_rejected",
           payer: "anon",
@@ -466,7 +516,7 @@ export async function dispatch(
           detail: "invalid_or_revoked_key",
           client: clientUA,
           internal: isInternal,
-        }, ctx);
+        });
         return successResponse(id, {
           content: [{ type: "text", text: "Invalid or revoked API key." }],
           isError: true,
@@ -484,7 +534,7 @@ export async function dispatch(
         return handleAccountBalance(id, toolArgs, env, apiKeyAccount);
       }
       if (toolName === "account_deposit") {
-        return handleAccountDeposit(id, params, env, ctx, clientUA, isInternal);
+        return handleAccountDeposit(id, params, env, ctx, clientUA, isInternal, surface.name, surface.version);
       }
 
       // -----------------------------------------------------------------------
@@ -501,7 +551,7 @@ export async function dispatch(
         if (isAdmin) {
           try {
             const result = await callTool(toolName, toolArgs, env);
-            writeEvent(env, {
+            log({
               toolName,
               paymentType: "free_tool",
               payer: "admin",
@@ -509,11 +559,11 @@ export async function dispatch(
               latencyMs: Date.now() - t0,
               client: clientUA,
               internal: isInternal,
-            }, ctx);
+            });
             return successResponse(id, { content: [{ type: "text", text: result }] });
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            writeEvent(env, {
+            log({
               toolName,
               paymentType: "tool_error",
               payer: "admin",
@@ -522,7 +572,7 @@ export async function dispatch(
               detail: message,
               client: clientUA,
               internal: isInternal,
-            }, ctx);
+            });
             return successResponse(id, {
               content: [{ type: "text", text: message }],
               isError: true,
@@ -544,7 +594,7 @@ export async function dispatch(
             if (whitelistedPayer) {
               try {
                 const result = await callTool(toolName, toolArgs, env);
-                writeEvent(env, {
+                log({
                   toolName,
                   paymentType: "free_tool",
                   payer: whitelistedPayer,
@@ -552,11 +602,11 @@ export async function dispatch(
                   latencyMs: Date.now() - t0,
                   client: clientUA,
                   internal: isInternal,
-                }, ctx);
+                });
                 return successResponse(id, { content: [{ type: "text", text: result }] });
               } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
-                writeEvent(env, {
+                log({
                   toolName,
                   paymentType: "tool_error",
                   payer: whitelistedPayer,
@@ -565,7 +615,7 @@ export async function dispatch(
                   detail: message,
                   client: clientUA,
                   internal: isInternal,
-                }, ctx);
+                });
                 return successResponse(id, {
                   content: [{ type: "text", text: message }],
                   isError: true,
@@ -596,7 +646,7 @@ export async function dispatch(
 
           if (!debit.ok) {
             const bal = await getBalanceMicro(env.PREPAID_DB, acctAddr);
-            writeEvent(env, {
+            log({
               toolName,
               paymentType: "api_key_insufficient",
               payer: payerLabel,
@@ -605,7 +655,7 @@ export async function dispatch(
               detail: `have ${microToUsdc(bal)} USDC, need ${price.prepaidStr}`,
               client: clientUA,
               internal: isInternal,
-            }, ctx);
+            });
             return {
               jsonrpc: "2.0",
               id,
@@ -626,7 +676,7 @@ export async function dispatch(
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             const bal = await refundDebit(env.PREPAID_DB, acctAddr, prepaidPriceMicro, toolName, spendNonce);
-            writeEvent(env, {
+            log({
               toolName,
               paymentType: "tool_error",
               payer: payerLabel,
@@ -635,7 +685,7 @@ export async function dispatch(
               detail: message,
               client: clientUA,
               internal: isInternal,
-            }, ctx);
+            });
             return successResponse(id, {
               content: [{ type: "text", text: message }],
               isError: true,
@@ -650,7 +700,7 @@ export async function dispatch(
             });
           }
 
-          writeEvent(env, {
+          log({
             toolName,
             paymentType: "api_key",
             payer: payerLabel,
@@ -658,7 +708,7 @@ export async function dispatch(
             latencyMs: Date.now() - t0,
             client: clientUA,
             internal: isInternal,
-          }, ctx);
+          });
 
           return successResponse(id, {
             content: [{ type: "text", text: apiKeyResult }],
@@ -683,7 +733,7 @@ export async function dispatch(
 
           const v = await verifySpendAuthorization(prepaidProof, toolName, prepaidPriceMicro);
           if (!v.ok) {
-            writeEvent(env, {
+            log({
               toolName,
               paymentType: "prepaid_rejected",
               payer: "anon",
@@ -692,7 +742,7 @@ export async function dispatch(
               detail: v.reason,
               client: clientUA,
               internal: isInternal,
-            }, ctx);
+            });
             return successResponse(id, {
               content: [{ type: "text", text: `Prepaid authorization rejected: ${v.reason}` }],
               isError: true,
@@ -710,7 +760,7 @@ export async function dispatch(
           if (!debit.ok) {
             if (debit.reason === "insufficient") {
               const bal = await getBalanceMicro(env.PREPAID_DB, v.payer!);
-              writeEvent(env, {
+              log({
                 toolName,
                 paymentType: "prepaid_insufficient",
                 payer: v.payer ?? "anon",
@@ -719,14 +769,14 @@ export async function dispatch(
                 detail: `have ${microToUsdc(bal)} USDC, need ${price.prepaidStr}`,
                 client: clientUA,
                 internal: isInternal,
-              }, ctx);
+              });
               return buildDepositRequiredResponse(
                 id,
                 env,
                 `Insufficient prepaid balance: have ${microToUsdc(bal)} USDC, need ${price.prepaidStr} for ${toolName}. Top up with account_deposit.`
               );
             }
-            writeEvent(env, {
+            log({
               toolName,
               paymentType: "prepaid_rejected",
               payer: v.payer ?? "anon",
@@ -735,7 +785,7 @@ export async function dispatch(
               detail: "replay: spend authorization already used",
               client: clientUA,
               internal: isInternal,
-            }, ctx);
+            });
             return successResponse(id, {
               content: [
                 {
@@ -754,7 +804,7 @@ export async function dispatch(
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             const bal = await refundDebit(env.PREPAID_DB, v.payer!, prepaidPriceMicro, toolName, v.nonce!);
-            writeEvent(env, {
+            log({
               toolName,
               paymentType: "tool_error",
               payer: v.payer ?? "anon",
@@ -763,7 +813,7 @@ export async function dispatch(
               detail: message,
               client: clientUA,
               internal: isInternal,
-            }, ctx);
+            });
             return successResponse(id, {
               content: [{ type: "text", text: message }],
               isError: true,
@@ -780,7 +830,7 @@ export async function dispatch(
             });
           }
 
-          writeEvent(env, {
+          log({
             toolName,
             paymentType: "prepaid",
             payer: v.payer ?? "anon",
@@ -788,7 +838,7 @@ export async function dispatch(
             latencyMs: Date.now() - t0,
             client: clientUA,
             internal: isInternal,
-          }, ctx);
+          });
 
           return successResponse(id, {
             content: [{ type: "text", text: prepaidResult }],
@@ -819,7 +869,7 @@ export async function dispatch(
         const paymentPayload = (params._meta ?? {})[MCP_PAYMENT_META_KEY] ?? null;
 
         if (paymentPayload === null || paymentPayload === undefined) {
-          writeEvent(env, {
+          log({
             toolName,
             paymentType: "402_rejected",
             payer: "anon",
@@ -828,7 +878,7 @@ export async function dispatch(
             detail: "no_payment_payload",
             client: clientUA,
             internal: isInternal,
-          }, ctx);
+          });
           // No payment payload at all → agent likely has no wallet yet.
           // Inject a wallet_setup hint into the standard x402 response so the
           // agent knows the exact next step without reading docs.
@@ -846,7 +896,7 @@ export async function dispatch(
         // Step 2: off-chain verification (require at least the per-tool price)
         const verifyResult = await verifyPayment(paymentPayload, config, env, price.payPerCallMicro);
         if (!verifyResult.ok) {
-          writeEvent(env, {
+          log({
             toolName,
             paymentType: "402_rejected",
             payer: "anon",
@@ -855,7 +905,7 @@ export async function dispatch(
             detail: verifyResult.reason,
             client: clientUA,
             internal: isInternal,
-          }, ctx);
+          });
           return buildPaymentRequiredResponse(
             config,
             id,
@@ -878,7 +928,7 @@ export async function dispatch(
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           // Tool failed → do NOT settle or consume free call, return error
-          writeEvent(env, {
+          log({
             toolName,
             paymentType: "tool_error",
             payer,
@@ -887,7 +937,7 @@ export async function dispatch(
             detail: message,
             client: clientUA,
             internal: isInternal,
-          }, ctx);
+          });
           return successResponse(id, {
             content: [{ type: "text", text: message }],
             isError: true,
@@ -897,7 +947,7 @@ export async function dispatch(
         // Step 5: handle free call — mark used, skip settlement
         if (isFreeCall) {
           await env.X402_NONCES.put(freeCallKey, new Date().toISOString());
-          writeEvent(env, {
+          log({
             toolName,
             paymentType: "x402_free_first",
             payer,
@@ -905,7 +955,7 @@ export async function dispatch(
             latencyMs: Date.now() - t0,
             client: clientUA,
             internal: isInternal,
-          }, ctx);
+          });
           return successResponse(id, {
             content: [{ type: "text", text: toolResult }],
             _meta: {
@@ -934,7 +984,7 @@ export async function dispatch(
           // The nonce has NOT been written to KV, so the client could retry settlement,
           // but we surface the error in _meta so the caller is aware.
           const settleErr = err instanceof Error ? err.message : String(err);
-          writeEvent(env, {
+          log({
             toolName,
             paymentType: "settle_failed",
             payer,
@@ -943,7 +993,7 @@ export async function dispatch(
             detail: settleErr,
             client: clientUA,
             internal: isInternal,
-          }, ctx);
+          });
           return successResponse(id, {
             content: [{ type: "text", text: toolResult }],
             _meta: {
@@ -958,7 +1008,7 @@ export async function dispatch(
           });
         }
 
-        writeEvent(env, {
+        log({
           toolName,
           paymentType: "x402_paid",
           payer,
@@ -966,7 +1016,7 @@ export async function dispatch(
           latencyMs: Date.now() - t0,
           client: clientUA,
           internal: isInternal,
-        }, ctx);
+        });
 
         // Step 7: return tool result with settlement metadata
         return successResponse(id, {
@@ -989,7 +1039,7 @@ export async function dispatch(
         const t0 = Date.now();
         try {
           const result = await callTool(toolName, toolArgs, env);
-          writeEvent(env, {
+          log({
             toolName,
             paymentType: "free_tool",
             payer: "anon",
@@ -997,13 +1047,13 @@ export async function dispatch(
             latencyMs: Date.now() - t0,
             client: clientUA,
             internal: isInternal,
-          }, ctx);
+          });
           return successResponse(id, {
             content: [{ type: "text", text: result }],
           });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          writeEvent(env, {
+          log({
             toolName,
             paymentType: "tool_error",
             payer: "anon",
@@ -1012,7 +1062,7 @@ export async function dispatch(
             detail: message,
             client: clientUA,
             internal: isInternal,
-          }, ctx);
+          });
           return successResponse(id, {
             content: [{ type: "text", text: message }],
             isError: true,
