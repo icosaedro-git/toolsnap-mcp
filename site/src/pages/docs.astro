@@ -34,9 +34,11 @@ const toc = [
   <DocSection num="02" title="Connect by client" id="connect">
     <p><strong>Claude Code</strong></p>
     <CodeBlock lang="bash" code={`claude mcp add --transport http toolsnap https://mcp.toolsnap.app/mcp\n# with an API key (paid tools):\nclaude mcp add --transport http toolsnap https://mcp.toolsnap.app/mcp --header "Authorization: Bearer sk_live_…"`} />
+    <p class="text-mute">Power users: install the <a href="https://github.com/icosaedro-git/toolsnap-claude-plugin">Claude Code plugin</a> instead — bundles the MCP connection with the <code class="inline">toolsnap</code> skill in one step (<code class="inline">/plugin marketplace add icosaedro-git/toolsnap-claude-plugin</code> then <code class="inline">/plugin install toolsnap</code>).</p>
     <p><strong>Claude Desktop / claude.ai</strong> — Settings &rarr; Connectors &rarr; Add custom connector &rarr; URL: <code class="inline">https://mcp.toolsnap.app/mcp</code>. These clients can't set custom headers; if you have an API key, embed it in the URL instead: <code class="inline">https://mcp.toolsnap.app/mcp/sk_live_…</code></p>
     <p><strong>Cursor / generic JSON</strong></p>
     <CodeBlock lang="json" code={`{ "mcpServers": { "toolsnap": { "url": "https://mcp.toolsnap.app/mcp", "headers": { "Authorization": "Bearer sk_live_…" } } } }`} />
+    <p class="text-mute">Troubleshooting: if your client is old and can't add a remote streamable-HTTP server directly, wrap it with <a href="https://github.com/geelen/mcp-remote"><code class="inline">mcp-remote</code></a> as a stdio bridge. It's not the recommended path — every current client (Claude Desktop, Claude Code, Cursor, VS Code) supports the direct URL.</p>
   </DocSection>
 
   <DocSection num="03" title="API keys (credits rail)" id="api-keys">
