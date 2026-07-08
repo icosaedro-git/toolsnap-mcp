@@ -12,3 +12,6 @@ registry-key.pem
 # dev/build, see site/scripts/generate-data.mts) and Astro's own cache.
 site/src/data/*.json
 site/.astro
+_material visual y otros/
+toolsnap-logo.png
+toolsnap-logo.svg
