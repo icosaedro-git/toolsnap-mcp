@@ -86,6 +86,11 @@ export interface Env {
   POLAR_PRODUCT_ID?: string;
   // "sandbox" (sandbox-api.polar.sh) or unset/"production" (api.polar.sh).
   POLAR_ENV?: string;
+
+  // TEMPORARY (2026-07-09) — Fase 26 webhook-signature incident diagnostic.
+  // Only used by POST /webhooks/polar-sandbox-test, which verifies a
+  // signature and credits NOTHING. Delete this + the route once resolved.
+  POLAR_WEBHOOK_SECRET_SANDBOX_TEST?: string;
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -532,6 +537,33 @@ export default {
         }, ctx);
         return jsonResponse({ ok: false, error: message }, 200);
       }
+    }
+
+    // TEMPORARY (2026-07-09) — Fase 26 incident diagnostic. A real $1 Polar
+    // charge never got credited: every /webhooks/polar delivery (fresh and
+    // retried) returned 401. The signature code matches the Standard
+    // Webhooks spec exactly, so this route isolates whether the deployed
+    // POLAR_WEBHOOK_SECRET is simply wrong — verifies a signature against
+    // a throwaway secret from a Polar SANDBOX webhook endpoint and credits
+    // NOTHING. Delete this route + POLAR_WEBHOOK_SECRET_SANDBOX_TEST once
+    // the incident is resolved (see nota 06 Fase 26).
+    if (method === "POST" && url.pathname === "/webhooks/polar-sandbox-test") {
+      const rawBody = await request.text();
+      const verified = await verifyPolarSignature(
+        rawBody,
+        request.headers,
+        env.POLAR_WEBHOOK_SECRET_SANDBOX_TEST ?? ""
+      );
+      writeEvent(env, {
+        toolName: "fiat_webhook",
+        paymentType: "fiat_webhook_ignored",
+        payer: "anon",
+        revenueUsdc: 0,
+        latencyMs: 0,
+        detail: `sandbox_sig_test:${verified ? "verified" : "failed"}`,
+        internal: true,
+      }, ctx);
+      return jsonResponse({ sandbox_signature_test: verified }, verified ? 200 : 401);
     }
 
     // /terms, /privacy, /refunds are now served as static pages by the

@@ -141,6 +141,21 @@ async function handleAccountBalance(
   const balance = await getBalanceMicro(env.PREPAID_DB, lookupAddress);
   const priceMicro = usdcToMicro(env.X402_PREPAID_PRICE_USDC);
   const callsRemaining = priceMicro > 0n ? Number(balance / priceMicro) : 0;
+
+  // Top-up guidance differs by door: an OAuth/API-key identity tops up with
+  // a card at the portal (no wallet involved); a wallet identity deposits
+  // USDC on-chain. Telling an OAuth user to fund "a wallet" is actively
+  // wrong — they may not have one — so this branches on fiatIdentity rather
+  // than returning one generic crypto-flavored hint to everyone.
+  const topUp = fiatIdentity
+    ? {
+        how: "Add credits with a card at https://portal.toolsnap.app/billing — same balance whether you're signed in via OAuth or using an API key.",
+      }
+    : {
+        how: `Fund this wallet with USDC on Base and call account_deposit (min ${env.X402_MIN_DEPOSIT_USDC} USDC) — no wallet yet? Call wallet_setup first.`,
+        min_deposit_usdc: env.X402_MIN_DEPOSIT_USDC,
+      };
+
   return successResponse(id, {
     content: [
       {
@@ -152,7 +167,7 @@ async function handleAccountBalance(
             balance_micro_usdc: balance.toString(),
             prepaid_price_usdc: env.X402_PREPAID_PRICE_USDC,
             calls_remaining: callsRemaining,
-            min_deposit_usdc: env.X402_MIN_DEPOSIT_USDC,
+            top_up: topUp,
           },
           null,
           2
