@@ -27,6 +27,9 @@ export type PaymentType =
   | "api_key_rejected"
   | "fiat_deposit_success"
   | "fiat_deposit_failed"
+  // A webhook delivery that isn't order.paid (e.g. order.created) — benign,
+  // not an error; distinct from fiat_deposit_failed so it never pages anyone.
+  | "fiat_webhook_ignored"
   // Fase 26 — OAuth 2.1 rail (same account/balance as api_key, different door).
   | "oauth"
   | "oauth_insufficient"

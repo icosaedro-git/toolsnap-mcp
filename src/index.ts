@@ -433,7 +433,21 @@ export default {
     if (method === "POST" && url.pathname === "/webhooks/polar") {
       const rawBody = await request.text();
       const verified = await verifyPolarSignature(rawBody, request.headers, env.POLAR_WEBHOOK_SECRET ?? "");
-      if (!verified) return jsonResponse({ error: "Invalid webhook signature" }, 401);
+      if (!verified) {
+        // A signature failure on the money-crediting path must never be
+        // silent — this exact blind spot let a real $1 charge go uncredited
+        // for 9 delivery attempts before anyone noticed (2026-07-08).
+        writeEvent(env, {
+          toolName: "fiat_webhook",
+          paymentType: "fiat_deposit_failed",
+          payer: "anon",
+          revenueUsdc: 0,
+          latencyMs: 0,
+          detail: "invalid_webhook_signature",
+          internal: false,
+        }, ctx);
+        return jsonResponse({ error: "Invalid webhook signature" }, 401);
+      }
 
       let payload: { type?: string; data?: Record<string, unknown> };
       try {
@@ -443,6 +457,18 @@ export default {
       }
 
       if (payload.type !== "order.paid" || !payload.data) {
+        // Benign — Polar sends other event types too (order.created, etc.)
+        // and we only act on order.paid. Logged (not alerted) so a missing
+        // order.paid subscription is at least visible in analytics.
+        writeEvent(env, {
+          toolName: "fiat_webhook",
+          paymentType: "fiat_webhook_ignored",
+          payer: "anon",
+          revenueUsdc: 0,
+          latencyMs: 0,
+          detail: payload.type ?? "unknown",
+          internal: false,
+        }, ctx);
         return jsonResponse({ ok: true, ignored: payload.type ?? "unknown" });
       }
 
