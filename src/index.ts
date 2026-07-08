@@ -9,6 +9,7 @@ import { checkSurfaceDigest } from "./alerts/surface-digest.js";
 import { looksLikeApiKey, issueKey, revokeKey, accountExists, accountAddress } from "./fiat/keys.js";
 import { verifyPolarSignature, getOrCreateAccountByEmail, creditOrder } from "./fiat/polar.js";
 import { writeEvent } from "./analytics/logger.js";
+import { looksLikeOAuthToken, verifyOAuthToken, touchOAuthToken } from "./oauth/tokens.js";
 
 export interface Env {
   // Fase 21.1 — Workers Static Assets binding for the public website
@@ -126,9 +127,14 @@ export default {
     }
 
     // MCP endpoint. Also accepts POST /mcp/<sk_...> for clients that can't
-    // send custom headers (Fase 17 — fiat API key embedded in the URL).
+    // send custom headers (Fase 17 — fiat API key embedded in the URL), and
+    // POST /mcp/oauth (Fase 26) — same tools, but requires SOME credential:
+    // it 401s a bare/anonymous request so an OAuth-capable client (Claude
+    // Desktop, Cursor…) discovers and completes the sign-in flow. Plain /mcp
+    // stays anonymous-friendly, unchanged — this is an additive second door.
     const mcpKeyInPath = url.pathname.match(/^\/mcp\/(sk_[A-Za-z0-9_]+)$/);
-    if (method === "POST" && (url.pathname === "/mcp" || mcpKeyInPath)) {
+    const isOAuthMcpPath = url.pathname === "/mcp/oauth";
+    if (method === "POST" && (url.pathname === "/mcp" || mcpKeyInPath || isOAuthMcpPath)) {
       let body: string;
       try {
         body = await request.text();
@@ -145,8 +151,9 @@ export default {
         env.TOOLSNAP_INTERNAL_TOKEN && internalHeader === env.TOOLSNAP_INTERNAL_TOKEN
       );
 
-      // API key: header wins over URL if both are present. x-api-key and a
-      // bare (non-"Bearer ") Authorization value are both accepted.
+      // API key / OAuth token: header wins over URL if both are present.
+      // x-api-key and a bare (non-"Bearer ") Authorization value are both
+      // accepted for sk_ keys; OAuth access tokens are header-only (Bearer).
       const authHeader = request.headers.get("authorization") ?? "";
       const bearerKey = authHeader.toLowerCase().startsWith("bearer ")
         ? authHeader.slice(7).trim()
@@ -157,6 +164,70 @@ export default {
         : mcpKeyInPath && looksLikeApiKey(mcpKeyInPath[1])
         ? mcpKeyInPath[1]
         : null;
+      const rawOAuthToken = looksLikeOAuthToken(bearerKey) ? bearerKey : null;
+
+      // A syntactically-OAuth-shaped token that fails verification (expired,
+      // revoked, unknown) is rejected right here with a 401 the client can
+      // act on (WWW-Authenticate: error="invalid_token" triggers an automatic
+      // refresh-and-retry in a compliant OAuth client) — it never silently
+      // falls through to the anonymous path.
+      let oauthIdentity = null as Awaited<ReturnType<typeof verifyOAuthToken>>;
+      if (rawOAuthToken) {
+        oauthIdentity = await verifyOAuthToken(env.PREPAID_DB, rawOAuthToken);
+        if (!oauthIdentity) {
+          writeEvent(env, {
+            toolName: "mcp_oauth",
+            paymentType: "oauth_rejected",
+            payer: "anon",
+            revenueUsdc: 0,
+            latencyMs: 0,
+            detail: "invalid_or_expired_token",
+            client: clientUA,
+            internal: isInternal,
+          }, ctx);
+          return withCors(
+            new Response(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: null,
+                error: { code: 401, message: "Invalid or expired OAuth access token." },
+              }),
+              {
+                status: 401,
+                headers: {
+                  "Content-Type": "application/json",
+                  "WWW-Authenticate": 'Bearer error="invalid_token"',
+                },
+              }
+            )
+          );
+        }
+        ctx.waitUntil(touchOAuthToken(env.PREPAID_DB, oauthIdentity.tokenId));
+      }
+
+      // /mcp/oauth requires SOME credential — a bare connection attempt gets
+      // a 401 that points an OAuth-capable client at the Authorization Server
+      // (RFC 9728 resource_metadata). Plain /mcp and /mcp/<sk_key> are
+      // untouched: anonymous free-tool access keeps working exactly as before.
+      if (isOAuthMcpPath && !oauthIdentity && !rawApiKey && !isAdmin) {
+        return withCors(
+          new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: null,
+              error: { code: 401, message: "Authentication required. Sign in to connect." },
+            }),
+            {
+              status: 401,
+              headers: {
+                "Content-Type": "application/json",
+                "WWW-Authenticate":
+                  'Bearer resource_metadata="https://mcp.toolsnap.app/.well-known/oauth-protected-resource/mcp/oauth"',
+              },
+            }
+          )
+        );
+      }
 
       const { response, status } = await handleMcpRequest(
         body,
@@ -166,7 +237,8 @@ export default {
         clientUA,
         sessionId,
         isInternal,
-        rawApiKey
+        rawApiKey,
+        oauthIdentity
       );
 
       if (response === null) {
@@ -262,6 +334,29 @@ export default {
         endpoint: "https://mcp.toolsnap.app/mcp",
         pricing_endpoint: "https://mcp.toolsnap.app/.well-known/pricing.json",
         maintainers: [{ email: "icosaedro.one@proton.me" }],
+      });
+    }
+
+    // OAuth 2.1 protected-resource metadata (RFC 9728, Fase 26). Points an
+    // OAuth-capable MCP client at the Authorization Server (portal.toolsnap.app,
+    // repo toolsnap-portal). Served under both the generic path and the two
+    // concrete resource URLs so a client deriving the metadata path from
+    // either "resource" value finds the same document.
+    if (
+      method === "GET" &&
+      (url.pathname === "/.well-known/oauth-protected-resource" ||
+        url.pathname === "/.well-known/oauth-protected-resource/mcp" ||
+        url.pathname === "/.well-known/oauth-protected-resource/mcp/oauth")
+    ) {
+      const resource =
+        url.pathname === "/.well-known/oauth-protected-resource/mcp/oauth"
+          ? "https://mcp.toolsnap.app/mcp/oauth"
+          : "https://mcp.toolsnap.app/mcp";
+      return jsonResponse({
+        resource,
+        authorization_servers: ["https://portal.toolsnap.app"],
+        bearer_methods_supported: ["header"],
+        scopes_supported: ["mcp"],
       });
     }
 

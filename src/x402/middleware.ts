@@ -363,6 +363,10 @@ export function buildPaymentRequiredResponse(
       checkout: "https://mcp.toolsnap.app/checkout",
       how: "No crypto? Buy credits with a card and get an API key — send it as an Authorization: Bearer header, or embed it in the URL as /mcp/<key> if your client can't send custom headers.",
     },
+    oauth: {
+      connect_url: "https://mcp.toolsnap.app/mcp/oauth",
+      hint: "Prefer signing in over copying a key? Reconnect using this URL as your MCP server — your client will walk you through sign-in, no key to copy. Your credits balance is shared across OAuth and API-key connections, so switching doesn't lose anything.",
+    },
     extensions: {},
   };
 

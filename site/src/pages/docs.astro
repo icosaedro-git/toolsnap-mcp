@@ -4,15 +4,17 @@ import DocSection from '../components/DocSection.astro';
 import CodeBlock from '../components/CodeBlock.astro';
 
 const title = 'Docs — connect, pay, build | ToolSnap MCP';
-const description = 'Technical reference: connecting from Claude Code, Claude Desktop, claude.ai and Cursor; API keys; x402 payments; prepaid balance; pay-proxy.';
+const description = 'Technical reference: connecting from Claude Code, Claude Desktop, claude.ai and Cursor; OAuth sign-in; API keys; x402 payments; prepaid balance; pay-proxy.';
 
 const toc = [
   { id: 'endpoint', label: 'Endpoint' },
   { id: 'connect', label: 'Connect by client' },
+  { id: 'oauth', label: 'Sign in with OAuth' },
   { id: 'api-keys', label: 'API keys' },
   { id: 'x402', label: 'Paying with x402' },
   { id: 'pay-proxy', label: 'The pay-proxy' },
   { id: 'prepaid', label: 'Prepaid balance' },
+  { id: 'accounts', label: 'Accounts & balance' },
   { id: 'limits', label: 'Limits' },
 ];
 ---
@@ -35,38 +37,59 @@ const toc = [
     <p><strong>Claude Code</strong></p>
     <CodeBlock lang="bash" code={`claude mcp add --transport http toolsnap https://mcp.toolsnap.app/mcp\n# with an API key (paid tools):\nclaude mcp add --transport http toolsnap https://mcp.toolsnap.app/mcp --header "Authorization: Bearer sk_live_…"`} />
     <p class="text-mute">Power users: install the <a href="https://github.com/icosaedro-git/toolsnap-claude-plugin">Claude Code plugin</a> instead — bundles the MCP connection with the <code class="inline">toolsnap</code> skill in one step (<code class="inline">/plugin marketplace add icosaedro-git/toolsnap-claude-plugin</code> then <code class="inline">/plugin install toolsnap</code>).</p>
-    <p><strong>Claude Desktop / claude.ai</strong> — Settings &rarr; Connectors &rarr; Add custom connector &rarr; URL: <code class="inline">https://mcp.toolsnap.app/mcp</code>. These clients can't set custom headers; if you have an API key, embed it in the URL instead: <code class="inline">https://mcp.toolsnap.app/mcp/sk_live_…</code></p>
+    <p><strong>Claude Desktop / claude.ai</strong> — Settings &rarr; Connectors &rarr; Add custom connector &rarr; URL: <code class="inline">https://mcp.toolsnap.app/mcp</code> (free tools, no sign-in). Want the paid three? Use <code class="inline">https://mcp.toolsnap.app/mcp/oauth</code> instead — see <a href="#oauth">Sign in with OAuth</a> below.</p>
     <p><strong>Cursor / generic JSON</strong></p>
     <CodeBlock lang="json" code={`{ "mcpServers": { "toolsnap": { "url": "https://mcp.toolsnap.app/mcp", "headers": { "Authorization": "Bearer sk_live_…" } } } }`} />
     <p class="text-mute">Troubleshooting: if your client is old and can't add a remote streamable-HTTP server directly, wrap it with <a href="https://github.com/geelen/mcp-remote"><code class="inline">mcp-remote</code></a> as a stdio bridge. It's not the recommended path — every current client (Claude Desktop, Claude Code, Cursor, VS Code) supports the direct URL.</p>
   </DocSection>
 
-  <DocSection num="03" title="API keys (credits rail)" id="api-keys">
+  <DocSection num="03" title="Sign in with OAuth" id="oauth">
+    <p>The simplest way to pay with a card: no key to generate, copy or paste. Use this URL as your MCP server instead of the plain one:</p>
+    <CodeBlock lang="" code={`https://mcp.toolsnap.app/mcp/oauth`} />
+    <p>An OAuth-capable client (Claude Desktop, claude.ai, Cursor…) detects that sign-in is required, opens your browser to the ToolSnap Portal, and asks you to log in (GitHub or email) and approve the connection. From then on your client holds a token that renews itself — nothing to copy, nothing that can leak into a URL or a log.</p>
+    <ul>
+      <li>Same account, same balance as an API key — <a href="#accounts">see below</a>. Use OAuth from Claude and a key from a script at the same time; both spend from the same credits.</li>
+      <li>Manage or revoke a connected app anytime from <a href="https://portal.toolsnap.app/apps">portal.toolsnap.app/apps</a>.</li>
+      <li>Plain <code class="inline">/mcp</code> is unaffected — it stays anonymous-friendly for the free 35 tools and for x402/crypto agents that can't complete an interactive login.</li>
+    </ul>
+    <p class="text-mute">Building your own client? This server implements OAuth 2.1 with Dynamic Client Registration (RFC 7591) and PKCE — discovery at <code class="inline">/.well-known/oauth-protected-resource</code> (resource server) and <code class="inline">https://portal.toolsnap.app/.well-known/oauth-authorization-server</code> (authorization server). No manual registration needed.</p>
+  </DocSection>
+
+  <DocSection num="04" title="API keys (credits rail)" id="api-keys">
     <p>Sign in, then buy credits at <a href="/checkout">/checkout</a> ($5, $10 or $25 — card checkout by Polar). You get an API key shown exactly once: <code class="inline">sk_live_…</code>. We store only its hash.</p>
     <ul>
       <li>Send it as <code class="inline">Authorization: Bearer &lt;key&gt;</code> or <code class="inline">x-api-key: &lt;key&gt;</code> — or embed it in the path (<code class="inline">/mcp/&lt;key&gt;</code>) for clients without header support.</li>
-      <li>Header beats URL if both are present. URL keys can end up in logs — prefer the header when your client allows it.</li>
+      <li>Header beats URL if both are present. URL keys can end up in logs — prefer the header when your client allows it, or use <a href="#oauth">OAuth sign-in</a> instead.</li>
       <li>Manage, revoke or rotate keys anytime from the <a href="https://portal.toolsnap.app">portal</a>.</li>
     </ul>
   </DocSection>
 
-  <DocSection num="04" title="Paying with x402 (crypto rail)" id="x402">
+  <DocSection num="05" title="Paying with x402 (crypto rail)" id="x402">
     <p>Paid tools respond with HTTP 402 + payment requirements. A capable client signs an EIP-3009 USDC authorization (Base mainnet) and retries; we verify and settle on-chain. No account, no key — the wallet is the identity.</p>
     <p>Most MCP clients can't sign x402 out of the box. That's what the pay-proxy is for:</p>
   </DocSection>
 
-  <DocSection num="05" title="The pay-proxy" id="pay-proxy">
+  <DocSection num="06" title="The pay-proxy" id="pay-proxy">
     <p>A tiny local stdio MCP server that wraps the remote endpoint. On a 402 it signs with your agent's wallet and retries automatically. The key never leaves your machine; only signatures travel.</p>
     <CodeBlock lang="json" code={`{ "mcpServers": { "toolsnap": { "command": "node", "args": ["/ABS/PATH/toolsnap-mcp/scripts/pay-proxy.mjs"] } } }`} />
     <p>Key resolution order: <code class="inline">TOOLSNAP_WALLET_KEY</code> env &rarr; <code class="inline">~/.toolsnap/wallet.key</code> &rarr; OS keychain (<code class="inline">toolsnap-agent-wallet</code>). Useful env: <code class="inline">TOOLSNAP_MAX_PRICE_USDC</code> (per-call cap, default 0.10), <code class="inline">TOOLSNAP_PREPAID=1</code>, <code class="inline">TOOLSNAP_AUTO_DEPOSIT_USDC</code>.</p>
     <p>No wallet yet? &rarr; <a href="/wallet-guide">Wallet guide</a>.</p>
   </DocSection>
 
-  <DocSection num="06" title="Prepaid balance (crypto)" id="prepaid">
+  <DocSection num="07" title="Prepaid balance (crypto)" id="prepaid">
     <p>Deposit once (&ge; $0.50 USDC), spend per call at the discounted prepaid price (~35% off). Your agent signs a SpendAuthorization per call — off-chain, instant, no gas. Check anytime with the free account_balance tool. Deposits are non-refundable; spend them down.</p>
   </DocSection>
 
-  <DocSection num="07" title="Limits & good citizenship" id="limits">
+  <DocSection num="08" title="Accounts & balance" id="accounts">
+    <p><strong>One account, many agents.</strong> ToolSnap has two independent balances, one per payment rail:</p>
+    <ul>
+      <li><strong>Account balance (card credits).</strong> Attached to your ToolSnap account. Every way of authenticating as that account — OAuth sign-in from an interactive client, an <code class="inline">sk_</code> API key in a header or URL — spends from this same balance. You can be connected from several clients simultaneously; debits are atomic, so concurrent use is safe.</li>
+      <li><strong>Wallet balance (USDC / x402).</strong> Attached to your wallet address, not to an account. Any agent that can sign with that wallet can spend it — also from several places at once.</li>
+    </ul>
+    <p>Both are fully portable: switching platforms never means starting over or moving money. The two balances are separate today — card credits and wallet deposits don't merge.</p>
+  </DocSection>
+
+  <DocSection num="09" title="Limits & good citizenship" id="limits">
     <p>Free tools are genuinely free; don't hammer them from a load tester. Practical limits: link_check batches &le;20 URLs, csv_query &le;5000 rows returned, fetch tools read up to ~512 KB–2 MB depending on the tool. If you need more, talk to us.</p>
   </DocSection>
 </DocsLayout>

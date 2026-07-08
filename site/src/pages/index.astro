@@ -154,11 +154,22 @@ const description =
       </div>
 
       <div class="connect-paid reveal">
-        <p class="paid-intro text-soft">Want the paid three (screenshots, keyword data, background removal)? Pay per call from $0.02 — two rails, pick one:</p>
+        <p class="paid-intro text-soft">Want the paid three (screenshots, keyword data, background removal)? Pay per call from $0.02 — pick a rail:</p>
         <div class="paid-cards">
           <div class="card">
             <h3>Card &rarr; credits (no crypto)</h3>
-            <p class="text-soft">Sign in, buy credits with a card ($5 minimum), get an API key, done.</p>
+            <p class="text-soft">Sign in, buy credits with a card ($5 minimum). Two ways to connect, same balance either way:</p>
+            <p class="client-step"><strong>Sign in &amp; connect (recommended)</strong> — use this URL as your server and your client walks you through login, no key to copy:</p>
+            <div class="endpoint-pill mono">
+              <span id="connect-endpoint-oauth">https://mcp.toolsnap.app/mcp/oauth</span>
+              <button class="copy-btn" data-copy-target="#connect-endpoint-oauth" aria-label="Copy to clipboard">
+                <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+                <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+                <span class="copy-btn-label label-copy">Copy</span>
+                <span class="copy-btn-label label-copied">Copied</span>
+              </button>
+            </div>
+            <p class="client-step">Prefer a key? Works the same, for scripts and headless clients:</p>
             <CodeBlock lang="bash" code={`claude mcp add --transport http toolsnap https://mcp.toolsnap.app/mcp --header "Authorization: Bearer sk_live_…"`} />
             <p class="text-mute small">Clients that can't set headers can embed the key in the URL: <code class="inline">https://mcp.toolsnap.app/mcp/sk_live_…</code></p>
             <a href="/checkout" class="btn btn--ghost btn--sm">Sign in &amp; get credits &rarr;</a>
@@ -169,7 +180,7 @@ const description =
             <a href="/wallet-guide" class="btn btn--ghost btn--sm">Wallet guide &rarr;</a>
           </div>
         </div>
-        <p class="text-mute small oauth-note">OAuth sign-in (skip the API key entirely) is coming.</p>
+        <p class="text-mute small">Your balance lives in your account, not in any one agent — sign in from Claude, Cursor, or a script, and they all spend from the same credits.</p>
       </div>
     </div>
   </section>
@@ -401,7 +412,6 @@ const description =
   .paid-cards h3 { font-size: 1.05rem; margin-bottom: 10px; }
   .paid-cards p { margin-bottom: 14px; }
   .paid-cards .small { font-size: 0.8rem; margin-top: -4px; }
-  .oauth-note { margin-top: 20px; }
   @media (max-width: 860px) { .paid-cards { grid-template-columns: 1fr; } }
   @media (max-width: 560px) {
     .client-tabs { width: 100%; }
