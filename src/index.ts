@@ -548,25 +548,28 @@ export default {
     // NOTHING. Delete this route + POLAR_WEBHOOK_SECRET_SANDBOX_TEST once
     // the incident is resolved (see nota 06 Fase 26).
     if (method === "POST" && url.pathname === "/webhooks/polar-sandbox-test") {
-      const rawBody = await request.text();
+      const rawBodyBytes = new Uint8Array(await request.arrayBuffer());
+      const rawBody = new TextDecoder().decode(rawBodyBytes);
       const secret = env.POLAR_WEBHOOK_SECRET_SANDBOX_TEST ?? "";
       const verified = await verifyPolarSignature(rawBody, request.headers, secret);
-      const dbg = await debugPolarSignature(rawBody, request.headers, secret);
+      const dbg = await debugPolarSignature(rawBody, request.headers, secret, rawBodyBytes);
       // None of these values are secret: header names, the signature Polar
-      // sent, and the signature we computed are all safe to log — the key
-      // itself never appears. Truncated to 500 chars by writeEvent anyway.
+      // sent, and the signatures we computed are all safe to log — the key
+      // itself never appears. Truncated to 500 chars by writeEvent, so the
+      // most diagnostic fields (the two signatures to compare) come first.
       const detail = JSON.stringify({
         v: verified,
-        hdrs: dbg.headerNames,
-        hasId: dbg.hasId,
-        hasTs: dbg.hasTimestamp,
-        hasSig: dbg.hasSignatureHeader,
-        tsDelta: dbg.tsDeltaSeconds,
         sigRecv: dbg.sigHeaderRaw,
         sigCalc: dbg.computedSignatureB64,
+        sigCalcBytes: dbg.computedSignatureB64BytesMode,
+        tsDelta: dbg.tsDeltaSeconds,
         whsec: dbg.secretLooksLikeWhsec,
         decodeErr: dbg.secretDecodeError,
         bodyLen: dbg.bodyLength,
+        contentLen: dbg.contentLengthHeader,
+        hasId: dbg.hasId,
+        hasTs: dbg.hasTimestamp,
+        hasSig: dbg.hasSignatureHeader,
       });
       writeEvent(env, {
         toolName: "fiat_webhook",

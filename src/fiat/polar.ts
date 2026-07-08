@@ -117,15 +117,34 @@ export interface PolarSignatureDebug {
   tsDeltaSeconds: number | null;
   sigHeaderRaw: string | null;
   computedSignatureB64: string | null;
+  /** Same computation but concatenating raw BYTES instead of round-tripping
+   * through a JS string — rules out any UTF-8 decode/re-encode fidelity
+   * issue (the order.paid payload contains accented names). If this differs
+   * from computedSignatureB64, that's the bug; if it matches, string
+   * round-tripping was never the problem. */
+  computedSignatureB64BytesMode: string | null;
   secretLooksLikeWhsec: boolean;
   secretDecodeError: boolean;
   bodyLength: number;
+  contentLengthHeader: string | null;
+}
+
+function concatBytes(...parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((sum, p) => sum + p.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const p of parts) {
+    out.set(p, offset);
+    offset += p.length;
+  }
+  return out;
 }
 
 export async function debugPolarSignature(
   rawBody: string,
   headers: Headers,
-  secret: string
+  secret: string,
+  rawBodyBytes?: Uint8Array
 ): Promise<PolarSignatureDebug> {
   const id = headers.get("webhook-id");
   const timestamp = headers.get("webhook-timestamp");
@@ -145,9 +164,11 @@ export async function debugPolarSignature(
     tsDeltaSeconds: Number.isFinite(ts) ? now - ts : null,
     sigHeaderRaw: sigHeader,
     computedSignatureB64: null,
+    computedSignatureB64BytesMode: null,
     secretLooksLikeWhsec: secret.startsWith("whsec_"),
     secretDecodeError: false,
     bodyLength: rawBody.length,
+    contentLengthHeader: headers.get("content-length"),
   };
 
   if (!id || !timestamp || !secret) return debug;
@@ -171,6 +192,14 @@ export async function debugPolarSignature(
   const signedContent = `${id}.${timestamp}.${rawBody}`;
   const sigBuf = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signedContent));
   debug.computedSignatureB64 = bytesToBase64(new Uint8Array(sigBuf));
+
+  if (rawBodyBytes) {
+    const prefix = new TextEncoder().encode(`${id}.${timestamp}.`);
+    const bytesModeContent = concatBytes(prefix, rawBodyBytes);
+    const sigBufBytes = await crypto.subtle.sign("HMAC", key, bytesModeContent as BufferSource);
+    debug.computedSignatureB64BytesMode = bytesToBase64(new Uint8Array(sigBufBytes));
+  }
+
   return debug;
 }
 
