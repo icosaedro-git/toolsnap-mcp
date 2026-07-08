@@ -58,17 +58,26 @@ jobs:
       - name: Smoke test OAuth discovery + /mcp/oauth gate
         run: |
           set -euo pipefail
-          curl -sSf https://mcp.toolsnap.app/.well-known/oauth-protected-resource --max-time 20 | grep -q '"authorization_servers"'
-          curl -sSf https://mcp.toolsnap.app/.well-known/oauth-protected-resource/mcp/oauth --max-time 20 | grep -q '"https://mcp.toolsnap.app/mcp/oauth"'
-          curl -sSf https://portal.toolsnap.app/.well-known/oauth-authorization-server --max-time 20 | grep -q '"registration_endpoint"'
-          code=$(curl -sS -o /tmp/oauth-401.json -w '%{http_code}' -D /tmp/oauth-401.headers -X POST https://mcp.toolsnap.app/mcp/oauth \
-            -H 'content-type: application/json' \
-            --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' --max-time 20)
-          if [ "$code" != "401" ]; then echo "::error::POST /mcp/oauth without credentials should 401, got $code"; cat /tmp/oauth-401.json; exit 1; fi
-          grep -qi '^www-authenticate:' /tmp/oauth-401.headers || { echo "::error::missing WWW-Authenticate header on /mcp/oauth 401"; exit 1; }
-          # Plain /mcp must stay anonymous-friendly — OAuth is additive, not a replacement.
-          curl -sSf -X POST https://mcp.toolsnap.app/mcp \
-            -H 'content-type: application/json' \
-            --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","clientInfo":{"name":"ci-smoke-oauth","version":"1.0"}}}' \
-            --max-time 20 | grep -q '"serverInfo"'
-          echo "smoke test OK: OAuth discovery + /mcp/oauth 401 gate + /mcp still anonymous"
+          check() {
+            curl -sSf https://mcp.toolsnap.app/.well-known/oauth-protected-resource --max-time 20 | grep -q '"authorization_servers"'
+            curl -sSf https://mcp.toolsnap.app/.well-known/oauth-protected-resource/mcp/oauth --max-time 20 | grep -q '"https://mcp.toolsnap.app/mcp/oauth"'
+            curl -sSf https://portal.toolsnap.app/.well-known/oauth-authorization-server --max-time 20 | grep -q '"registration_endpoint"'
+            code=$(curl -sS -o /tmp/oauth-401.json -w '%{http_code}' -D /tmp/oauth-401.headers -X POST https://mcp.toolsnap.app/mcp/oauth \
+              -H 'content-type: application/json' \
+              --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' --max-time 20)
+            [ "$code" = "401" ]
+            grep -qi '^www-authenticate:' /tmp/oauth-401.headers
+            # Plain /mcp must stay anonymous-friendly — OAuth is additive, not a replacement.
+            curl -sSf -X POST https://mcp.toolsnap.app/mcp \
+              -H 'content-type: application/json' \
+              --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","clientInfo":{"name":"ci-smoke-oauth","version":"1.0"}}}' \
+              --max-time 20 | grep -q '"serverInfo"'
+          }
+          # Same edge-propagation retry as the /mcp smoke test above — a fresh
+          # deploy can briefly 404 on some PoPs before the new Worker version
+          # is fully propagated (observed in production, Fase 26 first deploy).
+          for i in 1 2 3 4 5; do
+            if check; then echo "smoke test OK: OAuth discovery + /mcp/oauth 401 gate + /mcp still anonymous"; exit 0; fi
+            echo "attempt $i: OAuth smoke check failed — retrying in 10s"; sleep 10
+          done
+          echo "::error::OAuth smoke test failed after retries"; exit 1
