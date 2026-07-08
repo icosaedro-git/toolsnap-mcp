@@ -50,10 +50,18 @@ function timingSafeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Verify a Polar webhook per the Standard Webhooks spec:
- * headers `webhook-id` / `webhook-timestamp` / `webhook-signature`,
- * signed content = `${id}.${timestamp}.${rawBody}`, HMAC-SHA256 base64,
- * secret format `whsec_<base64>`. 5-minute timestamp tolerance.
+ * Verify a Polar webhook (Standard Webhooks headers/format, Polar's key
+ * derivation): headers `webhook-id` / `webhook-timestamp` /
+ * `webhook-signature`, signed content = `${id}.${timestamp}.${rawBody}`,
+ * HMAC-SHA256 base64. 5-minute timestamp tolerance.
+ *
+ * KEY DERIVATION — Polar deviates from the Standard Webhooks spec here.
+ * The spec says the secret is `whsec_<base64-encoded key bytes>`; Polar's
+ * dashboard secret is `whsec_<random token>` where the HMAC key is the raw
+ * UTF-8 bytes of the WHOLE string, prefix included. Their server signs with
+ * `StandardWebhook(base64encode(secret))` (server/polar/webhook/tasks.py)
+ * and their JS SDK verifies the same way, so we must too. We also accept the
+ * spec-compliant interpretation as a fallback in case Polar ever fixes this.
  */
 export async function verifyPolarSignature(
   rawBody: string,
@@ -69,24 +77,16 @@ export async function verifyPolarSignature(
   const now = Math.floor(Date.now() / 1000);
   if (!Number.isFinite(ts) || Math.abs(now - ts) > 300) return false;
 
-  const secretB64 = secret.startsWith("whsec_") ? secret.slice("whsec_".length) : secret;
-  let keyBytes: Uint8Array;
+  // Primary key (what Polar actually signs with): raw UTF-8 bytes of the
+  // full secret string. Fallback: spec-compliant base64 decode of the part
+  // after `whsec_`.
+  const keyVariants: Uint8Array[] = [new TextEncoder().encode(secret)];
   try {
-    keyBytes = base64ToBytes(secretB64);
+    const secretB64 = secret.startsWith("whsec_") ? secret.slice("whsec_".length) : secret;
+    keyVariants.push(base64ToBytes(secretB64));
   } catch {
-    return false;
+    // Secret isn't valid base64 (expected for Polar tokens) — raw-bytes only.
   }
-
-  const key = await crypto.subtle.importKey(
-    "raw",
-    keyBytes as BufferSource,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const signedContent = `${id}.${timestamp}.${rawBody}`;
-  const sigBuf = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signedContent));
-  const expected = bytesToBase64(new Uint8Array(sigBuf));
 
   // Header may carry multiple space-separated "v1,<sig>" candidates.
   const candidates = sigHeader
@@ -94,7 +94,20 @@ export async function verifyPolarSignature(
     .map((s) => s.split(",")[1])
     .filter((s): s is string => Boolean(s));
 
-  return candidates.some((c) => timingSafeEqual(c, expected));
+  const signedContent = new TextEncoder().encode(`${id}.${timestamp}.${rawBody}`);
+  for (const keyBytes of keyVariants) {
+    const key = await crypto.subtle.importKey(
+      "raw",
+      keyBytes as BufferSource,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const sigBuf = await crypto.subtle.sign("HMAC", key, signedContent);
+    const expected = bytesToBase64(new Uint8Array(sigBuf));
+    if (candidates.some((c) => timingSafeEqual(c, expected))) return true;
+  }
+  return false;
 }
 
 /**
