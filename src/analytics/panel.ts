@@ -6,6 +6,8 @@ export const PANEL_HTML = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>toolsnap analytics</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/img/favicon-32.png" sizes="32x32" type="image/png">
 <style>
   :root {
     --bg: #0e1117;
