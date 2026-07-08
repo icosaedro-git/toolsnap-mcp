@@ -97,6 +97,83 @@ export async function verifyPolarSignature(
   return candidates.some((c) => timingSafeEqual(c, expected));
 }
 
+/**
+ * TEMPORARY (2026-07-09) — Fase 26 webhook incident diagnostic. Every real
+ * delivery from Polar (production and sandbox, both freshly re-copied
+ * secrets) has failed verification, even ones under 1 second old — ruling
+ * out both a copy/paste error and timestamp staleness as the cause. This
+ * mirrors verifyPolarSignature but surfaces every intermediate value (none
+ * of them secret — header names, the received signature, our own computed
+ * one) so the actual discrepancy can be read from analytics_events instead
+ * of guessed at. Delete alongside verifyPolarSignature's caller once the
+ * incident is closed.
+ */
+export interface PolarSignatureDebug {
+  headerNames: string[];
+  hasId: boolean;
+  hasTimestamp: boolean;
+  hasSignatureHeader: boolean;
+  timestamp: string | null;
+  tsDeltaSeconds: number | null;
+  sigHeaderRaw: string | null;
+  computedSignatureB64: string | null;
+  secretLooksLikeWhsec: boolean;
+  secretDecodeError: boolean;
+  bodyLength: number;
+}
+
+export async function debugPolarSignature(
+  rawBody: string,
+  headers: Headers,
+  secret: string
+): Promise<PolarSignatureDebug> {
+  const id = headers.get("webhook-id");
+  const timestamp = headers.get("webhook-timestamp");
+  const sigHeader = headers.get("webhook-signature");
+  const now = Math.floor(Date.now() / 1000);
+  const ts = timestamp ? parseInt(timestamp, 10) : NaN;
+
+  const headerNames: string[] = [];
+  headers.forEach((_value, key) => headerNames.push(key));
+
+  const debug: PolarSignatureDebug = {
+    headerNames,
+    hasId: Boolean(id),
+    hasTimestamp: Boolean(timestamp),
+    hasSignatureHeader: Boolean(sigHeader),
+    timestamp,
+    tsDeltaSeconds: Number.isFinite(ts) ? now - ts : null,
+    sigHeaderRaw: sigHeader,
+    computedSignatureB64: null,
+    secretLooksLikeWhsec: secret.startsWith("whsec_"),
+    secretDecodeError: false,
+    bodyLength: rawBody.length,
+  };
+
+  if (!id || !timestamp || !secret) return debug;
+
+  const secretB64 = secret.startsWith("whsec_") ? secret.slice("whsec_".length) : secret;
+  let keyBytes: Uint8Array;
+  try {
+    keyBytes = base64ToBytes(secretB64);
+  } catch {
+    debug.secretDecodeError = true;
+    return debug;
+  }
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyBytes as BufferSource,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signedContent = `${id}.${timestamp}.${rawBody}`;
+  const sigBuf = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signedContent));
+  debug.computedSignatureB64 = bytesToBase64(new Uint8Array(sigBuf));
+  return debug;
+}
+
 // ---------------------------------------------------------------------------
 // Checkout session (Polar API v1)
 // ---------------------------------------------------------------------------

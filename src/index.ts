@@ -7,7 +7,7 @@ import { PANEL_HTML } from "./analytics/panel.js";
 import { checkUsageAlerts } from "./alerts/usage-alerts.js";
 import { checkSurfaceDigest } from "./alerts/surface-digest.js";
 import { looksLikeApiKey, issueKey, revokeKey, accountExists, accountAddress } from "./fiat/keys.js";
-import { verifyPolarSignature, getOrCreateAccountByEmail, creditOrder } from "./fiat/polar.js";
+import { verifyPolarSignature, debugPolarSignature, getOrCreateAccountByEmail, creditOrder } from "./fiat/polar.js";
 import { writeEvent } from "./analytics/logger.js";
 import { looksLikeOAuthToken, verifyOAuthToken, touchOAuthToken } from "./oauth/tokens.js";
 
@@ -549,18 +549,32 @@ export default {
     // the incident is resolved (see nota 06 Fase 26).
     if (method === "POST" && url.pathname === "/webhooks/polar-sandbox-test") {
       const rawBody = await request.text();
-      const verified = await verifyPolarSignature(
-        rawBody,
-        request.headers,
-        env.POLAR_WEBHOOK_SECRET_SANDBOX_TEST ?? ""
-      );
+      const secret = env.POLAR_WEBHOOK_SECRET_SANDBOX_TEST ?? "";
+      const verified = await verifyPolarSignature(rawBody, request.headers, secret);
+      const dbg = await debugPolarSignature(rawBody, request.headers, secret);
+      // None of these values are secret: header names, the signature Polar
+      // sent, and the signature we computed are all safe to log — the key
+      // itself never appears. Truncated to 500 chars by writeEvent anyway.
+      const detail = JSON.stringify({
+        v: verified,
+        hdrs: dbg.headerNames,
+        hasId: dbg.hasId,
+        hasTs: dbg.hasTimestamp,
+        hasSig: dbg.hasSignatureHeader,
+        tsDelta: dbg.tsDeltaSeconds,
+        sigRecv: dbg.sigHeaderRaw,
+        sigCalc: dbg.computedSignatureB64,
+        whsec: dbg.secretLooksLikeWhsec,
+        decodeErr: dbg.secretDecodeError,
+        bodyLen: dbg.bodyLength,
+      });
       writeEvent(env, {
         toolName: "fiat_webhook",
         paymentType: "fiat_webhook_ignored",
         payer: "anon",
         revenueUsdc: 0,
         latencyMs: 0,
-        detail: `sandbox_sig_test:${verified ? "verified" : "failed"}`,
+        detail: `sandbox_sig_test:${detail}`,
         internal: true,
       }, ctx);
       return jsonResponse({ sandbox_signature_test: verified }, verified ? 200 : 401);
