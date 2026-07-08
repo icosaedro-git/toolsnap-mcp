@@ -26,7 +26,11 @@ export type PaymentType =
   | "api_key_insufficient"
   | "api_key_rejected"
   | "fiat_deposit_success"
-  | "fiat_deposit_failed";
+  | "fiat_deposit_failed"
+  // Fase 26 — OAuth 2.1 rail (same account/balance as api_key, different door).
+  | "oauth"
+  | "oauth_insufficient"
+  | "oauth_rejected";
 
 /** Payment types that represent a failure worth surfacing in logs/panel. */
 const ERROR_PAYMENT_TYPES: ReadonlySet<PaymentType> = new Set([
@@ -39,6 +43,8 @@ const ERROR_PAYMENT_TYPES: ReadonlySet<PaymentType> = new Set([
   "api_key_insufficient",
   "api_key_rejected",
   "fiat_deposit_failed",
+  "oauth_insufficient",
+  "oauth_rejected",
 ]);
 
 const MAX_DETAIL_LEN = 500;
