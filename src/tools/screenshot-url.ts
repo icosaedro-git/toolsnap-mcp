@@ -243,12 +243,12 @@ async function runScreenshot(
 
 export const screenshotUrlTool: McpTool = {
   name: "screenshot_url",
-  description: "Screenshot a page → public image URL. $0.04 USDC/call, no first-call-free.",
+  description: "Screenshot a page → public image URL. $0.04/call.",
   inputSchema: {
     type: "object",
     properties: {
       url: { type: "string" },
-      fullPage: { type: "boolean", default: false },
+      fullPage: { type: "boolean", default: false, description: "true = whole page, not viewport." },
       width: { type: "number", default: DEFAULT_WIDTH },
       height: { type: "number", default: DEFAULT_HEIGHT },
       format: { type: "string", enum: ["png", "jpeg"], default: "png" },
