@@ -25,12 +25,12 @@ CREATE TABLE IF NOT EXISTS x_queue (
   depends_on          INTEGER REFERENCES x_queue(id),  -- parent row for quote/reply/thread chaining
   min_gap_s           INTEGER NOT NULL DEFAULT 3600,   -- min wait after parent publishes
   quote_tweet_id      TEXT,                           -- quoting an EXTERNAL tweet (direct id)
-  reply_to_tweet_id   TEXT,                           -- replying to an EXTERNAL tweet (reply-guy)
+  reply_to_tweet_id   TEXT,                           -- replying to an EXTERNAL tweet
   series              TEXT,                           -- 'tool-spotlight', 'recipe-thread', 'launch'...
   batch_id            TEXT,                           -- weekly planning batch this row came from
   status              TEXT    NOT NULL DEFAULT 'draft',
   scheduled_at         INTEGER,                        -- epoch seconds, required once status='scheduled'
-  approval_mode       TEXT    NOT NULL DEFAULT 'per_post', -- per_post|batch|veto|auto (autonomy ladder L0-L3)
+  approval_mode       TEXT    NOT NULL DEFAULT 'per_post', -- per_post|batch|veto|auto — see vault
   veto_notified_at    INTEGER,                        -- veto-window Telegram notice sent at
   tg_message_id       INTEGER,                        -- Telegram approval card message id (for edits)
   tweet_id            TEXT,                           -- resulting tweet id once published
@@ -44,9 +44,8 @@ CREATE INDEX IF NOT EXISTS idx_x_queue_due ON x_queue (status, scheduled_at);
 CREATE INDEX IF NOT EXISTS idx_x_queue_batch ON x_queue (batch_id);
 CREATE INDEX IF NOT EXISTS idx_x_queue_depends_on ON x_queue (depends_on);
 
--- Voice-learning engine: every edit/rejection made from Telegram or the panel
--- is recorded here (original vs final text). Correction rate per series feeds
--- the autonomy-ladder promotion decisions (L0->L1->L2->L3, always human-gated).
+-- Correction log: every edit/rejection made from Telegram or the panel is
+-- recorded here (original vs final text) for editorial quality tracking.
 CREATE TABLE IF NOT EXISTS x_corrections (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   queue_id       INTEGER NOT NULL REFERENCES x_queue(id),

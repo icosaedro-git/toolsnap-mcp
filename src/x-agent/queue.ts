@@ -58,7 +58,7 @@ export async function approveRow(db: D1Database, id: number): Promise<boolean> {
   return (res.meta.changes ?? 0) > 0;
 }
 
-/** Reject a pending_approval row, record it for the voice-learning engine, and block any children waiting on it. */
+/** Reject a pending_approval row, log the correction, and block any children waiting on it. */
 export async function rejectRow(db: D1Database, id: number): Promise<boolean> {
   const row = await getQueueRow(db, id);
   if (!row || row.status !== "pending_approval") return false;
