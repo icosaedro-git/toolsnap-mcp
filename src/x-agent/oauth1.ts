@@ -1,0 +1,149 @@
+/**
+ * OAuth 1.0a request signing for the X API v2 (user-context auth).
+ *
+ * Chosen over OAuth2 user-context (Fase 22 design, D3): OAuth1.0a access
+ * tokens issued via the classic 3-legged flow never expire — no refresh
+ * token, no rotation, no single-use-reuse failure mode to handle in a
+ * headless cron publisher. Trade-off: we sign every request ourselves
+ * (HMAC-SHA1 via WebCrypto) instead of sending a bearer token.
+ */
+
+export interface OAuth1Credentials {
+  consumerKey: string;
+  consumerSecret: string;
+  accessToken: string;
+  accessTokenSecret: string;
+}
+
+// RFC 3986 percent-encoding — encodeURIComponent leaves !*'() unescaped,
+// which OAuth1's signature base string requires to be escaped too.
+export function percentEncode(input: string): string {
+  return encodeURIComponent(input).replace(/[!*'()]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
+}
+
+async function hmacSha1Base64(key: string, message: string): Promise<string> {
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(key) as BufferSource,
+    { name: "HMAC", hash: "SHA-1" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(message) as BufferSource);
+  let bin = "";
+  for (const b of new Uint8Array(sig)) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+function nonce(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Build the `Authorization: OAuth ...` header for a request. `queryParams`
+ * are query-string params only (NOT the JSON body — X API v2 write endpoints
+ * take a JSON body, which is excluded from the OAuth1 signature base string
+ * by spec; only oauth_* params and actual query-string params are signed).
+ */
+export async function signOAuth1(
+  method: "GET" | "POST",
+  url: string,
+  creds: OAuth1Credentials,
+  queryParams: Record<string, string> = {}
+): Promise<string> {
+  const oauthParams: Record<string, string> = {
+    oauth_consumer_key: creds.consumerKey,
+    oauth_nonce: nonce(),
+    oauth_signature_method: "HMAC-SHA1",
+    oauth_timestamp: String(Math.floor(Date.now() / 1000)),
+    oauth_token: creds.accessToken,
+    oauth_version: "1.0",
+  };
+
+  const allParams = { ...oauthParams, ...queryParams };
+  const paramString = Object.keys(allParams)
+    .sort()
+    .map((k) => `${percentEncode(k)}=${percentEncode(allParams[k])}`)
+    .join("&");
+
+  const baseUrl = url.split("?")[0];
+  const baseString = [method, percentEncode(baseUrl), percentEncode(paramString)].join("&");
+  const signingKey = `${percentEncode(creds.consumerSecret)}&${percentEncode(creds.accessTokenSecret)}`;
+  const signature = await hmacSha1Base64(signingKey, baseString);
+
+  const headerParams: Record<string, string> = { ...oauthParams, oauth_signature: signature };
+  const header =
+    "OAuth " +
+    Object.keys(headerParams)
+      .sort()
+      .map((k) => `${percentEncode(k)}="${percentEncode(headerParams[k])}"`)
+      .join(", ");
+  return header;
+}
+
+// ---------------------------------------------------------------------------
+// PIN-based 3-legged flow (used once per account by scripts/x-authorize.mts
+// to mint the long-lived access token + secret; never runs in the Worker).
+// ---------------------------------------------------------------------------
+
+function parseFormUrlEncoded(body: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const pair of body.split("&")) {
+    const [k, v] = pair.split("=");
+    if (k) out[decodeURIComponent(k)] = decodeURIComponent(v ?? "");
+  }
+  return out;
+}
+
+/** Step 1: obtain a request token (PIN-based, oauth_callback=oob). */
+export async function getRequestToken(
+  consumerKey: string,
+  consumerSecret: string
+): Promise<{ oauthToken: string; oauthTokenSecret: string }> {
+  const url = "https://api.twitter.com/oauth/request_token";
+  const header = await signOAuth1("POST", url, {
+    consumerKey,
+    consumerSecret,
+    accessToken: "",
+    accessTokenSecret: "",
+  }, { oauth_callback: "oob" });
+  const res = await fetch(url, { method: "POST", headers: { Authorization: header } });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`request_token failed (${res.status}): ${text}`);
+  const parsed = parseFormUrlEncoded(text);
+  if (!parsed.oauth_token || !parsed.oauth_token_secret) {
+    throw new Error(`request_token response missing fields: ${text}`);
+  }
+  return { oauthToken: parsed.oauth_token, oauthTokenSecret: parsed.oauth_token_secret };
+}
+
+/** Step 2 (after the user authorizes in browser and types the PIN): exchange for a long-lived access token. */
+export async function getAccessToken(
+  consumerKey: string,
+  consumerSecret: string,
+  requestToken: string,
+  requestTokenSecret: string,
+  pin: string
+): Promise<{ accessToken: string; accessTokenSecret: string; screenName: string; userId: string }> {
+  const url = "https://api.twitter.com/oauth/access_token";
+  const header = await signOAuth1("POST", url, {
+    consumerKey,
+    consumerSecret,
+    accessToken: requestToken,
+    accessTokenSecret: requestTokenSecret,
+  }, { oauth_verifier: pin });
+  const res = await fetch(url, { method: "POST", headers: { Authorization: header } });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`access_token exchange failed (${res.status}): ${text}`);
+  const parsed = parseFormUrlEncoded(text);
+  if (!parsed.oauth_token || !parsed.oauth_token_secret) {
+    throw new Error(`access_token response missing fields: ${text}`);
+  }
+  return {
+    accessToken: parsed.oauth_token,
+    accessTokenSecret: parsed.oauth_token_secret,
+    screenName: parsed.screen_name ?? "",
+    userId: parsed.user_id ?? "",
+  };
+}

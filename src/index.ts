@@ -10,6 +10,9 @@ import { looksLikeApiKey, issueKey, revokeKey, accountExists, accountAddress } f
 import { verifyPolarSignature, debugPolarSignature, getOrCreateAccountByEmail, creditOrder } from "./fiat/polar.js";
 import { writeEvent } from "./analytics/logger.js";
 import { looksLikeOAuthToken, verifyOAuthToken, touchOAuthToken } from "./oauth/tokens.js";
+import { runXPublisher } from "./x-agent/publisher.js";
+import { handleLoadBatch, handleListQueue, handleCancelRow, type BatchInput } from "./x-agent/admin.js";
+import { handleTelegramUpdate, type TelegramUpdate } from "./x-agent/telegram-approval.js";
 
 export interface Env {
   // Fase 21.1 — Workers Static Assets binding for the public website
@@ -91,6 +94,29 @@ export interface Env {
   // Only used by POST /webhooks/polar-sandbox-test, which verifies a
   // signature and credits NOTHING. Delete this + the route once resolved.
   POLAR_WEBHOOK_SECRET_SANDBOX_TEST?: string;
+
+  // Fase 22.1 — ToolSnap X Agent. X API v2 app (one app, two OAuth1.0a user
+  // tokens — see nota 10 §3 / vault plan D3). Set via: wrangler secret put <NAME>.
+  X_API_KEY?: string;
+  X_API_SECRET?: string;
+  X_ACCESS_TOKEN_PRODUCT?: string;
+  X_ACCESS_TOKEN_SECRET_PRODUCT?: string;
+  X_ACCESS_TOKEN_PERSONAL?: string;
+  X_ACCESS_TOKEN_SECRET_PERSONAL?: string;
+  // Numeric X user ids (from scripts/x-authorize.mts output) — needed for
+  // native reposts (POST /2/users/:id/retweets).
+  X_USER_ID_PRODUCT?: string;
+  X_USER_ID_PERSONAL?: string;
+  // "1" -> publisher logs instead of calling the real X API (local/e2e testing).
+  X_DRY_RUN?: string;
+
+  // Dedicated Telegram bot for X Agent approvals — separate from
+  // TELEGRAM_BOT_TOKEN (alerts channel) above, same TELEGRAM_CHAT_ID.
+  X_TG_BOT_TOKEN?: string;
+  // Shared secret Telegram echoes back in X-Telegram-Bot-Api-Secret-Token on
+  // every webhook delivery (set via setWebhook's secret_token param) — the
+  // only thing standing between /webhooks/telegram and the open internet.
+  X_TG_WEBHOOK_SECRET?: string;
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -587,6 +613,30 @@ export default {
     // Astro site (Fase 21.1) — Cloudflare serves those files before this
     // Worker ever runs, so no route is needed here anymore.
 
+    // Fase 22.1 — X Agent Telegram webhook (dedicated bot, separate from the
+    // alerts bot). Verifies the secret_token Telegram echoes back on every
+    // delivery, then hands the update to the approval-flow handler. Ack fast
+    // (Telegram considers a delivery failed and retries otherwise); the
+    // actual DB work runs in ctx.waitUntil.
+    if (method === "POST" && url.pathname === "/webhooks/telegram") {
+      const secretHeader = request.headers.get("x-telegram-bot-api-secret-token");
+      if (!env.X_TG_WEBHOOK_SECRET || secretHeader !== env.X_TG_WEBHOOK_SECRET) {
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+      let update: TelegramUpdate;
+      try {
+        update = await request.json();
+      } catch {
+        return jsonResponse({ ok: true }); // malformed body — ack anyway, nothing to retry
+      }
+      ctx.waitUntil(
+        handleTelegramUpdate(env, env.PREPAID_DB, update).catch((err) =>
+          console.error("x-agent telegram webhook failed:", err instanceof Error ? err.message : err)
+        )
+      );
+      return jsonResponse({ ok: true });
+    }
+
     // Admin-only key management (pre-portal). Same x-admin-key gate as /mcp.
     if (method === "POST" && (url.pathname === "/admin/keys/issue" || url.pathname === "/admin/keys/revoke")) {
       const adminKey = request.headers.get("x-admin-key");
@@ -612,6 +662,32 @@ export default {
       if (!keyId) return jsonResponse({ error: "key_id is required" }, 400);
       const revoked = await revokeKey(env.PREPAID_DB, keyId);
       return jsonResponse({ revoked });
+    }
+
+    // Fase 22.1 — X Agent content queue admin. Same x-admin-key gate as the
+    // routes above. Used by weekly-planning Claude Code sessions (batch load)
+    // and by ad-hoc single-post loads outside a planning session.
+    const xQueueCancelMatch = url.pathname.match(/^\/admin\/x\/queue\/(\d+)\/cancel$/);
+    if (url.pathname === "/admin/x/queue" || xQueueCancelMatch) {
+      const adminKey = request.headers.get("x-admin-key");
+      if (!env.ADMIN_API_KEY || adminKey !== env.ADMIN_API_KEY) {
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+      if (method === "POST" && url.pathname === "/admin/x/queue") {
+        let payload: BatchInput;
+        try {
+          payload = await request.json();
+        } catch {
+          return jsonResponse({ error: "Invalid JSON body" }, 400);
+        }
+        return withCors(await handleLoadBatch(env, payload));
+      }
+      if (method === "GET" && url.pathname === "/admin/x/queue") {
+        return withCors(await handleListQueue(env, url));
+      }
+      if (method === "POST" && xQueueCancelMatch) {
+        return withCors(await handleCancelRow(env, Number(xQueueCancelMatch[1])));
+      }
     }
 
     // File upload — POST /upload
@@ -660,9 +736,21 @@ export default {
     return jsonResponse({ error: "Not found" }, 404);
   },
 
-  // Cron Trigger (daily) — usage alerts for COGS tools (screenshot_url quota)
-  // + weekly surface digest (Fase 24.3, Mondays only).
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  // Two Cron Triggers, discriminated by event.cron (see wrangler.jsonc):
+  //   "0 9 * * *"  (daily)   — usage alerts (screenshot_url quota) + weekly
+  //                            surface digest (Fase 24.3, Mondays only).
+  //   "*/5 * * * *" (5-min)  — X Agent publisher (Fase 22.1): publishes any
+  //                            due `scheduled` row respecting depends_on order.
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (event.cron === "*/5 * * * *") {
+      ctx.waitUntil(
+        runXPublisher(env).catch((err) =>
+          console.error("x-agent publisher cron failed:", err instanceof Error ? err.message : err)
+        )
+      );
+      return;
+    }
+
     ctx.waitUntil(
       checkUsageAlerts(env).catch((err) =>
         console.error("usage-alerts cron failed:", err instanceof Error ? err.message : err)

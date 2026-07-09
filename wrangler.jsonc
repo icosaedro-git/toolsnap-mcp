@@ -43,14 +43,25 @@
       "/.well-known/*",
       "/analytics",
       "/analytics/data",
-      "/files/*"
+      "/files/*",
+      // wrangler dev --test-scheduled's local-only debug route for firing
+      // scheduled() (used by scripts/x-agent-test.mts). Harmless in real
+      // production Cloudflare routing — this path only does anything under
+      // `wrangler dev`; listing it here just stops the asset router from
+      // swallowing it with a 404 during local testing.
+      "/__scheduled"
     ]
   },
-  // Daily cron (09:00 UTC) → usage alerts for COGS tools (screenshot_url quota
-  // vs ScreenshotOne free tier). Fires Telegram at 50/90/100 + Monday digest.
-  // Also purges analytics_events older than 730 days / 2y (retention; money
-  // ledger tables are untouched). Cron Triggers run on the Workers free plan.
-  "triggers": { "crons": ["0 9 * * *"] },
+  // Two Cron Triggers (both on the Workers free plan), discriminated in
+  // src/index.ts's scheduled() by event.cron:
+  //   "0 9 * * *"   (daily, 09:00 UTC) → usage alerts for COGS tools
+  //     (screenshot_url quota vs ScreenshotOne free tier), Telegram at
+  //     50/90/100 + Monday digest. Also purges analytics_events >730 days
+  //     (money ledger tables untouched).
+  //   "*/5 * * * *" (every 5 min) → Fase 22.1 X Agent publisher: publishes
+  //     any due `scheduled` row in x_queue (respects depends_on/min_gap_s for
+  //     quote/reply/thread ordering).
+  "triggers": { "crons": ["0 9 * * *", "*/5 * * * *"] },
   "vars": {
     "X402_NETWORK": "base",
     "X402_PRICE_USDC": "0.02",
@@ -115,4 +126,15 @@
   //   wrangler secret put POLAR_WEBHOOK_SECRET   (Fase 17 — Polar webhook signing secret,
   //                                               "whsec_..."; /webhooks/polar rejects with
   //                                               401 without it)
+  //   -- Fase 22.1 — ToolSnap X Agent (see vault nota 06 Fase 22 + nota 10 for setup steps) --
+  //   wrangler secret put X_API_KEY                       (X app consumer key, developer.x.com)
+  //   wrangler secret put X_API_SECRET                     (X app consumer secret)
+  //   wrangler secret put X_ACCESS_TOKEN_PRODUCT            (OAuth1.0a token, @ToolSnapMCP — via scripts/x-authorize.mts)
+  //   wrangler secret put X_ACCESS_TOKEN_SECRET_PRODUCT
+  //   wrangler secret put X_ACCESS_TOKEN_PERSONAL            (OAuth1.0a token, @icosaedro_one)
+  //   wrangler secret put X_ACCESS_TOKEN_SECRET_PERSONAL
+  //   wrangler secret put X_USER_ID_PRODUCT                 (numeric X user id — for native reposts)
+  //   wrangler secret put X_USER_ID_PERSONAL
+  //   wrangler secret put X_TG_BOT_TOKEN                    (dedicated X Agent Telegram bot, from BotFather)
+  //   wrangler secret put X_TG_WEBHOOK_SECRET                (random string; also passed to Telegram's setWebhook secret_token)
 }
