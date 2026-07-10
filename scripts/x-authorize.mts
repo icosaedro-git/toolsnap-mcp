@@ -40,7 +40,7 @@ async function main() {
   console.log("\nRequesting a request token...");
   const { oauthToken, oauthTokenSecret } = await getRequestToken(consumerKey, consumerSecret);
 
-  const authorizeUrl = `https://api.twitter.com/oauth/authorize?oauth_token=${oauthToken}`;
+  const authorizeUrl = `https://api.x.com/oauth/authorize?oauth_token=${oauthToken}`;
   console.log(`\nOpen this URL LOGGED IN AS THE ACCOUNT YOU WANT TO AUTHORIZE:\n\n  ${authorizeUrl}\n`);
   console.log("Approve the app, then copy the PIN X shows you.\n");
 

@@ -63,7 +63,7 @@ export class XApiError extends Error {
  * length, invalid quote/reply target) that a retry can never fix.
  */
 export async function publishTweet(env: XAgentEnv, params: PublishParams): Promise<PublishResult> {
-  const url = "https://api.twitter.com/2/tweets";
+  const url = "https://api.x.com/2/tweets";
 
   const body: Record<string, unknown> = {};
   if (params.text) body.text = params.text;
@@ -116,7 +116,7 @@ export async function publishTweet(env: XAgentEnv, params: PublishParams): Promi
 export async function repostTweet(env: XAgentEnv, account: XAccount, targetTweetId: string): Promise<PublishResult> {
   const userId = account === "product" ? env.X_USER_ID_PRODUCT : env.X_USER_ID_PERSONAL;
   if (!userId) throw new Error(`X user id not configured for account "${account}" (X_USER_ID_${account.toUpperCase()})`);
-  const url = `https://api.twitter.com/2/users/${userId}/retweets`;
+  const url = `https://api.x.com/2/users/${userId}/retweets`;
 
   if (env.X_DRY_RUN === "1") {
     console.log(`[x-agent DRY_RUN] would POST ${url} as ${account}: retweet ${targetTweetId}`);

@@ -110,7 +110,7 @@ export async function getRequestToken(
   consumerKey: string,
   consumerSecret: string
 ): Promise<{ oauthToken: string; oauthTokenSecret: string }> {
-  const url = "https://api.twitter.com/oauth/request_token";
+  const url = "https://api.x.com/oauth/request_token";
   const header = await signOAuth1("POST", url, {
     consumerKey,
     consumerSecret,
@@ -143,7 +143,7 @@ export async function getAccessToken(
   requestTokenSecret: string,
   pin: string
 ): Promise<{ accessToken: string; accessTokenSecret: string; screenName: string; userId: string }> {
-  const url = "https://api.twitter.com/oauth/access_token";
+  const url = "https://api.x.com/oauth/access_token";
   const header = await signOAuth1("POST", url, {
     consumerKey,
     consumerSecret,
