@@ -115,3 +115,37 @@ export async function sendXAgentReply(
     // best-effort
   }
 }
+
+/**
+ * Register (or re-register) the webhook with Telegram, using the bot token
+ * already stored as a Cloudflare secret — so this never requires re-sharing
+ * the raw token. `secretToken` is echoed back by Telegram on every delivery
+ * as X-Telegram-Bot-Api-Secret-Token (see POST /webhooks/telegram in
+ * src/index.ts, which checks it against X_TG_WEBHOOK_SECRET).
+ */
+export async function setWebhook(
+  env: XTelegramEnv,
+  webhookUrl: string,
+  secretToken: string
+): Promise<{ ok: boolean; description?: string }> {
+  const base = apiBase(env);
+  if (!base) return { ok: false, description: "X_TG_BOT_TOKEN not configured" };
+  const res = await fetch(`${base}/setWebhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      url: webhookUrl,
+      secret_token: secretToken,
+      allowed_updates: ["message", "callback_query"],
+    }),
+  });
+  return (await res.json()) as { ok: boolean; description?: string };
+}
+
+/** Diagnostic: current webhook registration state (URL, pending updates, last error). */
+export async function getWebhookInfo(env: XTelegramEnv): Promise<unknown> {
+  const base = apiBase(env);
+  if (!base) return { ok: false, description: "X_TG_BOT_TOKEN not configured" };
+  const res = await fetch(`${base}/getWebhookInfo`);
+  return res.json();
+}
