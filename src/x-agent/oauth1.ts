@@ -57,9 +57,18 @@ export async function signOAuth1(
     oauth_nonce: nonce(),
     oauth_signature_method: "HMAC-SHA1",
     oauth_timestamp: String(Math.floor(Date.now() / 1000)),
-    oauth_token: creds.accessToken,
     oauth_version: "1.0",
   };
+  // oauth_token must be OMITTED (not sent as an empty string) when there is
+  // no token yet — the request_token step (getRequestToken) signs with
+  // accessToken="" precisely because no token exists. Including
+  // oauth_token="" in the signature base string desyncs it from what the
+  // server computes and fails with a generic 401 "Could not authenticate
+  // you" (found the hard way: 2026-07-09, this path was only ever exercised
+  // under X_DRY_RUN=1 before, which never actually calls the X API).
+  if (creds.accessToken) {
+    oauthParams.oauth_token = creds.accessToken;
+  }
 
   const allParams = { ...oauthParams, ...queryParams };
   const paramString = Object.keys(allParams)
