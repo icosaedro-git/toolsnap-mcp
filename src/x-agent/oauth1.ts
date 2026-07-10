@@ -41,16 +41,25 @@ function nonce(): string {
 }
 
 /**
- * Build the `Authorization: OAuth ...` header for a request. `queryParams`
- * are query-string params only (NOT the JSON body — X API v2 write endpoints
- * take a JSON body, which is excluded from the OAuth1 signature base string
- * by spec; only oauth_* params and actual query-string params are signed).
+ * Build the `Authorization: OAuth ...` header for a request.
+ *
+ * `extraOAuthParams` are additional oauth_* protocol params (oauth_callback,
+ * oauth_verifier) — they are included BOTH in the signature base string AND
+ * in the Authorization header, because OAuth1.0a requires every signed
+ * parameter to actually be transmitted. (Root cause of a real 401 hunt,
+ * 2026-07-10: an earlier version signed these but only would have sent them
+ * as query params — which the request never had — so X computed the
+ * signature over a smaller param set and rejected with a generic
+ * "Could not authenticate you".)
+ *
+ * The JSON body of v2 write endpoints is excluded from the signature by
+ * spec, so it needs no handling here.
  */
 export async function signOAuth1(
   method: "GET" | "POST",
   url: string,
   creds: OAuth1Credentials,
-  queryParams: Record<string, string> = {}
+  extraOAuthParams: Record<string, string> = {}
 ): Promise<string> {
   const oauthParams: Record<string, string> = {
     oauth_consumer_key: creds.consumerKey,
@@ -69,11 +78,11 @@ export async function signOAuth1(
   if (creds.accessToken) {
     oauthParams.oauth_token = creds.accessToken;
   }
+  Object.assign(oauthParams, extraOAuthParams);
 
-  const allParams = { ...oauthParams, ...queryParams };
-  const paramString = Object.keys(allParams)
+  const paramString = Object.keys(oauthParams)
     .sort()
-    .map((k) => `${percentEncode(k)}=${percentEncode(allParams[k])}`)
+    .map((k) => `${percentEncode(k)}=${percentEncode(oauthParams[k])}`)
     .join("&");
 
   const baseUrl = url.split("?")[0];
