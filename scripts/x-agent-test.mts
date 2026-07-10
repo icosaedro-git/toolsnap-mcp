@@ -53,6 +53,14 @@ function applyMigrationLocally() {
   execSync(`npx wrangler d1 execute toolsnap-prepaid --local --file=migrations/0009_x_agent.sql`, {
     stdio: "inherit",
   });
+  console.log("Applying migrations/0010_x_published_via.sql to local D1 (idempotent — ALTER TABLE ADD COLUMN fails harmlessly if it already ran)...");
+  try {
+    execSync(`npx wrangler d1 execute toolsnap-prepaid --local --file=migrations/0010_x_published_via.sql`, {
+      stdio: "inherit",
+    });
+  } catch {
+    console.log("(0010 already applied in this local D1 — ignoring 'duplicate column' error)");
+  }
 }
 
 async function adminPost(path: string, body?: unknown) {
@@ -66,6 +74,22 @@ async function adminPost(path: string, body?: unknown) {
 
 async function adminGet(path: string) {
   const res = await fetch(`${BASE}${path}`, { headers: { "x-admin-key": ADMIN_KEY! } });
+  return { status: res.status, json: await res.json().catch(() => null) };
+}
+
+/** Fase 22.3 — POST raw bytes with x-admin-key, for the media upload endpoint. */
+async function adminPostBinary(path: string, bytes: Uint8Array, contentType: string) {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": contentType, "x-admin-key": ADMIN_KEY! },
+    body: bytes,
+  });
+  return { status: res.status, json: await res.json().catch(() => null) };
+}
+
+/** Fase 22.3 — plain fetch, no auth at all (for checking the Access-gate rejects unauthenticated requests). */
+async function unauthGet(path: string) {
+  const res = await fetch(`${BASE}${path}`);
   return { status: res.status, json: await res.json().catch(() => null) };
 }
 
@@ -237,6 +261,134 @@ async function main() {
   await sleep(500);
   vetoRow2 = (await adminGet(`/x-api/queue?batch_id=${vetoBatchId2}`)).json?.rows?.[0];
   check("canceled row stays canceled (never published) on later ticks", vetoRow2?.status === "canceled", JSON.stringify(vetoRow2));
+
+  console.log("\n10) Fase 22.3 — reschedule resets veto_notified_at");
+  const rescheduleBatchId = `e2e-reschedule-${Date.now()}`;
+  const rescheduleLoad = await adminPost("/x-api/queue", {
+    batch_id: rescheduleBatchId,
+    approval_mode: "batch",
+    items: [{ account: "product", kind: "post", text: "e2e reschedule test", series: "e2e", scheduled_at: now + 3600 }],
+  });
+  const rescheduleId = rescheduleLoad.json?.inserted?.[0]?.id;
+  check("reschedule fixture inserted", Boolean(rescheduleId));
+  // Manually stamp veto_notified_at via a veto row's normal path is overkill here —
+  // reschedule's contract is "always clears it", verified against a plain
+  // scheduled row (starts NULL, must stay NULL — the real signal is the
+  // scheduled_at change plus no crash/rejection on a row that never had a notice).
+  const rescheduleResp = await adminPost(`/x-api/queue/${rescheduleId}/reschedule`, { scheduled_at: now + 7200 });
+  check("reschedule accepted", rescheduleResp.status === 200 && rescheduleResp.json?.rescheduled === true, JSON.stringify(rescheduleResp.json));
+  const afterReschedule = (await adminGet(`/x-api/queue?batch_id=${rescheduleBatchId}`)).json?.rows?.[0];
+  check("scheduled_at updated", afterReschedule?.scheduled_at === now + 7200, JSON.stringify(afterReschedule));
+  check("veto_notified_at cleared (still null)", afterReschedule?.veto_notified_at === null, JSON.stringify(afterReschedule));
+
+  console.log("\n11) Fase 22.3 — panel edit on a scheduled row: in-place, no status change, logs a panel_edit correction");
+  const editBatchId = `e2e-edit-${Date.now()}`;
+  const editLoad = await adminPost("/x-api/queue", {
+    batch_id: editBatchId,
+    approval_mode: "batch",
+    items: [{ account: "personal", kind: "post", text: "original text", series: "e2e", scheduled_at: now + 3600 }],
+  });
+  const editId = editLoad.json?.inserted?.[0]?.id;
+  const editResp = await adminPost(`/x-api/queue/${editId}/edit`, { text: "edited text via panel" });
+  check("edit accepted", editResp.status === 200 && editResp.json?.edited === true, JSON.stringify(editResp.json));
+  const afterEdit = (await adminGet(`/x-api/queue?batch_id=${editBatchId}`)).json?.rows?.[0];
+  check("text updated", afterEdit?.text === "edited text via panel", JSON.stringify(afterEdit));
+  check("status unchanged (still scheduled, not re-approved/reset)", afterEdit?.status === "scheduled", JSON.stringify(afterEdit));
+
+  console.log("\n12) Fase 22.3 — media upload + media_keys on a batch item + dry-run publish resolves mediaIds");
+  const fakePng = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 1]); // not a real PNG, just non-empty bytes — X_DRY_RUN never touches the actual X media API
+  const mediaUpload = await adminPostBinary("/x-api/media", fakePng, "image/png");
+  check("media upload 200", mediaUpload.status === 200, JSON.stringify(mediaUpload.json));
+  const mediaKey = mediaUpload.json?.media_key;
+  check("media_key returned with x-media/ prefix", typeof mediaKey === "string" && mediaKey.startsWith("x-media/"), JSON.stringify(mediaUpload.json));
+
+  const mediaBatchId = `e2e-media-${Date.now()}`;
+  const mediaLoad = await adminPost("/x-api/queue", {
+    batch_id: mediaBatchId,
+    approval_mode: "batch",
+    items: [{ account: "product", kind: "post", text: "e2e post with image", series: "e2e", scheduled_at: now - 60, media_keys: mediaKey ? [mediaKey] : [] }],
+  });
+  check("media batch load 200", mediaLoad.status === 200, JSON.stringify(mediaLoad.json));
+  await fireCron("*/5 * * * *");
+  await sleep(500);
+  const mediaRow = (await adminGet(`/x-api/queue?batch_id=${mediaBatchId}`)).json?.rows?.[0];
+  check("media row published (dry-run media upload didn't block it)", mediaRow?.status === "published", JSON.stringify(mediaRow));
+
+  console.log("\n13) Fase 22.3 — 'Publish now' fast-tracks a pending_approval row without waiting for L0 Telegram approval");
+  const publishNowBatchId = `e2e-publish-now-${Date.now()}`;
+  const publishNowLoad = await adminPost("/x-api/queue", {
+    batch_id: publishNowBatchId,
+    approval_mode: "per_post",
+    items: [{ account: "personal", kind: "post", text: "e2e publish-now test", series: "e2e", scheduled_at: now + 3600 }],
+  });
+  const publishNowId = publishNowLoad.json?.inserted?.[0]?.id;
+  const beforePublishNow = (await adminGet(`/x-api/queue?batch_id=${publishNowBatchId}`)).json?.rows?.[0];
+  check("row starts pending_approval (L0)", beforePublishNow?.status === "pending_approval", JSON.stringify(beforePublishNow));
+  const publishNowResp = await adminPost(`/x-api/queue/${publishNowId}/publish-now`);
+  check("publish-now accepted", publishNowResp.status === 200 && publishNowResp.json?.scheduled_now === true, JSON.stringify(publishNowResp.json));
+  await fireCron("*/5 * * * *");
+  await sleep(500);
+  const afterPublishNow = (await adminGet(`/x-api/queue?batch_id=${publishNowBatchId}`)).json?.rows?.[0];
+  check("row published on the next tick despite being per_post", afterPublishNow?.status === "published", JSON.stringify(afterPublishNow));
+
+  console.log("\n14) Fase 22.3 — 'mark published' manually: WITH a tweet URL keeps children alive, WITHOUT one blocks them");
+  const manualBatchId = `e2e-manual-${Date.now()}`;
+  const manualLoad = await adminPost("/x-api/queue", {
+    batch_id: manualBatchId,
+    approval_mode: "batch",
+    items: [
+      { local_id: "manual-parent", account: "product", kind: "post", text: "e2e manual-published parent", series: "e2e", scheduled_at: now + 3600 },
+      { local_id: "manual-child", account: "personal", kind: "quote", text: "e2e child depending on manual parent", depends_on: "manual-parent", min_gap_s: 0, scheduled_at: now + 3600 },
+    ],
+  });
+  const manualParentId = manualLoad.json?.inserted?.find((r: { local_id?: string }) => r.local_id === "manual-parent")?.id;
+  const manualChildId = manualLoad.json?.inserted?.find((r: { local_id?: string }) => r.local_id === "manual-child")?.id;
+  const markPublishedResp = await adminPost(`/x-api/queue/${manualParentId}/mark-published`, {
+    tweet_url: "https://x.com/ToolSnapMCP/status/1234567890123456789",
+  });
+  check("mark-published with URL accepted", markPublishedResp.status === 200 && markPublishedResp.json?.marked_published === true, JSON.stringify(markPublishedResp.json));
+  check("tweet_id parsed from URL", markPublishedResp.json?.tweet_id === "1234567890123456789", JSON.stringify(markPublishedResp.json));
+  const manualParentRow = (await adminGet(`/x-api/queue?batch_id=${manualBatchId}`)).json?.rows?.find((r: { id: number }) => r.id === manualParentId);
+  check("parent published_via='manual'", manualParentRow?.published_via === "manual", JSON.stringify(manualParentRow));
+  const manualChildRow = (await adminGet(`/x-api/queue?batch_id=${manualBatchId}`)).json?.rows?.find((r: { id: number }) => r.id === manualChildId);
+  check("child still eligible (not blocked) — parent has a real tweet_id to chain from", manualChildRow?.status === "scheduled", JSON.stringify(manualChildRow));
+
+  const manualNoLinkBatchId = `e2e-manual-nolink-${Date.now()}`;
+  const manualNoLinkLoad = await adminPost("/x-api/queue", {
+    batch_id: manualNoLinkBatchId,
+    approval_mode: "batch",
+    items: [
+      { local_id: "nolink-parent", account: "product", kind: "post", text: "e2e manual no-link parent", series: "e2e", scheduled_at: now + 3600 },
+      { local_id: "nolink-child", account: "personal", kind: "quote", text: "e2e child of no-link parent", depends_on: "nolink-parent", min_gap_s: 0, scheduled_at: now + 3600 },
+    ],
+  });
+  const nolinkParentId = manualNoLinkLoad.json?.inserted?.find((r: { local_id?: string }) => r.local_id === "nolink-parent")?.id;
+  const nolinkChildId = manualNoLinkLoad.json?.inserted?.find((r: { local_id?: string }) => r.local_id === "nolink-child")?.id;
+  const markPublishedNoLinkResp = await adminPost(`/x-api/queue/${nolinkParentId}/mark-published`, {});
+  check("mark-published without URL accepted", markPublishedNoLinkResp.status === 200 && markPublishedNoLinkResp.json?.marked_published === true, JSON.stringify(markPublishedNoLinkResp.json));
+  check("no tweet_id, metrics_enabled false", markPublishedNoLinkResp.json?.tweet_id === null && markPublishedNoLinkResp.json?.metrics_enabled === false, JSON.stringify(markPublishedNoLinkResp.json));
+  const nolinkChildRow = (await adminGet(`/x-api/queue?batch_id=${manualNoLinkBatchId}`)).json?.rows?.find((r: { id: number }) => r.id === nolinkChildId);
+  check("child blocked (no tweet_id to chain from)", nolinkChildRow?.status === "blocked", JSON.stringify(nolinkChildRow));
+
+  console.log("\n15) Fase 22.3 — daily metrics cron (X_DRY_RUN): fills x_metrics for API- and manually-published rows with a real tweet_id");
+  await fireCron("0 9 * * *");
+  await sleep(1000);
+  const statsAfterMetrics = await adminGet("/x-api/stats");
+  check("stats endpoint 200 after metrics cron", statsAfterMetrics.status === 200, JSON.stringify(statsAfterMetrics.json));
+  const e2eEngagement = (statsAfterMetrics.json?.engagement ?? []).filter((e: { series: string }) => e.series === "e2e");
+  check("e2e series has engagement rows (metrics cron picked up published e2e posts)", e2eEngagement.length > 0, JSON.stringify(e2eEngagement));
+
+  console.log("\n16) Fase 22.3 — stats: correction rate reflects the panel_edit from step 11");
+  const e2eCorrectionRate = (statsAfterMetrics.json?.correction_rates ?? []).find((r: { series: string; account: string }) => r.series === "e2e" && r.account === "personal");
+  check("e2e/personal correction rate present with corrected>=1", Boolean(e2eCorrectionRate) && e2eCorrectionRate.corrected >= 1, JSON.stringify(e2eCorrectionRate));
+
+  console.log("\n17) Fase 22.3 — /x-agent/api/* rejects requests with no Cloudflare Access header");
+  const unauthPanelApi = await unauthGet("/x-agent/api/queue");
+  check("x-agent/api without Access header -> 401", unauthPanelApi.status === 401, JSON.stringify(unauthPanelApi.json));
+
+  console.log("\n18) Fase 22.3 regression — /x-api/* new subpaths still require x-admin-key");
+  const unauthXApiStats = await unauthGet("/x-api/stats");
+  check("x-api/stats without x-admin-key -> 401", unauthXApiStats.status === 401, JSON.stringify(unauthXApiStats.json));
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);

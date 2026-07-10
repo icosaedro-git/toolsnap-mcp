@@ -1,10 +1,11 @@
 # ToolSnap X Agent — content queue API contract
 
 Cloudflare-native publishing agent for X (Twitter): a D1-backed content queue,
-a cron publisher, and a dedicated Telegram bot for human approval/veto. This
-document is the **stable contract** for the batch JSON format used to load
-content — written so a planning session can load a week of posts without
-reading the implementation.
+a cron publisher, a dedicated Telegram bot for human approval/veto, and a
+private web panel (`/x-agent`, behind Cloudflare Access) for viewing and
+acting on the queue from a browser. This document is the **stable contract**
+for the batch JSON format used to load content — written so a planning
+session can load a week of posts without reading the implementation.
 
 Endpoints, gated by the same `x-admin-key` header pattern used across the
 admin surface (`ADMIN_API_KEY` secret). Deliberately **outside** `/admin/*`
@@ -12,11 +13,33 @@ admin surface (`ADMIN_API_KEY` secret). Deliberately **outside** `/admin/*`
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/x-api/queue` | Load a batch (weekly planning session, or a single ad-hoc post) |
-| `GET` | `/x-api/queue` | Inspect current queue state (filters: `status`, `account`, `batch_id`, `limit`) |
+| `POST` | `/x-api/queue` | Load a batch (weekly planning session, or a single ad-hoc post) — items may include `media_keys` (Fase 22.3) |
+| `GET` | `/x-api/queue` | Inspect current queue state (filters: `status`, `account`, `batch_id`, `series`, `from`, `to`, `limit`) |
+| `POST` | `/x-api/queue/:id/approve` | Approve a `pending_approval` row |
+| `POST` | `/x-api/queue/:id/reject` | Reject a `pending_approval` row |
 | `POST` | `/x-api/queue/:id/cancel` | Cancel/veto a `scheduled` or `pending_approval` row |
+| `POST` | `/x-api/queue/:id/edit` | Edit a row's text (`{ "text": "..." }`) — in place if `scheduled`, auto-approves if `pending_approval` |
+| `POST` | `/x-api/queue/:id/reschedule` | Change `scheduled_at` (`{ "scheduled_at": <epoch> }`); resets the veto notice so it re-fires against the new time |
+| `POST` | `/x-api/queue/:id/publish-now` | Fast-track to the next publisher tick (auto-approves if `pending_approval`) |
+| `POST` | `/x-api/queue/:id/mark-published` | Mark published outside the agent (`{ "tweet_url"?: "..." }`) — see below |
+| `POST` | `/x-api/media` | Upload one image (raw bytes, `Content-Type: image/*`, ≤5MB) → `{ media_key }` for use in `media_keys` |
+| `GET` | `/x-api/stats` | Correction rate and engagement by series/account |
+| `POST` | `/x-api/corrections` | Backfill a correction made outside the running system (`source: "vault_review"`) |
 | `POST` | `/x-api/telegram/setup-webhook` | (Re-)register the Telegram webhook — one-time/diagnostic |
 | `GET` | `/x-api/telegram/webhook-info` | Current webhook registration state |
+
+The same handlers are also mounted at `/x-agent/api/*` behind a Cloudflare
+Access application (the interactive panel at `/x-agent`) — see the routing
+note below for why there are two mounts instead of one.
+
+**"Publish now" vs. "mark published"** (Fase 22.3, panel-only actions):
+`publish-now` still goes through the X API on the next cron tick — same
+publish path, just skipping the wait. `mark-published` is for when a post
+was published by hand outside the agent entirely: it flips the row straight
+to `published` without ever calling the X API. Passing `tweet_url` lets the
+row participate in metrics and in any `depends_on` chaining exactly like an
+API-published row; omitting it leaves `tweet_id` null (no metrics) and
+immediately blocks any dependent rows, the same as a cancel/reject/failure.
 
 **Routing note:** `mcp.toolsnap.app` has a Cloudflare Access application
 covering `/admin*` (added for the blog CMS). Access intercepts requests at
@@ -24,8 +47,10 @@ the edge before the Worker ever sees them, so a headless client presenting
 `x-admin-key` would get a 302 to an SSO login page instead of a JSON
 response. Any new headless (key/token-auth) route must live outside
 `/admin*` for this reason — `/x-api/*` and `/reports/*` follow this rule.
-Browser-facing routes that *do* want Access (like a future panel) must NOT
-share a prefix with a headless route, or Access will swallow the API too.
+Browser-facing routes that *do* want Access must NOT share a prefix with a
+headless route, or Access will swallow the API too — the Fase 22.3 panel
+lives at `/x-agent` + `/x-agent/api/*` (its own Access application) for
+exactly this reason, separate from `/x-api/*`.
 
 ## `POST /x-api/queue` — batch schema
 
@@ -48,6 +73,7 @@ interface BatchItem {
   series?: string;                // e.g. "tool-spotlight", "recipe-thread", "build-in-public"
   scheduled_at: number;           // epoch seconds — required
   approval_mode?: ApprovalMode;   // per-item override of the batch default
+  media_keys?: string[];          // Fase 22.3 — R2 keys from POST /x-api/media, prefix "x-media/", max 4
 }
 
 type ApprovalMode = "per_post" | "batch" | "veto";
@@ -86,6 +112,11 @@ draft -> pending_approval -> scheduled -> publishing -> published
                            \-> rejected            \-> failed (retry, max 3)
 scheduled -> canceled (vetoed via Telegram or POST /x-api/queue/:id/cancel)
 ```
+
+A `published` row's `published_via` column records how it got there: `api`
+(the normal publisher cron path) or `manual` (Fase 22.3 — marked published
+via `POST .../mark-published` after being posted by hand, outside the
+agent).
 
 A row whose `depends_on` parent ends in `failed`/`rejected`/`canceled` is
 automatically marked `blocked` (its children can never publish orphaned).
