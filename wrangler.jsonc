@@ -93,7 +93,14 @@
     // (min $5). Set to "sandbox" to point at sandbox-api.polar.sh for testing.
     "POLAR_ENV": "production",
     // "ToolSnap Credits" pay-what-you-want product id (production).
-    "POLAR_PRODUCT_ID": "60360bec-a564-4716-9187-f62272a5a356"
+    "POLAR_PRODUCT_ID": "60360bec-a564-4716-9187-f62272a5a356",
+    // Fase 22.2 — L2 veto window (autonomy ladder, see vault nota 13).
+    // Seconds before scheduled_at that the cancel-window Telegram notice
+    // goes out, and the minimum gap the publisher enforces between that
+    // notice and actually publishing. Defaults (4h / 30min) match src/x-agent/publisher.ts's
+    // fallback constants — these vars only need setting to override them.
+    "X_VETO_NOTICE_S": "14400",
+    "X_VETO_MIN_S": "1800"
   },
   // KV namespace for x402 nonce replay-protection (created 2026-06-23).
   // Also holds prepaid spend-authorization nonces (single-use) and

@@ -14,9 +14,10 @@ import {
   sendXAgentReply,
   type XTelegramEnv,
 } from "./telegram.js";
-import { approveRow, editAndApproveRow, getQueueRow, rejectRow, type XQueueRow } from "./queue.js";
+import { approveRow, cancelRow, editAndApproveRow, getQueueRow, rejectRow, type XQueueRow } from "./queue.js";
 
-function formatCard(row: XQueueRow): string {
+/** Human-readable card text for a queue row — shared by the L0 approval card and the L2 veto notice. */
+export function formatCard(row: XQueueRow): string {
   const accountLabel = row.account === "product" ? "@ToolSnapMCP" : "@icosaedro_one";
   const when = row.scheduled_at ? new Date(row.scheduled_at * 1000).toISOString() : "sin hora";
   const kindLabel =
@@ -96,7 +97,7 @@ export async function handleTelegramUpdate(
       await answerCallbackQuery(env, cq.id, "No autorizado");
       return;
     }
-    const match = cq.data?.match(/^xq:(\d+):(approve|reject|edit)$/);
+    const match = cq.data?.match(/^xq:(\d+):(approve|reject|edit|cancel)$/);
     if (!match) {
       await answerCallbackQuery(env, cq.id);
       return;
@@ -129,6 +130,20 @@ export async function handleTelegramUpdate(
       await answerCallbackQuery(env, cq.id, "Responde a este mensaje con el texto corregido");
       if (messageId) {
         await sendXAgentReply(env, "✏️ Responde a la tarjeta con el texto corregido y se aprobará automáticamente.", messageId);
+      }
+      return;
+    }
+
+    // "cancel" is the L2 veto-window button (also reachable from an L0 card,
+    // where it behaves the same as reject would). cancelRow only acts on
+    // scheduled/pending_approval rows, so a race with the publisher claiming
+    // the row first is a harmless no-op here.
+    if (action === "cancel") {
+      const ok = await cancelRow(db, id);
+      await answerCallbackQuery(env, cq.id, ok ? "Vetado" : "Ya no se puede cancelar (¿ya se publicó?)");
+      if (ok && messageId) {
+        const row = await getQueueRow(db, id);
+        await editXAgentMessageText(env, messageId, `${formatCard(row!)}\n\n🚫 *Vetado — no se publicará*`);
       }
       return;
     }

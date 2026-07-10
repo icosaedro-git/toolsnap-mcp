@@ -29,3 +29,13 @@ X_USER_ID_PERSONAL=numeric-x-user-id-for-icosaedro_one
 X_DRY_RUN=1
 X_TG_BOT_TOKEN=your-dedicated-x-agent-telegram-bot-token
 X_TG_WEBHOOK_SECRET=any-random-string-also-passed-to-setWebhook
+# Shared with the alerts bot's chat — needed locally so
+# scripts/x-agent-test.mts can simulate a Telegram callback_query (veto
+# cancel button) against /webhooks/telegram.
+TELEGRAM_CHAT_ID=123456789
+
+# Fase 22.2 — L2 veto window. Kept short here so scripts/x-agent-test.mts can
+# exercise the "not yet eligible" and "window satisfied" cases within a few
+# seconds. Production uses the wrangler.jsonc defaults (14400/1800 = 4h/30min).
+X_VETO_NOTICE_S=14400
+X_VETO_MIN_S=6

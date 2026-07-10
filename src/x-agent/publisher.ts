@@ -7,16 +7,71 @@
 import { publishTweet, repostTweet, XApiError, type XAgentEnv } from "./client.js";
 import type { XTelegramEnv } from "./telegram.js";
 import { sendXAgentMessage } from "./telegram.js";
-import { claimForPublishing, getDueRows, getQueueRow, markFailedOrRetry, markPublished, type XQueueRow } from "./queue.js";
+import { formatCard } from "./telegram-approval.js";
+import {
+  claimForPublishing,
+  getDueRows,
+  getQueueRow,
+  getVetoRowsNeedingNotice,
+  markFailedOrRetry,
+  markPublished,
+  markVetoNotified,
+  type XQueueRow,
+} from "./queue.js";
 
 export interface XPublisherEnv extends XAgentEnv, XTelegramEnv {
   PREPAID_DB: D1Database;
+  // Fase 22.2 — L2 veto window. Defaults chosen with Unai 2026-07-10: 4h
+  // notice, 30min minimum gap between notice and publish.
+  X_VETO_NOTICE_S?: string;
+  X_VETO_MIN_S?: string;
 }
 
-/** Run one publisher tick: attempt every currently-eligible row once. */
+const DEFAULT_VETO_NOTICE_S = 4 * 3600;
+const DEFAULT_VETO_MIN_S = 30 * 60;
+
+/**
+ * True during Unai's requested quiet hours (00:00-12:00 Europe/Madrid) — the
+ * publisher defers sending new veto notices during this window so he never
+ * wakes up to a cancel-window Telegram card. Rows already past their notice
+ * are unaffected; this only gates *sending new notices*, never publishing
+ * (a row notified before quiet hours started still publishes on schedule).
+ */
+function isMadridQuietHours(date: Date): boolean {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Madrid", hour: "numeric", hourCycle: "h23" }).format(date)
+  );
+  return hour >= 0 && hour < 12;
+}
+
+/**
+ * Send cancel-window notices for any `veto` row entering its notice window,
+ * unless we're inside Madrid quiet hours (00:00-12:00) — those are retried
+ * on every subsequent tick until quiet hours end.
+ */
+async function sendVetoNotices(env: XPublisherEnv, db: D1Database): Promise<void> {
+  // Quiet hours are a real-wall-clock concern; skip the gate under
+  // X_DRY_RUN (local/e2e testing, scripts/x-agent-test.mts) so tests are
+  // deterministic regardless of what time they happen to run.
+  if (env.X_DRY_RUN !== "1" && isMadridQuietHours(new Date())) return;
+  const noticeS = Number(env.X_VETO_NOTICE_S) || DEFAULT_VETO_NOTICE_S;
+  const rows = await getVetoRowsNeedingNotice(db, noticeS);
+  for (const row of rows) {
+    const when = row.scheduled_at ? new Date(row.scheduled_at * 1000).toISOString() : "sin hora";
+    const text = `${formatCard(row)}\n\n⏳ *Se publicará solo a las ${when} salvo veto.*`;
+    const messageId = await sendXAgentMessage(env, text, {
+      inlineKeyboard: [[{ text: "🚫 Cancelar", callback_data: `xq:${row.id}:cancel` }]],
+    });
+    await markVetoNotified(db, row.id, messageId);
+  }
+}
+
+/** Run one publisher tick: send due veto notices, then attempt every currently-eligible row once. */
 export async function runXPublisher(env: XPublisherEnv): Promise<{ attempted: number; published: number; failed: number }> {
   const db = env.PREPAID_DB;
-  const due = await getDueRows(db, 10);
+  await sendVetoNotices(env, db);
+  const vetoMinS = Number(env.X_VETO_MIN_S) || DEFAULT_VETO_MIN_S;
+  const due = await getDueRows(db, 10, vetoMinS);
   let published = 0;
   let failed = 0;
 

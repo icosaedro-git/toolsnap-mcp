@@ -1,12 +1,14 @@
 /**
  * Admin endpoints for loading/managing the X Agent content queue
- * (Fase 22.1). Gated by the same x-admin-key pattern as /admin/keys/* and
- * the /mcp admin bypass (src/index.ts).
+ * (Fase 22.1, veto mode added in Fase 22.2). Gated by the same x-admin-key
+ * pattern as /admin/keys/* and the /mcp admin bypass (src/index.ts).
  *
  * POST /x-api/queue          — load a batch (weekly planning session, or a
  *                                 single ad-hoc post) as JSON.
  * GET  /x-api/queue          — inspect current queue state.
  * POST /x-api/queue/:id/cancel — veto/cancel a scheduled or pending row.
+ *
+ * See README.md in this directory for the full batch JSON contract.
  */
 
 import { cancelRow, now, type XApprovalMode, type XQueueRow, type XQueueStatus } from "./queue.js";
@@ -94,10 +96,14 @@ export async function handleLoadBatch(env: XAdminEnv, body: BatchInput): Promise
 
   for (const item of body.items) {
     const mode = item.approval_mode ?? defaultMode;
-    if (mode !== "per_post" && mode !== "batch") {
-      return jsonError(`items: approval_mode "${mode}" not supported at creation time (only per_post/batch — veto/auto are ladder promotions applied later)`);
+    if (mode !== "per_post" && mode !== "batch" && mode !== "veto") {
+      return jsonError(`items: approval_mode "${mode}" not supported at creation time (only per_post/batch/veto — auto is a ladder promotion applied later, never set at creation)`);
     }
-    const status: XQueueStatus = mode === "batch" ? "scheduled" : "pending_approval";
+    // veto rows go straight to 'scheduled' like batch — they publish on their
+    // own, but the publisher cron gates them on a Telegram cancel-window
+    // notice being sent first (see getVetoRowsNeedingNotice/getDueRows in
+    // queue.ts), instead of the batch/per_post approval flow.
+    const status: XQueueStatus = mode === "batch" || mode === "veto" ? "scheduled" : "pending_approval";
     const kind = item.kind ?? "post";
 
     const res = await db
