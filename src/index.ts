@@ -664,16 +664,26 @@ export default {
       return jsonResponse({ revoked });
     }
 
-    // Fase 22.1 — X Agent content queue admin. Same x-admin-key gate as the
-    // routes above. Used by weekly-planning Claude Code sessions (batch load)
-    // and by ad-hoc single-post loads outside a planning session.
-    const xQueueCancelMatch = url.pathname.match(/^\/admin\/x\/queue\/(\d+)\/cancel$/);
-    if (url.pathname === "/admin/x/queue" || xQueueCancelMatch) {
+    // Fase 22.1b (hotfix) — X Agent content queue admin. Same x-admin-key
+    // gate as the /admin/* routes above, but deliberately NOT under
+    // /admin/* itself: mcp.toolsnap.app has a Cloudflare Access application
+    // covering /admin* (from the F21.1 CMS), which intercepts the request
+    // at the edge with a 302 to an interactive SSO login before this Worker
+    // ever runs — the exact same reason /reports/analytics lives outside
+    // /analytics*. Found live 2026-07-10: /admin/x/queue (and the
+    // pre-existing /admin/keys/*) both 302'd instead of hitting our
+    // x-admin-key check. Rule going forward: headless key/token routes and
+    // browser/Access-protected routes (e.g. the F22.3 panel, if it lands
+    // under /x-agent) must live in disjoint path prefixes.
+    // Used by weekly-planning Claude Code sessions (batch load) and by
+    // ad-hoc single-post loads outside a planning session.
+    const xQueueCancelMatch = url.pathname.match(/^\/x-api\/queue\/(\d+)\/cancel$/);
+    if (url.pathname === "/x-api/queue" || xQueueCancelMatch) {
       const adminKey = request.headers.get("x-admin-key");
       if (!env.ADMIN_API_KEY || adminKey !== env.ADMIN_API_KEY) {
         return jsonResponse({ error: "Unauthorized" }, 401);
       }
-      if (method === "POST" && url.pathname === "/admin/x/queue") {
+      if (method === "POST" && url.pathname === "/x-api/queue") {
         let payload: BatchInput;
         try {
           payload = await request.json();
@@ -682,7 +692,7 @@ export default {
         }
         return withCors(await handleLoadBatch(env, payload));
       }
-      if (method === "GET" && url.pathname === "/admin/x/queue") {
+      if (method === "GET" && url.pathname === "/x-api/queue") {
         return withCors(await handleListQueue(env, url));
       }
       if (method === "POST" && xQueueCancelMatch) {

@@ -3,10 +3,10 @@
  * (Fase 22.1). Gated by the same x-admin-key pattern as /admin/keys/* and
  * the /mcp admin bypass (src/index.ts).
  *
- * POST /admin/x/queue          — load a batch (weekly planning session, or a
+ * POST /x-api/queue          — load a batch (weekly planning session, or a
  *                                 single ad-hoc post) as JSON.
- * GET  /admin/x/queue          — inspect current queue state.
- * POST /admin/x/queue/:id/cancel — veto/cancel a scheduled or pending row.
+ * GET  /x-api/queue          — inspect current queue state.
+ * POST /x-api/queue/:id/cancel — veto/cancel a scheduled or pending row.
  */
 
 import { cancelRow, now, type XApprovalMode, type XQueueRow, type XQueueStatus } from "./queue.js";
@@ -57,7 +57,7 @@ function validateItem(item: BatchItemInput, index: number): string | null {
 }
 
 /**
- * POST /admin/x/queue — load a batch. Two-pass insert so `depends_on` can
+ * POST /x-api/queue — load a batch. Two-pass insert so `depends_on` can
  * reference a sibling item's `local_id` (resolved to its DB id after both
  * rows exist) as well as an already-existing numeric queue id.
  */

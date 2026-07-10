@@ -13,7 +13,7 @@
  *  - the child staying ineligible until the parent is published (min_gap_s)
  *  - the publisher cron tick (fired via /__scheduled, wrangler's
  *    --test-scheduled harness) claiming and publishing due rows
- *  - GET /admin/x/queue reflecting the final published state
+ *  - GET /x-api/queue reflecting the final published state
  */
 import { execSync } from "node:child_process";
 
@@ -73,7 +73,7 @@ async function main() {
   const batchId = `e2e-${Date.now()}`;
 
   console.log("\n1) Load batch: product post (due now) + personal quote depending on it (min_gap_s=0)");
-  const load = await adminPost("/admin/x/queue", {
+  const load = await adminPost("/x-api/queue", {
     batch_id: batchId,
     approval_mode: "batch",
     items: [
@@ -107,7 +107,7 @@ async function main() {
   check("cron tick 1 fired (200)", tick1 === 200, String(tick1));
   await sleep(500); // ctx.waitUntil is fire-and-forget; give it a beat
 
-  const afterTick1 = await adminGet(`/admin/x/queue?batch_id=${batchId}`);
+  const afterTick1 = await adminGet(`/x-api/queue?batch_id=${batchId}`);
   const parentRow1 = (afterTick1.json?.rows ?? []).find((r: { id: number }) => r.id === parentId);
   const childRow1 = (afterTick1.json?.rows ?? []).find((r: { id: number }) => r.id === childId);
   check("parent published after tick 1", parentRow1?.status === "published", JSON.stringify(parentRow1));
@@ -119,12 +119,12 @@ async function main() {
   check("cron tick 2 fired (200)", tick2 === 200, String(tick2));
   await sleep(500);
 
-  const afterTick2 = await adminGet(`/admin/x/queue?batch_id=${batchId}`);
+  const afterTick2 = await adminGet(`/x-api/queue?batch_id=${batchId}`);
   const childRow2 = (afterTick2.json?.rows ?? []).find((r: { id: number }) => r.id === childId);
   check("child published after tick 2", childRow2?.status === "published", JSON.stringify(childRow2));
 
   console.log("\n4) Reject validation: a batch with a bad depends_on is rejected with 400");
-  const badLoad = await adminPost("/admin/x/queue", {
+  const badLoad = await adminPost("/x-api/queue", {
     items: [{ account: "product", kind: "quote", text: "orphan", depends_on: "not-a-real-id", scheduled_at: now }],
   });
   check("bad depends_on rejected (400)", badLoad.status === 400, JSON.stringify(badLoad.json));
