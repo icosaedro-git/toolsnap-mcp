@@ -13,3 +13,19 @@ WHITELISTED_ADDRESSES=0xYourRelayWalletPublicAddressHere
 # Optional — if unset, screenshot_url uses the keyless microlink free-tier provider.
 # Set in production via: wrangler secret put SCREENSHOT_API_KEY
 SCREENSHOT_API_KEY=your-screenshotone-access-key-here
+
+# Fase 22.1 — ToolSnap X Agent (local dev / e2e). In production set via
+# wrangler secret put <NAME> for each — see wrangler.jsonc's secrets comment.
+X_API_KEY=your-x-app-consumer-key
+X_API_SECRET=your-x-app-consumer-secret
+X_ACCESS_TOKEN_PRODUCT=oauth1-access-token-for-toolsnapmcp
+X_ACCESS_TOKEN_SECRET_PRODUCT=oauth1-access-token-secret-for-toolsnapmcp
+X_ACCESS_TOKEN_PERSONAL=oauth1-access-token-for-icosaedro_one
+X_ACCESS_TOKEN_SECRET_PERSONAL=oauth1-access-token-secret-for-icosaedro_one
+X_USER_ID_PRODUCT=numeric-x-user-id-for-toolsnapmcp
+X_USER_ID_PERSONAL=numeric-x-user-id-for-icosaedro_one
+# "1" makes the publisher log instead of calling the real X API — use this
+# for local/e2e testing (scripts/x-agent-test.mts sets it automatically).
+X_DRY_RUN=1
+X_TG_BOT_TOKEN=your-dedicated-x-agent-telegram-bot-token
+X_TG_WEBHOOK_SECRET=any-random-string-also-passed-to-setWebhook
