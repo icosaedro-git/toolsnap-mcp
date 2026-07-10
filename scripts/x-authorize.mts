@@ -16,15 +16,28 @@
 import { createInterface } from "node:readline/promises";
 import { getAccessToken, getRequestToken } from "../src/x-agent/oauth1.js";
 
+function checkForStrayWhitespace(name: string, raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed !== raw) {
+    console.warn(
+      `⚠️  ${name} had leading/trailing whitespace (raw length ${raw.length}, trimmed length ${trimmed.length}) — using the trimmed value.`
+    );
+  }
+  console.log(`${name}: length ${trimmed.length}, starts "${trimmed.slice(0, 4)}...", ends "...${trimmed.slice(-4)}"`);
+  return trimmed;
+}
+
 async function main() {
-  const consumerKey = process.env.X_API_KEY;
-  const consumerSecret = process.env.X_API_SECRET;
-  if (!consumerKey || !consumerSecret) {
+  const rawKey = process.env.X_API_KEY;
+  const rawSecret = process.env.X_API_SECRET;
+  if (!rawKey || !rawSecret) {
     console.error("Set X_API_KEY and X_API_SECRET (the X app's consumer key/secret) before running.");
     process.exit(1);
   }
+  const consumerKey = checkForStrayWhitespace("X_API_KEY", rawKey);
+  const consumerSecret = checkForStrayWhitespace("X_API_SECRET", rawSecret);
 
-  console.log("Requesting a request token...");
+  console.log("\nRequesting a request token...");
   const { oauthToken, oauthTokenSecret } = await getRequestToken(consumerKey, consumerSecret);
 
   const authorizeUrl = `https://api.twitter.com/oauth/authorize?oauth_token=${oauthToken}`;

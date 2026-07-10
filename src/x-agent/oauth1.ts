@@ -119,7 +119,15 @@ export async function getRequestToken(
   }, { oauth_callback: "oob" });
   const res = await fetch(url, { method: "POST", headers: { Authorization: header } });
   const text = await res.text();
-  if (!res.ok) throw new Error(`request_token failed (${res.status}): ${text}`);
+  if (!res.ok) {
+    const serverDate = res.headers.get("date");
+    const skewNote = serverDate
+      ? ` | X server date: ${serverDate} | local date: ${new Date().toUTCString()} | skew: ${Math.round(
+          (Date.now() - new Date(serverDate).getTime()) / 1000
+        )}s`
+      : " | (X did not send a Date header — cannot check clock skew this way)";
+    throw new Error(`request_token failed (${res.status}): ${text}${skewNote}`);
+  }
   const parsed = parseFormUrlEncoded(text);
   if (!parsed.oauth_token || !parsed.oauth_token_secret) {
     throw new Error(`request_token response missing fields: ${text}`);
