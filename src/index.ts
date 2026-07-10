@@ -13,6 +13,7 @@ import { looksLikeOAuthToken, verifyOAuthToken, touchOAuthToken } from "./oauth/
 import { runXPublisher } from "./x-agent/publisher.js";
 import { handleLoadBatch, handleListQueue, handleCancelRow, type BatchInput } from "./x-agent/admin.js";
 import { handleTelegramUpdate, type TelegramUpdate } from "./x-agent/telegram-approval.js";
+import { setWebhook, getWebhookInfo } from "./x-agent/telegram.js";
 
 export interface Env {
   // Fase 21.1 — Workers Static Assets binding for the public website
@@ -698,6 +699,31 @@ export default {
       if (method === "POST" && xQueueCancelMatch) {
         return withCors(await handleCancelRow(env, Number(xQueueCancelMatch[1])));
       }
+    }
+
+    // Fase 22.1 troubleshooting (2026-07-10): the approval buttons appeared
+    // to "hang" in Telegram because the webhook was never registered with
+    // Telegram's servers — setWebhook is a manual one-time call, easy to
+    // miss amid the route-fix deploy. These two admin routes call it using
+    // the X_TG_BOT_TOKEN secret already stored in Cloudflare, so re-running
+    // setup or checking status never requires re-sharing the raw bot token.
+    if (url.pathname === "/x-api/telegram/setup-webhook" && method === "POST") {
+      const adminKey = request.headers.get("x-admin-key");
+      if (!env.ADMIN_API_KEY || adminKey !== env.ADMIN_API_KEY) {
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+      if (!env.X_TG_WEBHOOK_SECRET) {
+        return jsonResponse({ error: "X_TG_WEBHOOK_SECRET is not configured" }, 500);
+      }
+      const result = await setWebhook(env, "https://mcp.toolsnap.app/webhooks/telegram", env.X_TG_WEBHOOK_SECRET);
+      return jsonResponse(result);
+    }
+    if (url.pathname === "/x-api/telegram/webhook-info" && method === "GET") {
+      const adminKey = request.headers.get("x-admin-key");
+      if (!env.ADMIN_API_KEY || adminKey !== env.ADMIN_API_KEY) {
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+      return jsonResponse(await getWebhookInfo(env));
     }
 
     // File upload — POST /upload
