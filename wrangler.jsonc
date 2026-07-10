@@ -37,6 +37,11 @@
       "/reports/*",
       "/upload",
       "/admin/*",
+      // Fase 22.1b hotfix: X Agent admin API, deliberately OUTSIDE /admin/*
+      // (which sits behind a Cloudflare Access application at the edge —
+      // see the routing comment in src/index.ts for why headless key/token
+      // routes can't live there).
+      "/x-api/*",
       "/checkout",
       "/checkout/start",
       "/welcome",
