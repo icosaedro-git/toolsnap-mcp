@@ -35,6 +35,7 @@ export interface XQueueRow {
   tg_message_id: number | null;
   tweet_id: string | null;
   published_at: number | null;
+  published_via: "api" | "manual" | null;
   error: string | null;
   attempt_count: number;
   created_at: number;
@@ -58,6 +59,22 @@ export async function approveRow(db: D1Database, id: number): Promise<boolean> {
   return (res.meta.changes ?? 0) > 0;
 }
 
+/** Record an editorial correction (edit or reject) against a queue row. Shared by Telegram, the panel, and vault-review backfills. */
+export async function insertCorrection(
+  db: D1Database,
+  queueId: number,
+  originalText: string,
+  finalText: string,
+  source: string
+): Promise<void> {
+  await db
+    .prepare(
+      "INSERT INTO x_corrections (queue_id, original_text, final_text, source, created_at) VALUES (?, ?, ?, ?, ?)"
+    )
+    .bind(queueId, originalText, finalText, source, now())
+    .run();
+}
+
 /** Reject a pending_approval row, log the correction, and block any children waiting on it. */
 export async function rejectRow(db: D1Database, id: number): Promise<boolean> {
   const row = await getQueueRow(db, id);
@@ -68,32 +85,98 @@ export async function rejectRow(db: D1Database, id: number): Promise<boolean> {
     .run();
   const changed = (res.meta.changes ?? 0) > 0;
   if (changed) {
-    await db
-      .prepare(
-        "INSERT INTO x_corrections (queue_id, original_text, final_text, source, created_at) VALUES (?, ?, '', 'telegram_reject', ?)"
-      )
-      .bind(id, row.text ?? "", now())
-      .run();
+    await insertCorrection(db, id, row.text ?? "", "", "telegram_reject");
     await blockChildren(db, id);
   }
   return changed;
 }
 
-/** Edit the text of a pending_approval row, record the correction, and approve it. */
-export async function editAndApproveRow(db: D1Database, id: number, newText: string): Promise<boolean> {
+/**
+ * Edit a row's text and record the correction. Two cases: a `pending_approval`
+ * row is edited AND approved in one step (L0 Telegram flow, unchanged
+ * behavior); a `scheduled` row (incl. `veto`) is edited in place with no
+ * status change — this is what gives the panel "edit in-place during the
+ * veto window" instead of forcing a cancel+recreate.
+ */
+export async function editRowText(db: D1Database, id: number, newText: string, source: string): Promise<boolean> {
   const row = await getQueueRow(db, id);
-  if (!row || row.status !== "pending_approval") return false;
-  await db
-    .prepare(
-      "INSERT INTO x_corrections (queue_id, original_text, final_text, source, created_at) VALUES (?, ?, ?, 'telegram_edit', ?)"
-    )
-    .bind(id, row.text ?? "", newText, now())
-    .run();
+  if (!row) return false;
+  if (row.status !== "pending_approval" && row.status !== "scheduled") return false;
+
+  await insertCorrection(db, id, row.text ?? "", newText, source);
+
+  if (row.status === "pending_approval") {
+    const res = await db
+      .prepare("UPDATE x_queue SET text = ?, status = 'scheduled', updated_at = ? WHERE id = ? AND status = 'pending_approval'")
+      .bind(newText, now(), id)
+      .run();
+    return (res.meta.changes ?? 0) > 0;
+  }
+
   const res = await db
-    .prepare("UPDATE x_queue SET text = ?, status = 'scheduled', updated_at = ? WHERE id = ? AND status = 'pending_approval'")
+    .prepare("UPDATE x_queue SET text = ?, updated_at = ? WHERE id = ? AND status = 'scheduled'")
     .bind(newText, now(), id)
     .run();
   return (res.meta.changes ?? 0) > 0;
+}
+
+/** Edit the text of a pending_approval row, record the correction, and approve it (L0 Telegram flow). */
+export async function editAndApproveRow(db: D1Database, id: number, newText: string): Promise<boolean> {
+  return editRowText(db, id, newText, "telegram_edit");
+}
+
+/**
+ * Reschedule a scheduled/pending_approval row to a new time. Resets
+ * `veto_notified_at` so a `veto` row's cancel-window notice re-fires against
+ * the new `scheduled_at` instead of using a notice timestamp computed for
+ * the old time.
+ */
+export async function rescheduleRow(db: D1Database, id: number, newScheduledAt: number): Promise<boolean> {
+  const res = await db
+    .prepare(
+      "UPDATE x_queue SET scheduled_at = ?, veto_notified_at = NULL, updated_at = ? WHERE id = ? AND status IN ('scheduled', 'pending_approval')"
+    )
+    .bind(newScheduledAt, now(), id)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+/**
+ * "Publish now" (panel D6): fast-track a row to the next cron tick.
+ * Atomically sets status='scheduled' (auto-approves if it was
+ * pending_approval) and scheduled_at=now, and clears veto_notified_at so a
+ * veto row's window is recomputed rather than reusing a stale notice time.
+ */
+export async function publishNowRow(db: D1Database, id: number): Promise<boolean> {
+  const ts = now();
+  const res = await db
+    .prepare(
+      "UPDATE x_queue SET status = 'scheduled', scheduled_at = ?, veto_notified_at = NULL, updated_at = ? WHERE id = ? AND status IN ('scheduled', 'pending_approval')"
+    )
+    .bind(ts, ts, id)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+/**
+ * "Publicado manualmente" (panel D6): Unai posted it himself outside the
+ * agent. Marks the row published without calling the X API. If a tweet URL
+ * was given, `tweetId` carries the real id (metrics + depends_on children
+ * can resolve it like any API-published row); if not, `tweetId` is null and
+ * any children are blocked immediately (same as cancel/reject/fail) since
+ * they can never get a real parent tweet_id to chain from.
+ */
+export async function markPublishedManual(db: D1Database, id: number, tweetId: string | null): Promise<boolean> {
+  const ts = now();
+  const res = await db
+    .prepare(
+      "UPDATE x_queue SET status = 'published', tweet_id = ?, published_at = ?, published_via = 'manual', updated_at = ? WHERE id = ? AND status IN ('scheduled', 'pending_approval')"
+    )
+    .bind(tweetId, ts, ts, id)
+    .run();
+  const changed = (res.meta.changes ?? 0) > 0;
+  if (changed && !tweetId) await blockChildren(db, id);
+  return changed;
 }
 
 /** Cancel a scheduled row (veto window / manual cancel from the panel). */
@@ -194,9 +277,29 @@ export async function claimForPublishing(db: D1Database, id: number): Promise<bo
 export async function markPublished(db: D1Database, id: number, tweetId: string): Promise<void> {
   const ts = now();
   await db
-    .prepare("UPDATE x_queue SET status = 'published', tweet_id = ?, published_at = ?, updated_at = ? WHERE id = ?")
+    .prepare(
+      "UPDATE x_queue SET status = 'published', tweet_id = ?, published_at = ?, published_via = 'api', updated_at = ? WHERE id = ?"
+    )
     .bind(tweetId, ts, ts, id)
     .run();
+}
+
+/**
+ * Fase 22.3 — rows the daily metrics fetch should look up: published within
+ * the last `sinceTs` epoch seconds with a real (non-dry-run) tweet_id.
+ * Covers both API-published and manually-published-with-a-link rows —
+ * both are measurable the same way once a real tweet_id exists.
+ */
+export async function getRecentPublishedRowsWithTweetId(db: D1Database, sinceTs: number): Promise<XQueueRow[]> {
+  const res = await db
+    .prepare(
+      `SELECT * FROM x_queue
+       WHERE status = 'published' AND tweet_id IS NOT NULL AND published_at >= ?
+       ORDER BY published_at DESC`
+    )
+    .bind(sinceTs)
+    .all<XQueueRow>();
+  return (res.results ?? []).filter((r) => !r.tweet_id?.startsWith("dryrun_"));
 }
 
 /** Publishing failed. Retryable errors go back to 'scheduled' (re-attempted next cron tick, up to 3 tries); non-retryable or exhausted go to 'failed' (and block children). */

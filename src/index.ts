@@ -11,9 +11,11 @@ import { verifyPolarSignature, debugPolarSignature, getOrCreateAccountByEmail, c
 import { writeEvent } from "./analytics/logger.js";
 import { looksLikeOAuthToken, verifyOAuthToken, touchOAuthToken } from "./oauth/tokens.js";
 import { runXPublisher } from "./x-agent/publisher.js";
-import { handleLoadBatch, handleListQueue, handleCancelRow, type BatchInput } from "./x-agent/admin.js";
 import { handleTelegramUpdate, type TelegramUpdate } from "./x-agent/telegram-approval.js";
 import { setWebhook, getWebhookInfo } from "./x-agent/telegram.js";
+import { X_PANEL_HTML } from "./x-agent/panel.js";
+import { dispatchXAgentApi } from "./x-agent/panel-api.js";
+import { fetchXMetrics } from "./x-agent/metrics.js";
 
 export interface Env {
   // Fase 21.1 — Workers Static Assets binding for the public website
@@ -118,6 +120,12 @@ export interface Env {
   // every webhook delivery (set via setWebhook's secret_token param) — the
   // only thing standing between /webhooks/telegram and the open internet.
   X_TG_WEBHOOK_SECRET?: string;
+
+  // Fase 22.3 — how many days back the daily metrics cron looks for
+  // published rows to re-measure. Each read costs money (~$0.005, capped at
+  // 2M/month) — lower this if the bill needs trimming. Default 14 (see
+  // src/x-agent/metrics.ts).
+  X_METRICS_WINDOW_D?: string;
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -402,6 +410,33 @@ export default {
       });
     }
 
+    // Fase 22.3 — X Agent panel. Same Access-at-the-edge pattern as
+    // /analytics: a separate Cloudflare Access application covers
+    // mcp.toolsnap.app/x-agent* (own policy, same allowed emails). This
+    // Worker never validates the Access session itself for the page GET —
+    // it trusts the edge, exactly like /analytics does.
+    if (method === "GET" && url.pathname === "/x-agent") {
+      return new Response(X_PANEL_HTML, {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
+    // X Agent panel data/action API — /x-agent/api/*. Access already gates
+    // this at the edge (workers_dev is off and the only route is the custom
+    // domain, so there's no way to reach the Worker bypassing Access), but
+    // every one of these calls can mutate the queue, so also require the
+    // header Access stamps on every authenticated request as defense in
+    // depth (no full JWT verification needed for that same reason).
+    if (url.pathname.startsWith("/x-agent/api/")) {
+      if (!request.headers.get("cf-access-authenticated-user-email")) {
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+      const subpath = url.pathname.slice("/x-agent/api/".length);
+      const response = await dispatchXAgentApi(env, request, url, subpath);
+      return response ? withCors(response) : jsonResponse({ error: "Not found" }, 404);
+    }
+
     // Analytics data API — called by the dashboard panel via fetch('/analytics/data')
     // ?include_internal=1 also counts our own dev/testing traffic (excluded by default).
     if (method === "GET" && url.pathname === "/analytics/data") {
@@ -674,31 +709,27 @@ export default {
     // /analytics*. Found live 2026-07-10: /admin/x/queue (and the
     // pre-existing /admin/keys/*) both 302'd instead of hitting our
     // x-admin-key check. Rule going forward: headless key/token routes and
-    // browser/Access-protected routes (e.g. the F22.3 panel, if it lands
-    // under /x-agent) must live in disjoint path prefixes.
+    // browser/Access-protected routes (e.g. the F22.3 panel, under
+    // /x-agent(/api/*)) must live in disjoint path prefixes.
     // Used by weekly-planning Claude Code sessions (batch load) and by
-    // ad-hoc single-post loads outside a planning session.
-    const xQueueCancelMatch = url.pathname.match(/^\/x-api\/queue\/(\d+)\/cancel$/);
-    if (url.pathname === "/x-api/queue" || xQueueCancelMatch) {
+    // ad-hoc single-post loads outside a planning session. Fase 22.3 extends
+    // this to mount the SAME dispatcher (queue actions, media upload,
+    // stats, corrections) that /x-agent/api/* uses — one set of handlers,
+    // two auth mounts, per the disjoint-prefix rule above.
+    if (
+      url.pathname === "/x-api/queue" ||
+      url.pathname.startsWith("/x-api/queue/") ||
+      url.pathname === "/x-api/media" ||
+      url.pathname === "/x-api/stats" ||
+      url.pathname === "/x-api/corrections"
+    ) {
       const adminKey = request.headers.get("x-admin-key");
       if (!env.ADMIN_API_KEY || adminKey !== env.ADMIN_API_KEY) {
         return jsonResponse({ error: "Unauthorized" }, 401);
       }
-      if (method === "POST" && url.pathname === "/x-api/queue") {
-        let payload: BatchInput;
-        try {
-          payload = await request.json();
-        } catch {
-          return jsonResponse({ error: "Invalid JSON body" }, 400);
-        }
-        return withCors(await handleLoadBatch(env, payload));
-      }
-      if (method === "GET" && url.pathname === "/x-api/queue") {
-        return withCors(await handleListQueue(env, url));
-      }
-      if (method === "POST" && xQueueCancelMatch) {
-        return withCors(await handleCancelRow(env, Number(xQueueCancelMatch[1])));
-      }
+      const subpath = url.pathname.slice("/x-api/".length);
+      const response = await dispatchXAgentApi(env, request, url, subpath);
+      return response ? withCors(response) : jsonResponse({ error: "Not found" }, 404);
     }
 
     // Fase 22.1 troubleshooting (2026-07-10): the approval buttons appeared
@@ -774,7 +805,8 @@ export default {
 
   // Two Cron Triggers, discriminated by event.cron (see wrangler.jsonc):
   //   "0 9 * * *"  (daily)   — usage alerts (screenshot_url quota) + weekly
-  //                            surface digest (Fase 24.3, Mondays only).
+  //                            surface digest (Fase 24.3, Mondays only) +
+  //                            X Agent engagement metrics fetch (Fase 22.3).
   //   "*/5 * * * *" (5-min)  — X Agent publisher (Fase 22.1): publishes any
   //                            due `scheduled` row respecting depends_on order.
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -795,6 +827,13 @@ export default {
     ctx.waitUntil(
       checkSurfaceDigest(env).catch((err) =>
         console.error("surface-digest cron failed:", err instanceof Error ? err.message : err)
+      )
+    );
+    // Fase 22.3 — daily engagement metrics fetch (x_metrics), piggybacking on
+    // this existing daily trigger rather than adding a third Cron Trigger.
+    ctx.waitUntil(
+      fetchXMetrics(env).catch((err) =>
+        console.error("x-agent metrics cron failed:", err instanceof Error ? err.message : err)
       )
     );
   },

@@ -4,7 +4,7 @@
  * claims each atomically, and publishes it via the X API.
  */
 
-import { publishTweet, repostTweet, XApiError, type XAgentEnv } from "./client.js";
+import { publishTweet, repostTweet, uploadMedia, XApiError, type XAgentEnv } from "./client.js";
 import type { XTelegramEnv } from "./telegram.js";
 import { sendXAgentMessage } from "./telegram.js";
 import { formatCard } from "./telegram-approval.js";
@@ -21,6 +21,10 @@ import {
 
 export interface XPublisherEnv extends XAgentEnv, XTelegramEnv {
   PREPAID_DB: D1Database;
+  // Fase 22.3 — panel-uploaded images live here under x-media/ (same bucket
+  // as screenshot_url and /upload); the publisher reads the bytes back and
+  // uploads them to X right before posting (see resolveMediaIds below).
+  SCREENSHOTS_BUCKET: R2Bucket;
   // Fase 22.2 — L2 veto window. Defaults chosen with Unai 2026-07-10: 4h
   // notice, 30min minimum gap between notice and publish.
   X_VETO_NOTICE_S?: string;
@@ -106,7 +110,7 @@ export async function runXPublisher(env: XPublisherEnv): Promise<{ attempted: nu
  * a `depends_on` parent (already guaranteed published by getDueRows's join),
  * use the parent's own tweet_id as the target.
  */
-async function publishOne(env: XAgentEnv, row: XQueueRow, db: D1Database): Promise<{ tweetId: string }> {
+async function publishOne(env: XPublisherEnv, row: XQueueRow, db: D1Database): Promise<{ tweetId: string }> {
   let quoteTweetId = row.quote_tweet_id ?? undefined;
   let replyToTweetId = row.reply_to_tweet_id ?? undefined;
   let parentTweetId: string | undefined;
@@ -129,10 +133,43 @@ async function publishOne(env: XAgentEnv, row: XQueueRow, db: D1Database): Promi
     return repostTweet(env, row.account, targetId);
   }
 
+  const mediaIds = row.media_keys ? await resolveMediaIds(env, row) : undefined;
+
   return publishTweet(env, {
     account: row.account,
     text: row.text ?? undefined,
     quoteTweetId,
     replyToTweetId,
+    mediaIds,
   });
+}
+
+/**
+ * Read each R2 key in `row.media_keys` (JSON array, written by the panel's
+ * media upload endpoint) and upload it to X right before publishing —
+ * uploaded media ids expire (X discards unused ones after a few hours), so
+ * this can't happen at upload time, only here at actual publish time.
+ * A missing key or upload failure fails the whole row (non-retryable if it's
+ * our data that's wrong; retryable if X itself rate-limited/5xx'd the
+ * upload) rather than posting text-only when an image was expected.
+ */
+async function resolveMediaIds(env: XPublisherEnv, row: XQueueRow): Promise<string[]> {
+  let keys: unknown;
+  try {
+    keys = JSON.parse(row.media_keys ?? "[]");
+  } catch {
+    throw new XApiError(`row #${row.id} has malformed media_keys JSON`, 0, false);
+  }
+  if (!Array.isArray(keys) || keys.length === 0) return [];
+
+  const mediaIds: string[] = [];
+  for (const key of keys) {
+    if (typeof key !== "string") continue;
+    const obj = await env.SCREENSHOTS_BUCKET.get(key);
+    if (!obj) throw new XApiError(`row #${row.id} media key "${key}" not found in R2`, 0, false);
+    const bytes = new Uint8Array(await obj.arrayBuffer());
+    const mimeType = obj.httpMetadata?.contentType ?? "image/jpeg";
+    mediaIds.push(await uploadMedia(env, row.account, bytes, mimeType));
+  }
+  return mediaIds;
 }

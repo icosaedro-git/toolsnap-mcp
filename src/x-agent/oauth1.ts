@@ -53,13 +53,20 @@ function nonce(): string {
  * "Could not authenticate you".)
  *
  * The JSON body of v2 write endpoints is excluded from the signature by
- * spec, so it needs no handling here.
+ * spec, so it needs no handling here. `queryParams` (added Fase 22.3 for the
+ * metrics GET, the first caller to ever need a query string) is the
+ * exception: OAuth1.0a requires every actual URL query parameter to be
+ * folded into the signature base string alongside the oauth_* params — pass
+ * the exact same key/value pairs here that you append to `url`'s query
+ * string, so the two agree. They are NOT added to the Authorization header
+ * (only oauth_* params + the signature go there).
  */
 export async function signOAuth1(
   method: "GET" | "POST",
   url: string,
   creds: OAuth1Credentials,
-  extraOAuthParams: Record<string, string> = {}
+  extraOAuthParams: Record<string, string> = {},
+  queryParams: Record<string, string> = {}
 ): Promise<string> {
   const oauthParams: Record<string, string> = {
     oauth_consumer_key: creds.consumerKey,
@@ -80,9 +87,10 @@ export async function signOAuth1(
   }
   Object.assign(oauthParams, extraOAuthParams);
 
-  const paramString = Object.keys(oauthParams)
+  const allParams: Record<string, string> = { ...oauthParams, ...queryParams };
+  const paramString = Object.keys(allParams)
     .sort()
-    .map((k) => `${percentEncode(k)}=${percentEncode(oauthParams[k])}`)
+    .map((k) => `${percentEncode(k)}=${percentEncode(allParams[k])}`)
     .join("&");
 
   const baseUrl = url.split("?")[0];

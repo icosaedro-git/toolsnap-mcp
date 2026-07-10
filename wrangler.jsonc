@@ -42,6 +42,10 @@
       // see the routing comment in src/index.ts for why headless key/token
       // routes can't live there).
       "/x-api/*",
+      // Fase 22.3 — X Agent panel, behind its OWN Cloudflare Access
+      // application (mcp.toolsnap.app/x-agent*, same pattern as /analytics).
+      "/x-agent",
+      "/x-agent/*",
       "/checkout",
       "/checkout/start",
       "/welcome",
@@ -62,7 +66,8 @@
   //   "0 9 * * *"   (daily, 09:00 UTC) → usage alerts for COGS tools
   //     (screenshot_url quota vs ScreenshotOne free tier), Telegram at
   //     50/90/100 + Monday digest. Also purges analytics_events >730 days
-  //     (money ledger tables untouched).
+  //     (money ledger tables untouched). Fase 22.3: also fetches X Agent
+  //     engagement metrics (x_metrics) for recently-published posts.
   //   "*/5 * * * *" (every 5 min) → Fase 22.1 X Agent publisher: publishes
   //     any due `scheduled` row in x_queue (respects depends_on/min_gap_s for
   //     quote/reply/thread ordering).
@@ -100,7 +105,10 @@
     // notice and actually publishing. Defaults (4h / 30min) match src/x-agent/publisher.ts's
     // fallback constants — these vars only need setting to override them.
     "X_VETO_NOTICE_S": "14400",
-    "X_VETO_MIN_S": "1800"
+    "X_VETO_MIN_S": "1800",
+    // Fase 22.3 — days back the daily metrics cron re-measures published
+    // posts. Each read costs ~$0.005 (capped 2M/month) — lower to trim cost.
+    "X_METRICS_WINDOW_D": "14"
   },
   // KV namespace for x402 nonce replay-protection (created 2026-06-23).
   // Also holds prepaid spend-authorization nonces (single-use) and

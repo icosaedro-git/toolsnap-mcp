@@ -21,6 +21,8 @@ export interface XAdminEnv extends XTelegramEnv {
 
 type BatchItemKind = "post" | "quote" | "reply" | "thread_part" | "repost";
 
+const MAX_MEDIA_KEYS_PER_ITEM = 4;
+
 interface BatchItemInput {
   local_id?: string;
   account: "product" | "personal";
@@ -33,6 +35,9 @@ interface BatchItemInput {
   series?: string;
   scheduled_at: number; // epoch seconds
   approval_mode?: XApprovalMode; // per-item override of the batch default
+  // Fase 22.3 — R2 keys (from POST .../media, prefix "x-media/") to attach
+  // as images. Resolved to X media ids at actual publish time, not here.
+  media_keys?: string[];
 }
 
 export interface BatchInput {
@@ -54,6 +59,17 @@ function validateItem(item: BatchItemInput, index: number): string | null {
   }
   if (!Number.isFinite(item.scheduled_at) || item.scheduled_at <= 0) {
     return `items[${index}]: scheduled_at must be a positive epoch-seconds number`;
+  }
+  if (item.media_keys !== undefined) {
+    if (!Array.isArray(item.media_keys) || item.media_keys.some((k) => typeof k !== "string")) {
+      return `items[${index}]: media_keys must be an array of strings`;
+    }
+    if (item.media_keys.length > MAX_MEDIA_KEYS_PER_ITEM) {
+      return `items[${index}]: media_keys exceeds the ${MAX_MEDIA_KEYS_PER_ITEM}-image limit`;
+    }
+    if (item.media_keys.some((k) => !k.startsWith("x-media/"))) {
+      return `items[${index}]: media_keys must be R2 keys returned by POST .../media (prefix "x-media/")`;
+    }
   }
   return null;
 }
@@ -109,14 +125,15 @@ export async function handleLoadBatch(env: XAdminEnv, body: BatchInput): Promise
     const res = await db
       .prepare(
         `INSERT INTO x_queue
-           (account, kind, text, min_gap_s, quote_tweet_id, reply_to_tweet_id, series, batch_id,
+           (account, kind, text, media_keys, min_gap_s, quote_tweet_id, reply_to_tweet_id, series, batch_id,
             status, scheduled_at, approval_mode, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         item.account,
         kind,
         item.text?.trim() ?? null,
+        item.media_keys?.length ? JSON.stringify(item.media_keys) : null,
         item.min_gap_s ?? 3600,
         item.quote_tweet_id ?? null,
         item.reply_to_tweet_id ?? null,
@@ -158,6 +175,9 @@ export async function handleListQueue(env: XAdminEnv, url: URL): Promise<Respons
   const status = url.searchParams.get("status");
   const account = url.searchParams.get("account");
   const batchId = url.searchParams.get("batch_id");
+  const series = url.searchParams.get("series");
+  const from = url.searchParams.get("from"); // epoch seconds, inclusive — panel calendar week range
+  const to = url.searchParams.get("to");
   const limit = Math.min(Number(url.searchParams.get("limit") ?? 50) || 50, 200);
 
   const conditions: string[] = [];
@@ -173,6 +193,18 @@ export async function handleListQueue(env: XAdminEnv, url: URL): Promise<Respons
   if (batchId) {
     conditions.push("batch_id = ?");
     params.push(batchId);
+  }
+  if (series) {
+    conditions.push("series = ?");
+    params.push(series);
+  }
+  if (from && Number.isFinite(Number(from))) {
+    conditions.push("scheduled_at >= ?");
+    params.push(Number(from));
+  }
+  if (to && Number.isFinite(Number(to))) {
+    conditions.push("scheduled_at <= ?");
+    params.push(Number(to));
   }
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   params.push(limit);
