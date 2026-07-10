@@ -120,8 +120,12 @@ export async function blockChildren(db: D1Database, parentId: number): Promise<v
 /**
  * Rows the publisher cron should attempt right now: scheduled, due, and
  * either no parent or a parent that has published at least min_gap_s ago.
+ * `veto` rows have one extra gate: they must have had their veto-window
+ * notice sent at least `vetoMinS` ago (see markVetoNotified / the Fase 22.2
+ * notice-sending step in publisher.ts) — this is what gives Unai a real
+ * cancel window even for rows loaded with little lead time before scheduled_at.
  */
-export async function getDueRows(db: D1Database, limit = 10): Promise<XQueueRow[]> {
+export async function getDueRows(db: D1Database, limit = 10, vetoMinS = 1800): Promise<XQueueRow[]> {
   const nowTs = now();
   const res = await db
     .prepare(
@@ -134,12 +138,48 @@ export async function getDueRows(db: D1Database, limit = 10): Promise<XQueueRow[
            q.depends_on IS NULL
            OR (p.status = 'published' AND p.published_at IS NOT NULL AND p.published_at + q.min_gap_s <= ?)
          )
+         AND (
+           q.approval_mode != 'veto'
+           OR (q.veto_notified_at IS NOT NULL AND q.veto_notified_at + ? <= ?)
+         )
        ORDER BY q.scheduled_at ASC
        LIMIT ?`
     )
-    .bind(nowTs, nowTs, limit)
+    .bind(nowTs, nowTs, vetoMinS, nowTs, limit)
     .all<XQueueRow>();
   return res.results ?? [];
+}
+
+/**
+ * `veto` rows that are due soon and haven't had their cancel-window notice
+ * sent yet. `noticeS` is how far ahead of scheduled_at the notice should go
+ * out (e.g. 4h) — checked separately from the publish gate in getDueRows so
+ * the notice fires well before the row would otherwise become eligible.
+ */
+export async function getVetoRowsNeedingNotice(db: D1Database, noticeS: number, limit = 20): Promise<XQueueRow[]> {
+  const nowTs = now();
+  const res = await db
+    .prepare(
+      `SELECT * FROM x_queue
+       WHERE status = 'scheduled'
+         AND approval_mode = 'veto'
+         AND veto_notified_at IS NULL
+         AND scheduled_at IS NOT NULL
+         AND scheduled_at - ? <= ?
+       ORDER BY scheduled_at ASC
+       LIMIT ?`
+    )
+    .bind(noticeS, nowTs, limit)
+    .all<XQueueRow>();
+  return res.results ?? [];
+}
+
+/** Record that the veto-window Telegram notice was sent for this row. */
+export async function markVetoNotified(db: D1Database, id: number, tgMessageId: number | null): Promise<void> {
+  await db
+    .prepare("UPDATE x_queue SET veto_notified_at = ?, tg_message_id = ?, updated_at = ? WHERE id = ?")
+    .bind(now(), tgMessageId, now(), id)
+    .run();
 }
 
 /** Atomically claim a row for publishing — returns false if another cron run already claimed it. */
