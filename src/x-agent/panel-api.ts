@@ -17,13 +17,15 @@ import {
   rescheduleRow,
 } from "./queue.js";
 import { handleLoadBatch, handleListQueue, handleCancelRow, type BatchInput, type XAdminEnv } from "./admin.js";
+import { pauseDiscovery, resumeDiscovery, getDiscoveryStatus } from "./discovery.js";
+import type { XPushEnv } from "./push.js";
 
 export interface PanelApiEnv {
   PREPAID_DB: D1Database;
   SCREENSHOTS_BUCKET: R2Bucket;
 }
 
-export interface XAgentApiEnv extends XAdminEnv, PanelApiEnv {}
+export interface XAgentApiEnv extends XAdminEnv, PanelApiEnv, XPushEnv {}
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data, null, 2), { status, headers: { "Content-Type": "application/json" } });
@@ -198,6 +200,138 @@ export async function handleStats(env: PanelApiEnv): Promise<Response> {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Fase 22.4 — reply-guy: candidates tab, pause/resume, and Web Push
+// subscription management. Same two-mount pattern as the rest of this file.
+// ---------------------------------------------------------------------------
+
+interface ReplyCandidateJoined {
+  id: number;
+  sweep_id: string;
+  tweet_id: string;
+  tweet_url: string | null;
+  author_handle: string | null;
+  author_followers: number | null;
+  post_age_minutes: number | null;
+  metrics_json: string | null;
+  topic: string | null;
+  score: number | null;
+  draft_reply: string | null;
+  status: string;
+  queue_id: number | null;
+  created_at: number;
+  queue_status: string | null;
+  queue_text: string | null;
+  tweet_id_published: string | null;
+}
+
+/** GET .../replies — recent candidates joined with their x_queue status/text (so an edited/approved draft shows the final text, not the original). */
+export async function handleListReplyCandidates(env: PanelApiEnv, url: URL): Promise<Response> {
+  const limit = Math.min(Number(url.searchParams.get("limit") ?? 50) || 50, 200);
+  const res = await env.PREPAID_DB
+    .prepare(
+      `SELECT c.*, q.status AS queue_status, q.text AS queue_text, q.tweet_id AS tweet_id_published
+       FROM x_reply_candidates c
+       LEFT JOIN x_queue q ON q.id = c.queue_id
+       ORDER BY c.created_at DESC
+       LIMIT ?`
+    )
+    .bind(limit)
+    .all<ReplyCandidateJoined>();
+  return jsonResponse({ candidates: res.results ?? [] });
+}
+
+/** GET .../replies/pending — used by the service worker on a push tickle to build the notification body without opening the panel. */
+export async function handleRepliesPending(env: PanelApiEnv): Promise<Response> {
+  const res = await env.PREPAID_DB
+    .prepare(
+      `SELECT c.id, c.author_handle, c.score, c.draft_reply
+       FROM x_reply_candidates c
+       JOIN x_queue q ON q.id = c.queue_id
+       WHERE q.status = 'pending_approval'
+       ORDER BY c.created_at DESC LIMIT 10`
+    )
+    .all();
+  return jsonResponse({ pending: res.results ?? [] });
+}
+
+export async function handlePauseReplies(env: PanelApiEnv, body: { hours?: number; until?: number }): Promise<Response> {
+  const until = Number.isFinite(body.until) ? (body.until as number) : Math.floor(Date.now() / 1000) + (body.hours ?? 2) * 3600;
+  await pauseDiscovery(env.PREPAID_DB, until);
+  return jsonResponse({ paused_until: until });
+}
+
+export async function handleResumeReplies(env: PanelApiEnv): Promise<Response> {
+  await resumeDiscovery(env.PREPAID_DB);
+  return jsonResponse({ resumed: true });
+}
+
+export async function handleReplyStatus(env: PanelApiEnv): Promise<Response> {
+  return jsonResponse(await getDiscoveryStatus(env.PREPAID_DB));
+}
+
+export async function handleVapidPublicKey(env: XPushEnv): Promise<Response> {
+  if (!env.VAPID_PUBLIC_KEY) return jsonError("Web Push not configured (VAPID_PUBLIC_KEY missing)", 501);
+  return jsonResponse({ public_key: env.VAPID_PUBLIC_KEY });
+}
+
+/**
+ * POST .../prompts — load (or replace) the active `reply_discovery` prompt
+ * or `reply_config` JSON that reply-guy's discovery sweep reads (Fase 22.4).
+ * This is the only way that content ever enters D1 — no migration or script
+ * seeds it, by design (the vault, not this repo, is the source of truth for
+ * what the prompt/config actually say). Deactivates any previous row for
+ * the same `name` and inserts a new version, so `x_prompts` keeps every past
+ * version for auditing even though only the latest is ever read.
+ */
+export async function handlePutPrompt(
+  env: PanelApiEnv,
+  body: { name?: string; content?: string }
+): Promise<Response> {
+  if (body.name !== "reply_discovery" && body.name !== "reply_config") {
+    return jsonError('name must be "reply_discovery" or "reply_config"');
+  }
+  if (!body.content?.trim()) return jsonError("content is required");
+  const db = env.PREPAID_DB;
+  const prevMax = await db
+    .prepare("SELECT MAX(version) AS v FROM x_prompts WHERE name = ?")
+    .bind(body.name)
+    .first<{ v: number | null }>();
+  const nextVersion = (prevMax?.v ?? 0) + 1;
+  await db.prepare("UPDATE x_prompts SET active = 0 WHERE name = ? AND active = 1").bind(body.name).run();
+  await db
+    .prepare("INSERT INTO x_prompts (name, version, content, active) VALUES (?, ?, ?, 1)")
+    .bind(body.name, nextVersion, body.content)
+    .run();
+  return jsonResponse({ name: body.name, version: nextVersion, active: true });
+}
+
+/** GET .../prompts — current active prompt/config (so the panel or a session can confirm what's live without re-reading the vault). */
+export async function handleGetPrompts(env: PanelApiEnv): Promise<Response> {
+  const res = await env.PREPAID_DB
+    .prepare("SELECT name, version, content, created_at FROM x_prompts WHERE active = 1 ORDER BY name")
+    .all();
+  return jsonResponse({ prompts: res.results ?? [] });
+}
+
+/** POST .../push/subscribe — body is a standard PushSubscriptionJSON ({endpoint, keys:{p256dh,auth}}) from the browser's PushManager.subscribe(). Upserts by endpoint (re-subscribing replaces the old keys). */
+export async function handlePushSubscribe(
+  env: PanelApiEnv,
+  body: { endpoint?: string; keys?: { p256dh?: string; auth?: string } }
+): Promise<Response> {
+  if (!body.endpoint || !body.keys?.p256dh || !body.keys?.auth) {
+    return jsonError("endpoint and keys.p256dh/keys.auth are required");
+  }
+  await env.PREPAID_DB
+    .prepare(
+      `INSERT INTO push_subscriptions (endpoint, p256dh, auth, created_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth`
+    )
+    .bind(body.endpoint, body.keys.p256dh, body.keys.auth, Math.floor(Date.now() / 1000))
+    .run();
+  return jsonResponse({ subscribed: true });
+}
+
 const QUEUE_ID_ACTION = /^queue\/(\d+)\/(approve|reject|cancel|edit|reschedule|publish-now|mark-published)$/;
 
 /**
@@ -249,9 +383,27 @@ export async function dispatchXAgentApi(
       const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
       return handleAddCorrection(env, body as { queue_id?: number; original_text?: string; final_text?: string });
     }
+    if (subpath === "replies/pause") {
+      const body = (await request.json().catch(() => ({}))) as { hours?: number; until?: number };
+      return handlePauseReplies(env, body);
+    }
+    if (subpath === "replies/resume") return handleResumeReplies(env);
+    if (subpath === "push/subscribe") {
+      const body = (await request.json().catch(() => ({}))) as { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
+      return handlePushSubscribe(env, body);
+    }
+    if (subpath === "prompts") {
+      const body = (await request.json().catch(() => ({}))) as { name?: string; content?: string };
+      return handlePutPrompt(env, body);
+    }
   }
 
   if (method === "GET" && subpath === "stats") return handleStats(env);
+  if (method === "GET" && subpath === "replies") return handleListReplyCandidates(env, url);
+  if (method === "GET" && subpath === "replies/pending") return handleRepliesPending(env);
+  if (method === "GET" && subpath === "replies/status") return handleReplyStatus(env);
+  if (method === "GET" && subpath === "push/vapid-public-key") return handleVapidPublicKey(env);
+  if (method === "GET" && subpath === "prompts") return handleGetPrompts(env);
 
   return null;
 }

@@ -5,6 +5,16 @@
  * to the approval card with the corrected text; we detect that via
  * message.reply_to_message.message_id matching a pending row's
  * tg_message_id, which needs no server-side session state.
+ *
+ * Fase 22.4 adds reply-guy: a 4th button ("📋 publicada a mano") on reply
+ * cards, immediate publish-on-approve for `kind='reply'` rows (timing
+ * matters for replies — no waiting for the next cron tick), and /pause,
+ * /resume, /status text commands. This module has an intentional circular
+ * import with discovery.ts (it calls pauseDiscovery/resumeDiscovery/
+ * getDiscoveryStatus; discovery.ts calls sendReplyApprovalCard here) — safe
+ * because neither side touches the other's exports at module-init time,
+ * only inside function bodies, which ES modules resolve correctly via live
+ * bindings.
  */
 
 import {
@@ -14,7 +24,11 @@ import {
   sendXAgentReply,
   type XTelegramEnv,
 } from "./telegram.js";
-import { approveRow, cancelRow, editAndApproveRow, getQueueRow, rejectRow, type XQueueRow } from "./queue.js";
+import { approveRow, cancelRow, editAndApproveRow, getQueueRow, markPublishedManual, rejectRow, type XQueueRow } from "./queue.js";
+import { attemptPublishNow, type PublishOneEnv } from "./publish-one.js";
+import { pauseDiscovery, resumeDiscovery, getDiscoveryStatus } from "./discovery.js";
+
+export interface TelegramApprovalEnv extends XTelegramEnv, PublishOneEnv {}
 
 /** Human-readable card text for a queue row — shared by the L0 approval card and the L2 veto notice. */
 export function formatCard(row: XQueueRow): string {
@@ -38,7 +52,56 @@ export function formatCard(row: XQueueRow): string {
     `🕐 Programado: ${when}`,
   ];
   if (row.depends_on) lines.push(`↳ depende de #${row.depends_on}`);
+  if (row.kind === "reply" && row.reply_to_tweet_id) {
+    lines.push(`🔗 https://x.com/i/web/status/${row.reply_to_tweet_id}`);
+  }
   return lines.join("\n");
+}
+
+export interface ReplyCandidateInfo {
+  queueId: number;
+  candidateId: number;
+  tweetUrl: string;
+  authorHandle: string;
+  authorFollowers: number;
+  score: number;
+  draftReply: string;
+}
+
+/** Fase 22.4 — the richer initial alert for a reply candidate (author/score/link the follow-up formatCard doesn't have). */
+function formatReplyCard(info: ReplyCandidateInfo): string {
+  return [
+    `💬 *reply candidate* — @${info.authorHandle} (${info.authorFollowers.toLocaleString()} followers) · score ${info.score}`,
+    ``,
+    `🔗 ${info.tweetUrl}`,
+    ``,
+    `Draft:`,
+    info.draftReply,
+  ].join("\n");
+}
+
+/**
+ * Send the alert card for a discovered reply candidate (Fase 22.4). 4
+ * buttons: Approve (publishes immediately via the X API), 📋 published
+ * manually (Unai pasted it himself in X — zero API cost, the preferred
+ * path since he's already there for the manual like/follow), Edit, Reject.
+ */
+export async function sendReplyApprovalCard(env: XTelegramEnv, db: D1Database, info: ReplyCandidateInfo): Promise<void> {
+  const messageId = await sendXAgentMessage(env, formatReplyCard(info), {
+    inlineKeyboard: [
+      [
+        { text: "✅ Publicar (API)", callback_data: `xq:${info.queueId}:approve` },
+        { text: "📋 Publicada a mano", callback_data: `xq:${info.queueId}:manual` },
+      ],
+      [
+        { text: "✏️ Editar", callback_data: `xq:${info.queueId}:edit` },
+        { text: "❌ Rechazar", callback_data: `xq:${info.queueId}:reject` },
+      ],
+    ],
+  });
+  if (messageId) {
+    await db.prepare("UPDATE x_queue SET tg_message_id = ? WHERE id = ?").bind(messageId, info.queueId).run();
+  }
 }
 
 /** Send an approval card for a pending_approval row and persist its Telegram message id. */
@@ -78,13 +141,38 @@ export interface TelegramUpdate {
   };
 }
 
+/** After approving/editing a `kind='reply'` row, publish it right away instead of waiting for the next cron tick — timing is the whole point of a reply (nota 14 §1/§5). Marks the associated candidate 'queued' either way. */
+async function publishReplyNowAndMarkCandidate(env: TelegramApprovalEnv, db: D1Database, id: number): Promise<string> {
+  const row = await getQueueRow(db, id);
+  await db.prepare("UPDATE x_reply_candidates SET status = 'queued', updated_at = ? WHERE queue_id = ?").bind(Math.floor(Date.now() / 1000), id).run();
+  if (!row) return "❌ *Error: fila no encontrada*";
+  const result = await attemptPublishNow(env, row);
+  if (result.status === "published") return `${formatCard({ ...row, status: "published", tweet_id: result.tweetId })}\n\n✅ *Publicado*`;
+  if (result.status === "already_claimed") return `${formatCard(row)}\n\n✅ *Aprobado (ya en curso)*`;
+  return `${formatCard(row)}\n\n⚠️ *Aprobado pero falló la publicación:* ${result.error.slice(0, 200)}`;
+}
+
+/** Parse "/pause", "/pause 2h", "/pause hoy" -> a pause-until epoch (2h default; "hoy" = end of the Madrid calendar day). */
+function parsePauseUntil(text: string): number {
+  const nowTs = Math.floor(Date.now() / 1000);
+  const arg = text.replace(/^\/pause\s*/i, "").trim().toLowerCase();
+  if (arg === "hoy") {
+    const madridDateStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid" }).format(new Date());
+    const endOfDayMadrid = new Date(`${madridDateStr}T23:59:59+02:00`); // CEST offset is close enough for a UI pause window
+    return Math.floor(endOfDayMadrid.getTime() / 1000);
+  }
+  const hoursMatch = arg.match(/^(\d+)h$/);
+  const hours = hoursMatch ? Number(hoursMatch[1]) : 2;
+  return nowTs + hours * 3600;
+}
+
 /**
  * Handle one Telegram update from the webhook. Silently ignores anything
  * from a chat other than TELEGRAM_CHAT_ID (defense in depth alongside the
  * X-Telegram-Bot-Api-Secret-Token check in the route handler).
  */
 export async function handleTelegramUpdate(
-  env: XTelegramEnv,
+  env: TelegramApprovalEnv,
   db: D1Database,
   update: TelegramUpdate
 ): Promise<void> {
@@ -97,7 +185,7 @@ export async function handleTelegramUpdate(
       await answerCallbackQuery(env, cq.id, "No autorizado");
       return;
     }
-    const match = cq.data?.match(/^xq:(\d+):(approve|reject|edit|cancel)$/);
+    const match = cq.data?.match(/^xq:(\d+):(approve|reject|edit|cancel|manual)$/);
     if (!match) {
       await answerCallbackQuery(env, cq.id);
       return;
@@ -110,8 +198,25 @@ export async function handleTelegramUpdate(
       const ok = await approveRow(db, id);
       await answerCallbackQuery(env, cq.id, ok ? "Aprobado" : "Ya no está pendiente");
       if (ok && messageId) {
+        const freshRow = await getQueueRow(db, id);
+        const text = freshRow?.kind === "reply" ? await publishReplyNowAndMarkCandidate(env, db, id) : `${formatCard(freshRow!)}\n\n✅ *Aprobado*`;
+        await editXAgentMessageText(env, messageId, text);
+      }
+      return;
+    }
+
+    // Fase 22.4 — "published manually" (reply-guy's zero-cost preferred
+    // path): Unai pasted the reply himself in X while there for the manual
+    // like/follow. Marks published without ever calling the API, same as
+    // the panel's "mark published" action, and records the candidate as
+    // queued (a correction-rate/learning-loop signal like any other decision).
+    if (action === "manual") {
+      const ok = await markPublishedManual(db, id, null);
+      await answerCallbackQuery(env, cq.id, ok ? "Marcado como publicado a mano" : "Ya no está disponible");
+      if (ok && messageId) {
+        await db.prepare("UPDATE x_reply_candidates SET status = 'queued', updated_at = ? WHERE queue_id = ?").bind(Math.floor(Date.now() / 1000), id).run();
         const row = await getQueueRow(db, id);
-        await editXAgentMessageText(env, messageId, `${formatCard(row!)}\n\n✅ *Aprobado*`);
+        await editXAgentMessageText(env, messageId, `${formatCard(row!)}\n\n📋 *Publicada a mano*`);
       }
       return;
     }
@@ -121,6 +226,7 @@ export async function handleTelegramUpdate(
       await answerCallbackQuery(env, cq.id, ok ? "Rechazado" : "Ya no está pendiente");
       if (ok && messageId) {
         const row = await getQueueRow(db, id);
+        await db.prepare("UPDATE x_reply_candidates SET status = 'skipped', updated_at = ? WHERE queue_id = ?").bind(Math.floor(Date.now() / 1000), id).run();
         await editXAgentMessageText(env, messageId, `${formatCard(row!)}\n\n❌ *Rechazado*`);
       }
       return;
@@ -161,7 +267,46 @@ export async function handleTelegramUpdate(
     if (!row) return; // reply to something else (or already resolved) — ignore
     const ok = await editAndApproveRow(db, row.id, update.message.text.trim());
     if (ok) {
-      await editXAgentMessageText(env, repliedToId, `${formatCard({ ...row, text: update.message.text.trim() })}\n\n✏️ *Editado y aprobado*`);
+      const text = row.kind === "reply" ? await publishReplyNowAndMarkCandidate(env, db, row.id) : `${formatCard({ ...row, text: update.message.text.trim() })}\n\n✏️ *Editado y aprobado*`;
+      await editXAgentMessageText(env, repliedToId, text);
+    }
+    return;
+  }
+
+  // Fase 22.4 — /pause, /resume, /status: plain text commands, no reply-to needed.
+  if (update.message?.text && !update.message.reply_to_message) {
+    const chatId = update.message.chat.id;
+    if (!allowedChatId || String(chatId) !== String(allowedChatId)) return;
+    const text = update.message.text.trim();
+
+    if (/^\/pause\b/i.test(text)) {
+      const until = parsePauseUntil(text);
+      await pauseDiscovery(db, until);
+      const untilLabel = new Date(until * 1000).toLocaleString("es-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
+      await sendXAgentMessage(env, `⏸ *Reply-guy pausado hasta ${untilLabel} (Madrid)*. Usa /resume para reanudar antes.`);
+      return;
+    }
+    if (/^\/resume\b/i.test(text)) {
+      await resumeDiscovery(db);
+      await sendXAgentMessage(env, `▶️ *Reply-guy reanudado.*`);
+      return;
+    }
+    if (/^\/status\b/i.test(text)) {
+      const status = await getDiscoveryStatus(db);
+      const pausedLabel =
+        status.pausedUntil > Math.floor(Date.now() / 1000)
+          ? `⏸ pausado hasta ${new Date(status.pausedUntil * 1000).toLocaleString("es-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}`
+          : "▶️ activo";
+      await sendXAgentMessage(
+        env,
+        [
+          `*Reply-guy status:* ${pausedLabel}`,
+          `Replies hoy: ${status.counters.repliesQueued}/${status.config.dailyCap}`,
+          `Gasto xAI hoy: $${status.counters.spendUsd.toFixed(3)}/$${status.config.dailyBudgetUsd.toFixed(2)}`,
+          `Barridos hoy: ${status.counters.sweepsRun}`,
+        ].join("\n")
+      );
+      return;
     }
   }
 }

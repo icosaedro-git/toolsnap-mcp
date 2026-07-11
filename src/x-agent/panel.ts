@@ -94,6 +94,7 @@ export const X_PANEL_HTML = `<!DOCTYPE html>
   .modal-close { float: right; cursor: pointer; color: var(--muted); font-size: 18px; line-height: 1; }
   .sub-panel { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-top: 10px; }
   .thumb { width: 60px; height: 60px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); margin-right: 6px; }
+  .table-scroll { overflow-x: auto; }
   .stat-table { width: 100%; border-collapse: collapse; font-size: 12px; }
   .stat-table th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--border); text-transform: uppercase; font-size: 10px; }
   .stat-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); }
@@ -111,6 +112,11 @@ export const X_PANEL_HTML = `<!DOCTYPE html>
 <header>
   <h1>toolsnap · x-agent<span class="live-dot" title="live"></span></h1>
   <div style="display:flex;align-items:center;gap:12px">
+    <div class="seg-group">
+      <button class="seg-btn" id="tab-calendar" onclick="setTab('calendar')">Calendar</button>
+      <button class="seg-btn" id="tab-replies" onclick="setTab('replies')">Replies</button>
+    </div>
+    <button class="btn" id="notif-btn" onclick="enablePushNotifications()">🔔 notifications</button>
     <span id="last-updated">loading…</span>
     <button class="btn" onclick="load()">↻ refresh</button>
   </div>
@@ -127,14 +133,19 @@ const STATUS_COLORS = {
 const KNOWN_SERIES = ['tool-spotlight', 'recipe-thread', 'build-in-public', 'changelog', 'cross-quote'];
 
 const state = {
+  tab: 'calendar', // 'calendar' | 'replies'
   weekStart: mondayOf(new Date()),
   filters: { status: '', account: '', series: '' },
   rows: [],
   stats: null,
   modalRowId: null,
   modalMode: null, // null | 'edit' | 'reschedule' | 'mark-published'
-  newPost: { media_key: null, media_preview: null }
+  newPost: { media_key: null, media_preview: null },
+  replyCandidates: [],
+  replyStatus: null
 };
+
+function setTab(tab) { state.tab = tab; load(); }
 
 function mondayOf(d) {
   const x = new Date(d);
@@ -455,30 +466,138 @@ function statsSection() {
   ).join('') : '<tr><td colspan="6" style="color:var(--muted)">no metrics yet</td></tr>';
   return \`<div class="card">
     <h3>Correction rate by series · promotion threshold &lt;20%</h3>
-    <table class="stat-table"><thead><tr><th>Series</th><th>Account</th><th>N</th><th>Rate</th></tr></thead><tbody>\${rateRows}</tbody></table>
+    <div class="table-scroll"><table class="stat-table"><thead><tr><th>Series</th><th>Account</th><th>N</th><th>Rate</th></tr></thead><tbody>\${rateRows}</tbody></table></div>
   </div>
   <div class="card">
     <h3>Engagement by series (avg)</h3>
-    <table class="stat-table"><thead><tr><th>Series</th><th>Account</th><th>N</th><th>Impr.</th><th>Likes</th><th>Reposts</th></tr></thead><tbody>\${engRows}</tbody></table>
+    <div class="table-scroll"><table class="stat-table"><thead><tr><th>Series</th><th>Account</th><th>N</th><th>Impr.</th><th>Likes</th><th>Reposts</th></tr></thead><tbody>\${engRows}</tbody></table></div>
   </div>\`;
+}
+
+// ---------------------------------------------------------------------------
+// Fase 22.4 — reply-guy tab: candidates list, pause/resume, budget/cap status.
+// Reply rows are ordinary x_queue rows (kind='reply') under the hood, so the
+// action buttons reuse the same /queue/:id/(approve|reject|mark-published)
+// endpoints the calendar modal already calls.
+// ---------------------------------------------------------------------------
+
+function candidateStatusBadge(c) {
+  const s = c.queue_status || c.status;
+  const color = s === 'published' ? 'var(--green)' : s === 'pending_approval' ? 'var(--yellow)' : s === 'rejected' || s === 'canceled' ? 'var(--red)' : 'var(--muted)';
+  return '<span style="color:' + color + '">' + esc(s) + '</span>';
+}
+
+function candidateRow(c) {
+  const link = c.tweet_url || ('https://x.com/i/web/status/' + c.tweet_id);
+  const text = c.queue_text || c.draft_reply || '';
+  const actions = (c.queue_status === 'pending_approval')
+    ? '<button class="btn small primary" onclick="replyAction(' + c.queue_id + ', \\'approve\\')">✅</button> ' +
+      '<button class="btn small" onclick="replyAction(' + c.queue_id + ', \\'mark-published\\', {})">📋</button> ' +
+      '<button class="btn small danger" onclick="replyAction(' + c.queue_id + ', \\'reject\\')">❌</button>'
+    : '';
+  return \`<tr>
+    <td>\${new Date(c.created_at * 1000).toLocaleString('en-GB', { timeZone: 'Europe/Madrid', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+    <td>@\${esc(c.author_handle || '?')} <span style="color:var(--muted)">(\${(c.author_followers || 0).toLocaleString()})</span></td>
+    <td>\${c.score ?? '—'}</td>
+    <td style="max-width:320px;white-space:normal">\${esc(text)}</td>
+    <td><a href="\${link}" target="_blank" style="color:var(--accent)">open ↗</a></td>
+    <td>\${candidateStatusBadge(c)}</td>
+    <td>\${actions}</td>
+  </tr>\`;
+}
+
+function repliesSection() {
+  const rs = state.replyStatus;
+  const statusCard = rs ? \`<div class="card">
+    <h3>Status</h3>
+    <div class="controls-bar">
+      <span>\${rs.pausedUntil > Math.floor(Date.now() / 1000) ? '⏸ paused until ' + new Date(rs.pausedUntil * 1000).toLocaleString('en-GB', { timeZone: 'Europe/Madrid' }) : '▶️ active'}</span>
+      <span>Replies today: \${rs.counters.repliesQueued}/\${rs.config.dailyCap}</span>
+      <span>Spend today: $\${rs.counters.spendUsd.toFixed(3)}/$\${rs.config.dailyBudgetUsd.toFixed(2)}</span>
+      <span>Sweeps today: \${rs.counters.sweepsRun}</span>
+      <button class="btn small" onclick="pauseReplies(2)">⏸ pause 2h</button>
+      <button class="btn small" onclick="resumeReplies()">▶️ resume</button>
+    </div>
+  </div>\` : '';
+  const rows = state.replyCandidates.length
+    ? state.replyCandidates.map(candidateRow).join('')
+    : '<tr><td colspan="7" style="color:var(--muted)">no candidates yet</td></tr>';
+  return \`\${statusCard}
+  <div class="card">
+    <h3>Reply candidates (most recent first)</h3>
+    <div class="table-scroll"><table class="stat-table"><thead><tr><th>When</th><th>Author</th><th>Score</th><th>Draft</th><th>Post</th><th>Status</th><th></th></tr></thead><tbody>\${rows}</tbody></table></div>
+  </div>\`;
+}
+
+async function replyAction(id, action, body) {
+  const r = body !== undefined ? await apiPost('/queue/' + id + '/' + action, body) : await apiPost('/queue/' + id + '/' + action);
+  if (!r.ok) { alert('Error: ' + JSON.stringify(r.json)); return; }
+  load();
+}
+
+async function pauseReplies(hours) {
+  await apiPost('/replies/pause', { hours });
+  load();
+}
+async function resumeReplies() {
+  await apiPost('/replies/resume');
+  load();
+}
+
+// ---------------------------------------------------------------------------
+// Web Push subscription (desktop notifications for new reply candidates).
+// ---------------------------------------------------------------------------
+
+async function enablePushNotifications() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    alert('Push notifications are not supported in this browser.');
+    return;
+  }
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { alert('Notification permission denied.'); return; }
+    const reg = await navigator.serviceWorker.register('/x-agent-sw.js');
+    const keyRes = await fetch('/x-agent/api/push/vapid-public-key');
+    if (!keyRes.ok) { alert('Web Push not configured on the server yet.'); return; }
+    const { public_key } = await keyRes.json();
+    const applicationServerKey = Uint8Array.from(atob(public_key.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
+    await fetch('/x-agent/api/push/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sub.toJSON()) });
+    document.getElementById('notif-btn').textContent = '🔔 enabled';
+  } catch (e) {
+    alert('Could not enable push notifications: ' + e.message);
+  }
 }
 
 // ---------------------------------------------------------------------------
 
 function renderAll() {
-  const html = \`
-    \${controlsBar()}
-    <div class="card">\${calendar()}</div>
-    \${newPostForm()}
-    \${statsSection()}
-    \${modal()}
-  \`;
+  document.getElementById('tab-calendar').classList.toggle('active', state.tab === 'calendar');
+  document.getElementById('tab-replies').classList.toggle('active', state.tab === 'replies');
+  const html = state.tab === 'replies'
+    ? repliesSection()
+    : \`\${controlsBar()}
+       <div class="card">\${calendar()}</div>
+       \${newPostForm()}
+       \${statsSection()}
+       \${modal()}\`;
   document.getElementById('root').innerHTML = html;
 }
 
 async function load() {
   document.getElementById('last-updated').textContent = 'loading…';
   try {
+    if (state.tab === 'replies') {
+      const [candRes, statusRes] = await Promise.all([
+        fetch('/x-agent/api/replies?limit=100'),
+        fetch('/x-agent/api/replies/status')
+      ]);
+      state.replyCandidates = candRes.ok ? (await candRes.json()).candidates || [] : [];
+      state.replyStatus = statusRes.ok ? await statusRes.json() : null;
+      renderAll();
+      document.getElementById('last-updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+      return;
+    }
     const from = toEpoch(state.weekStart);
     const to = from + 7 * 86400 - 1;
     const [queueRes, statsRes] = await Promise.all([

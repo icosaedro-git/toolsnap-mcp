@@ -22,6 +22,9 @@
  *    vetoes a row before it ever gets a chance to publish
  */
 import { execSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const BASE = process.env.MCP_URL ?? "http://localhost:8787";
 const ADMIN_KEY = process.env.ADMIN_API_KEY;
@@ -61,6 +64,37 @@ function applyMigrationLocally() {
   } catch {
     console.log("(0010 already applied in this local D1 — ignoring 'duplicate column' error)");
   }
+  console.log("Applying migrations/0011_x_reply.sql to local D1 (idempotent)...");
+  execSync(`npx wrangler d1 execute toolsnap-prepaid --local --file=migrations/0011_x_reply.sql`, {
+    stdio: "inherit",
+  });
+}
+
+/** Run arbitrary SQL against the local D1 (used for test-only fixtures/backdating that have no API — never used for the real x_prompts strategy content, which is a fixture string here, not the real vault prompt). */
+function runD1SqlLocally(sql: string) {
+  const file = join(tmpdir(), `x-agent-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.sql`);
+  writeFileSync(file, sql, "utf8");
+  execSync(`npx wrangler d1 execute toolsnap-prepaid --local --file=${file}`, { stdio: "pipe" });
+}
+
+/** Fase 22.4 — load a synthetic reply-guy prompt+config fixture (NOT the real vault nota 14 strategy) so the gate/queue mechanics can be exercised locally. Window/calendar wide open and budget/cap generous so gate checks never flake on wall-clock time; ttlS kept configurable per test via a second call when testing expiry. */
+function loadReplyGuyFixtures(ttlS = 2700) {
+  const config = {
+    window: { startHour: 0, endHour: 24 },
+    sweepsPerDay: { mon: 999, tue: 999, wed: 999, thu: 999, fri: 999, sat: 999, sun: 999 },
+    dailyBudgetUsd: 100,
+    dailyCap: 100,
+    minScore: 0,
+    ttlS,
+    maxCandidatesPerSweep: 5,
+    maxSearchesPerSweep: 4,
+  };
+  runD1SqlLocally(
+    `DELETE FROM x_prompts WHERE name IN ('reply_discovery', 'reply_config');
+     INSERT INTO x_prompts (name, version, content, active) VALUES
+       ('reply_discovery', 1, 'e2e-test-fixture-prompt (not the real vault strategy)', 1),
+       ('reply_config', 1, '${JSON.stringify(config).replace(/'/g, "''")}', 1);`
+  );
 }
 
 async function adminPost(path: string, body?: unknown) {
@@ -102,8 +136,8 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Simulate Telegram delivering a callback_query to /webhooks/telegram (veto cancel button). */
-async function sendTelegramCancel(queueId: number) {
+/** Simulate Telegram delivering a callback_query to /webhooks/telegram (any xq:<id>:<action> button). */
+async function sendTelegramCallback(queueId: number, action: string) {
   const res = await fetch(`${BASE}/webhooks/telegram`, {
     method: "POST",
     headers: {
@@ -113,12 +147,17 @@ async function sendTelegramCancel(queueId: number) {
     body: JSON.stringify({
       callback_query: {
         id: `cb-${Date.now()}`,
-        data: `xq:${queueId}:cancel`,
+        data: `xq:${queueId}:${action}`,
         message: { message_id: 1, chat: { id: Number(TG_CHAT_ID) } },
       },
     }),
   });
   return res.status;
+}
+
+/** Backwards-compatible name for the veto cancel button (Fase 22.2 tests) — thin wrapper over sendTelegramCallback. */
+async function sendTelegramCancel(queueId: number) {
+  return sendTelegramCallback(queueId, "cancel");
 }
 
 async function main() {
@@ -389,6 +428,153 @@ async function main() {
   console.log("\n18) Fase 22.3 regression — /x-api/* new subpaths still require x-admin-key");
   const unauthXApiStats = await unauthGet("/x-api/stats");
   check("x-api/stats without x-admin-key -> 401", unauthXApiStats.status === 401, JSON.stringify(unauthXApiStats.json));
+
+  console.log("\n19) Fase 22.4 — reply-guy fixtures loaded, /x-api/replies/status reflects the config");
+  loadReplyGuyFixtures();
+  const statusInitial = await adminGet("/x-api/replies/status");
+  check("replies/status 200", statusInitial.status === 200, JSON.stringify(statusInitial.json));
+  check("config loaded from fixture (dailyCap=100)", statusInitial.json?.config?.dailyCap === 100, JSON.stringify(statusInitial.json));
+  check("not paused initially", statusInitial.json?.pausedUntil === 0, JSON.stringify(statusInitial.json));
+
+  console.log("\n20) Fase 22.4 — pause/resume via the admin API");
+  const pauseResp = await adminPost("/x-api/replies/pause", { hours: 1 });
+  check("pause accepted", pauseResp.status === 200 && typeof pauseResp.json?.paused_until === "number", JSON.stringify(pauseResp.json));
+  const statusPaused = await adminGet("/x-api/replies/status");
+  check("status shows paused_until in the future", statusPaused.json?.pausedUntil > now, JSON.stringify(statusPaused.json));
+  const resumeResp = await adminPost("/x-api/replies/resume");
+  check("resume accepted", resumeResp.status === 200 && resumeResp.json?.resumed === true, JSON.stringify(resumeResp.json));
+  const statusResumed = await adminGet("/x-api/replies/status");
+  check("status no longer paused", statusResumed.json?.pausedUntil === 0, JSON.stringify(statusResumed.json));
+
+  console.log("\n21) Fase 22.4 — approving a reply publishes it IMMEDIATELY (no cron tick wait) via the Telegram callback");
+  const replyBatchId = `e2e-reply-${Date.now()}`;
+  const replyLoad = await adminPost("/x-api/queue", {
+    batch_id: replyBatchId,
+    approval_mode: "per_post",
+    items: [
+      {
+        local_id: "reply-a",
+        account: "personal",
+        kind: "reply",
+        text: "e2e reply-guy draft — great point about agent economics",
+        reply_to_tweet_id: "9999999999",
+        series: "reply-guy",
+        scheduled_at: now,
+      },
+    ],
+  });
+  const replyId = (replyLoad.json?.inserted ?? []).find((r: { local_id?: string }) => r.local_id === "reply-a")?.id;
+  check("reply row inserted as pending_approval", Boolean(replyId));
+  const beforeApprove = (await adminGet(`/x-api/queue?batch_id=${replyBatchId}`)).json?.rows?.[0];
+  check("reply starts pending_approval", beforeApprove?.status === "pending_approval", JSON.stringify(beforeApprove));
+
+  const approveCallbackStatus = await sendTelegramCallback(replyId, "approve");
+  check("Telegram approve callback accepted (200)", approveCallbackStatus === 200, String(approveCallbackStatus));
+  await sleep(1000); // ctx.waitUntil is fire-and-forget
+  const afterApprove = (await adminGet(`/x-api/queue?batch_id=${replyBatchId}`)).json?.rows?.[0];
+  check(
+    "reply published immediately on approve, without waiting for a cron tick",
+    afterApprove?.status === "published" && typeof afterApprove?.tweet_id === "string" && afterApprove.tweet_id.startsWith("dryrun_"),
+    JSON.stringify(afterApprove)
+  );
+
+  console.log("\n22) Fase 22.4 — 'published manually' (📋) button: marks published without ever calling the X API");
+  const replyBatchId2 = `e2e-reply-manual-${Date.now()}`;
+  const replyLoad2 = await adminPost("/x-api/queue", {
+    batch_id: replyBatchId2,
+    approval_mode: "per_post",
+    items: [
+      {
+        local_id: "reply-b",
+        account: "personal",
+        kind: "reply",
+        text: "e2e reply-guy draft — manual publish path",
+        reply_to_tweet_id: "8888888888",
+        series: "reply-guy",
+        scheduled_at: now,
+      },
+    ],
+  });
+  const replyId2 = (replyLoad2.json?.inserted ?? []).find((r: { local_id?: string }) => r.local_id === "reply-b")?.id;
+  const manualCallbackStatus = await sendTelegramCallback(replyId2, "manual");
+  check("Telegram 'manual' callback accepted (200)", manualCallbackStatus === 200, String(manualCallbackStatus));
+  await sleep(1000);
+  const afterManual = (await adminGet(`/x-api/queue?batch_id=${replyBatchId2}`)).json?.rows?.[0];
+  check(
+    "reply marked published_via='manual' with no tweet_id (fast path — no link step)",
+    afterManual?.status === "published" && afterManual?.published_via === "manual" && afterManual?.tweet_id === null,
+    JSON.stringify(afterManual)
+  );
+
+  console.log("\n23) Fase 22.4 — GET /x-api/replies lists candidates joined with their queue status");
+  runD1SqlLocally(
+    `INSERT INTO x_reply_candidates (sweep_id, tweet_id, tweet_url, author_handle, author_followers, score, draft_reply, status, queue_id, created_at)
+     VALUES ('e2e-sweep', '8888888888', 'https://x.com/i/web/status/8888888888', 'e2e_author', 50000, 85, 'e2e reply-guy draft — manual publish path', 'queued', ${replyId2}, ${now});`
+  );
+  const repliesList = await adminGet("/x-api/replies?limit=20");
+  check("replies list 200", repliesList.status === 200, JSON.stringify(repliesList.json));
+  const listedCandidate = (repliesList.json?.candidates ?? []).find((c: { queue_id: number }) => c.queue_id === replyId2);
+  check(
+    "candidate joined with queue_status='published' and queue_text",
+    listedCandidate?.queue_status === "published" && typeof listedCandidate?.queue_text === "string",
+    JSON.stringify(listedCandidate)
+  );
+
+  console.log("\n24) Fase 22.4 — a reply candidate whose post aged past TTL expires (silence = do not publish) instead of publishing on a later cron tick");
+  loadReplyGuyFixtures(1); // ttlS=1s so the fixture below is immediately stale
+  const staleReplyLoad = await adminPost("/x-api/queue", {
+    batch_id: `e2e-reply-expire-${Date.now()}`,
+    approval_mode: "per_post",
+    items: [
+      {
+        local_id: "reply-c",
+        account: "personal",
+        kind: "reply",
+        text: "e2e reply-guy draft — should expire",
+        reply_to_tweet_id: "7777777777",
+        series: "reply-guy",
+        scheduled_at: now,
+      },
+    ],
+  });
+  const staleReplyId = (staleReplyLoad.json?.inserted ?? []).find((r: { local_id?: string }) => r.local_id === "reply-c")?.id;
+  const backdatedAt = now - 3600; // 1h ago, well past the 1s ttlS just configured
+  runD1SqlLocally(
+    `INSERT INTO x_reply_candidates (sweep_id, tweet_id, score, draft_reply, status, queue_id, created_at)
+     VALUES ('e2e-sweep-stale', '7777777777', 90, 'e2e reply-guy draft — should expire', 'alerted', ${staleReplyId}, ${backdatedAt});`
+  );
+  await fireCron("*/5 * * * *"); // this tick's expireStaleReplyCandidates() call should catch it
+  await sleep(500);
+  const staleRow = (await adminGet(`/x-api/replies?limit=50`)).json?.candidates?.find((c: { queue_id: number }) => c.queue_id === staleReplyId);
+  check("stale candidate marked expired", staleRow?.status === "expired", JSON.stringify(staleRow));
+  check("stale queue row canceled with error='expired'", staleRow?.queue_status === "canceled", JSON.stringify(staleRow));
+  loadReplyGuyFixtures(); // restore the generous default ttlS for anything after this point
+
+  console.log("\n25) Fase 22.4 — POST /x-api/prompts loads a new prompt version; GET reflects only the latest as active");
+  const promptPut1 = await adminPost("/x-api/prompts", { name: "reply_discovery", content: "vN fixture prompt" });
+  check("prompt version accepted", promptPut1.status === 200 && typeof promptPut1.json?.version === "number", JSON.stringify(promptPut1.json));
+  const promptPut2 = await adminPost("/x-api/prompts", { name: "reply_discovery", content: "vN+1 fixture prompt" });
+  check(
+    "next version increments by exactly 1",
+    promptPut2.status === 200 && promptPut2.json?.version === (promptPut1.json?.version ?? 0) + 1,
+    JSON.stringify(promptPut2.json)
+  );
+  const promptsGet = await adminGet("/x-api/prompts");
+  const activeDiscovery = (promptsGet.json?.prompts ?? []).find((p: { name: string }) => p.name === "reply_discovery");
+  check(
+    "only the latest version is active",
+    activeDiscovery?.content === "vN+1 fixture prompt" && activeDiscovery?.version === promptPut2.json?.version,
+    JSON.stringify(activeDiscovery)
+  );
+
+  console.log("\n26) Fase 22.4 — Web Push: subscribe accepted; vapid-public-key 501s without configured keys (none set in this .dev.vars)");
+  const pushSubResp = await adminPost("/x-api/push/subscribe", {
+    endpoint: "https://fcm.googleapis.com/fcm/send/e2e-fake-endpoint",
+    keys: { p256dh: "fake-p256dh", auth: "fake-auth" },
+  });
+  check("push subscribe accepted", pushSubResp.status === 200 && pushSubResp.json?.subscribed === true, JSON.stringify(pushSubResp.json));
+  const vapidResp = await adminGet("/x-api/push/vapid-public-key");
+  check("vapid-public-key 501 (not configured)", vapidResp.status === 501, JSON.stringify(vapidResp.json));
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);

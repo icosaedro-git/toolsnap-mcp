@@ -46,6 +46,9 @@
       // application (mcp.toolsnap.app/x-agent*, same pattern as /analytics).
       "/x-agent",
       "/x-agent/*",
+      // Fase 22.4 — Web Push service worker for the panel's Replies tab.
+      // Unauthenticated (see the routing comment in src/index.ts).
+      "/x-agent-sw.js",
       "/checkout",
       "/checkout/start",
       "/welcome",
@@ -157,4 +160,8 @@
   //   wrangler secret put X_USER_ID_PERSONAL
   //   wrangler secret put X_TG_BOT_TOKEN                    (dedicated X Agent Telegram bot, from BotFather)
   //   wrangler secret put X_TG_WEBHOOK_SECRET                (random string; also passed to Telegram's setWebhook secret_token)
+  //   -- Fase 22.4 — reply-guy (see vault nota 14 for the prompt/config themselves, loaded into x_prompts, NOT here) --
+  //   wrangler secret put XAI_API_KEY                        (console.x.ai — set a $20/mo spend limit on the xAI account too)
+  //   wrangler secret put VAPID_PUBLIC_KEY                    (Web Push keypair, base64url uncompressed P-256 point — generate with `npx web-push generate-vapid-keys`)
+  //   wrangler secret put VAPID_PRIVATE_KEY                   (same keypair's private scalar, base64url)
 }

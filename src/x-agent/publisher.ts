@@ -4,22 +4,19 @@
  * claims each atomically, and publishes it via the X API.
  */
 
-import { publishTweet, repostTweet, uploadMedia, XApiError, type XAgentEnv } from "./client.js";
+import type { XAgentEnv } from "./client.js";
 import type { XTelegramEnv } from "./telegram.js";
 import { sendXAgentMessage } from "./telegram.js";
 import { formatCard } from "./telegram-approval.js";
+import { attemptPublishNow, type PublishOneEnv } from "./publish-one.js";
 import {
-  claimForPublishing,
   getDueRows,
-  getQueueRow,
   getVetoRowsNeedingNotice,
-  markFailedOrRetry,
-  markPublished,
   markVetoNotified,
-  type XQueueRow,
 } from "./queue.js";
+import { runReplyDiscoverySweep, expireStaleReplyCandidates, type XDiscoveryEnv } from "./discovery.js";
 
-export interface XPublisherEnv extends XAgentEnv, XTelegramEnv {
+export interface XPublisherEnv extends XAgentEnv, XTelegramEnv, PublishOneEnv, XDiscoveryEnv {
   PREPAID_DB: D1Database;
   // Fase 22.3 — panel-uploaded images live here under x-media/ (same bucket
   // as screenshot_url and /upload); the publisher reads the bytes back and
@@ -70,7 +67,12 @@ async function sendVetoNotices(env: XPublisherEnv, db: D1Database): Promise<void
   }
 }
 
-/** Run one publisher tick: send due veto notices, then attempt every currently-eligible row once. */
+/**
+ * Run one publisher tick: send due veto notices, attempt every
+ * currently-eligible row once, then (Fase 22.4) run a reply-guy discovery
+ * sweep if the gate says it's time, and expire any reply candidates that
+ * aged past their TTL without a decision.
+ */
 export async function runXPublisher(env: XPublisherEnv): Promise<{ attempted: number; published: number; failed: number }> {
   const db = env.PREPAID_DB;
   await sendVetoNotices(env, db);
@@ -80,96 +82,29 @@ export async function runXPublisher(env: XPublisherEnv): Promise<{ attempted: nu
   let failed = 0;
 
   for (const row of due) {
-    const claimed = await claimForPublishing(db, row.id);
-    if (!claimed) continue; // another cron tick (or overlap) already took it
-
-    try {
-      const result = await publishOne(env, row, db);
-      await markPublished(db, row.id, result.tweetId);
+    const result = await attemptPublishNow(env, row);
+    if (result.status === "already_claimed") continue; // another cron tick (or overlap) already took it
+    if (result.status === "published") {
       published++;
-    } catch (err) {
-      const retryable = err instanceof XApiError ? err.retryable : true;
-      const message = err instanceof Error ? err.message : String(err);
-      const { willRetry } = await markFailedOrRetry(db, row.id, message, retryable);
+    } else if (result.status === "failed" || result.status === "retry") {
       failed++;
-      if (!willRetry) {
+      if (result.status === "failed") {
         await sendXAgentMessage(
           env,
-          `⚠️ *Fallo publicando #${row.id}* (${row.account})\n\n${message.slice(0, 300)}\n\nEstado: failed. Hijos dependientes bloqueados.`
+          `⚠️ *Fallo publicando #${row.id}* (${row.account})\n\n${result.error.slice(0, 300)}\n\nEstado: failed. Hijos dependientes bloqueados.`
         );
       }
     }
   }
 
+  // Fase 22.4 — reply-guy: cheap no-op most ticks (the gate in discovery.ts
+  // checks window/calendar/pause/budget/cap before ever calling xAI).
+  await runReplyDiscoverySweep(env).catch((err) =>
+    console.error("x-agent reply discovery sweep failed:", err instanceof Error ? err.message : err)
+  );
+  await expireStaleReplyCandidates(db).catch((err) =>
+    console.error("x-agent reply candidate expiry failed:", err instanceof Error ? err.message : err)
+  );
+
   return { attempted: due.length, published, failed };
-}
-
-/**
- * Resolve the target tweet id for internal quote/reply chaining: if the row
- * has no explicit external `quote_tweet_id`/`reply_to_tweet_id` but does have
- * a `depends_on` parent (already guaranteed published by getDueRows's join),
- * use the parent's own tweet_id as the target.
- */
-async function publishOne(env: XPublisherEnv, row: XQueueRow, db: D1Database): Promise<{ tweetId: string }> {
-  let quoteTweetId = row.quote_tweet_id ?? undefined;
-  let replyToTweetId = row.reply_to_tweet_id ?? undefined;
-  let parentTweetId: string | undefined;
-
-  if (row.depends_on) {
-    const parent = await getQueueRow(db, row.depends_on);
-    if (!parent?.tweet_id) {
-      throw new XApiError(`parent #${row.depends_on} has no tweet_id yet (should not happen — getDueRows guards this)`, 0, false);
-    }
-    parentTweetId = parent.tweet_id;
-    if (!quoteTweetId && !replyToTweetId) {
-      if (row.kind === "quote") quoteTweetId = parentTweetId;
-      else if (row.kind === "reply" || row.kind === "thread_part") replyToTweetId = parentTweetId;
-    }
-  }
-
-  if (row.kind === "repost") {
-    const targetId = row.quote_tweet_id ?? parentTweetId;
-    if (!targetId) throw new XApiError(`repost row #${row.id} has no target tweet id (quote_tweet_id or depends_on)`, 0, false);
-    return repostTweet(env, row.account, targetId);
-  }
-
-  const mediaIds = row.media_keys ? await resolveMediaIds(env, row) : undefined;
-
-  return publishTweet(env, {
-    account: row.account,
-    text: row.text ?? undefined,
-    quoteTweetId,
-    replyToTweetId,
-    mediaIds,
-  });
-}
-
-/**
- * Read each R2 key in `row.media_keys` (JSON array, written by the panel's
- * media upload endpoint) and upload it to X right before publishing —
- * uploaded media ids expire (X discards unused ones after a few hours), so
- * this can't happen at upload time, only here at actual publish time.
- * A missing key or upload failure fails the whole row (non-retryable if it's
- * our data that's wrong; retryable if X itself rate-limited/5xx'd the
- * upload) rather than posting text-only when an image was expected.
- */
-async function resolveMediaIds(env: XPublisherEnv, row: XQueueRow): Promise<string[]> {
-  let keys: unknown;
-  try {
-    keys = JSON.parse(row.media_keys ?? "[]");
-  } catch {
-    throw new XApiError(`row #${row.id} has malformed media_keys JSON`, 0, false);
-  }
-  if (!Array.isArray(keys) || keys.length === 0) return [];
-
-  const mediaIds: string[] = [];
-  for (const key of keys) {
-    if (typeof key !== "string") continue;
-    const obj = await env.SCREENSHOTS_BUCKET.get(key);
-    if (!obj) throw new XApiError(`row #${row.id} media key "${key}" not found in R2`, 0, false);
-    const bytes = new Uint8Array(await obj.arrayBuffer());
-    const mimeType = obj.httpMetadata?.contentType ?? "image/jpeg";
-    mediaIds.push(await uploadMedia(env, row.account, bytes, mimeType));
-  }
-  return mediaIds;
 }

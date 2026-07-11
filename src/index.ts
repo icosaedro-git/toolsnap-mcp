@@ -14,6 +14,7 @@ import { runXPublisher } from "./x-agent/publisher.js";
 import { handleTelegramUpdate, type TelegramUpdate } from "./x-agent/telegram-approval.js";
 import { setWebhook, getWebhookInfo } from "./x-agent/telegram.js";
 import { X_PANEL_HTML } from "./x-agent/panel.js";
+import { X_PUSH_SW_JS } from "./x-agent/push-sw.js";
 import { dispatchXAgentApi } from "./x-agent/panel-api.js";
 import { fetchXMetrics } from "./x-agent/metrics.js";
 
@@ -126,6 +127,18 @@ export interface Env {
   // 2M/month) — lower this if the bill needs trimming. Default 14 (see
   // src/x-agent/metrics.ts).
   X_METRICS_WINDOW_D?: string;
+
+  // Fase 22.4 — reply-guy. xAI Grok (Responses API, x_search tool) does
+  // discovery+scoring+drafting in one call — see src/x-agent/xai.ts and
+  // discovery.ts. The actual discovery/scoring/voice PROMPT is loaded from
+  // D1 (x_prompts, vault nota 14), never hardcoded here — this key just
+  // authenticates the call.
+  XAI_API_KEY?: string;
+  // Web Push (desktop notifications for the panel's Replies tab) — VAPID
+  // keypair, both stored as their raw base64url components. See
+  // src/x-agent/push.ts for why no ASN.1/DER handling is needed.
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -419,6 +432,18 @@ export default {
       return new Response(X_PANEL_HTML, {
         status: 200,
         headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
+    // Fase 22.4 — service worker script for the panel's Web Push
+    // notifications (Replies tab). Served unauthenticated (like any static
+    // JS asset) — it only ever reveals what a signed-in browser's own push
+    // subscription already knows, and Access still gates the actual API
+    // fetch it makes on wake.
+    if (method === "GET" && url.pathname === "/x-agent-sw.js") {
+      return new Response(X_PUSH_SW_JS, {
+        status: 200,
+        headers: { "Content-Type": "application/javascript; charset=utf-8" },
       });
     }
 
@@ -721,7 +746,17 @@ export default {
       url.pathname.startsWith("/x-api/queue/") ||
       url.pathname === "/x-api/media" ||
       url.pathname === "/x-api/stats" ||
-      url.pathname === "/x-api/corrections"
+      url.pathname === "/x-api/corrections" ||
+      // Fase 22.4 — reply-guy: candidates list/status/pause-resume + Web Push
+      // subscription management, same disjoint-prefix headless mount.
+      url.pathname === "/x-api/replies" ||
+      url.pathname === "/x-api/replies/pending" ||
+      url.pathname === "/x-api/replies/status" ||
+      url.pathname === "/x-api/replies/pause" ||
+      url.pathname === "/x-api/replies/resume" ||
+      url.pathname === "/x-api/push/subscribe" ||
+      url.pathname === "/x-api/push/vapid-public-key" ||
+      url.pathname === "/x-api/prompts"
     ) {
       const adminKey = request.headers.get("x-admin-key");
       if (!env.ADMIN_API_KEY || adminKey !== env.ADMIN_API_KEY) {
