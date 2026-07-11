@@ -41,6 +41,8 @@ in this repo — see the operational notes below) rather than hardcoded here.
 | `POST` | `/x-api/replies/resume` | Resume discovery |
 | `GET` | `/x-api/push/vapid-public-key` | VAPID public key for the panel's `PushManager.subscribe()` call (501 if Web Push isn't configured) |
 | `POST` | `/x-api/push/subscribe` | Register a browser's push subscription (`PushSubscriptionJSON` body) |
+| `POST` | `/x-api/prompts` | Load/replace the active `reply_discovery` prompt or `reply_config` JSON (`{ "name": "reply_discovery"\|"reply_config", "content": "..." }`) — the only way this content enters D1, see below |
+| `GET` | `/x-api/prompts` | Currently-active prompt/config rows |
 
 A discovered candidate is queued as an ordinary `x_queue` row
 (`kind='reply'`, `approval_mode='per_post'`) — every existing action

@@ -550,7 +550,24 @@ async function main() {
   check("stale queue row canceled with error='expired'", staleRow?.queue_status === "canceled", JSON.stringify(staleRow));
   loadReplyGuyFixtures(); // restore the generous default ttlS for anything after this point
 
-  console.log("\n25) Fase 22.4 — Web Push: subscribe accepted; vapid-public-key 501s without configured keys (none set in this .dev.vars)");
+  console.log("\n25) Fase 22.4 — POST /x-api/prompts loads a new prompt version; GET reflects only the latest as active");
+  const promptPut1 = await adminPost("/x-api/prompts", { name: "reply_discovery", content: "vN fixture prompt" });
+  check("prompt version accepted", promptPut1.status === 200 && typeof promptPut1.json?.version === "number", JSON.stringify(promptPut1.json));
+  const promptPut2 = await adminPost("/x-api/prompts", { name: "reply_discovery", content: "vN+1 fixture prompt" });
+  check(
+    "next version increments by exactly 1",
+    promptPut2.status === 200 && promptPut2.json?.version === (promptPut1.json?.version ?? 0) + 1,
+    JSON.stringify(promptPut2.json)
+  );
+  const promptsGet = await adminGet("/x-api/prompts");
+  const activeDiscovery = (promptsGet.json?.prompts ?? []).find((p: { name: string }) => p.name === "reply_discovery");
+  check(
+    "only the latest version is active",
+    activeDiscovery?.content === "vN+1 fixture prompt" && activeDiscovery?.version === promptPut2.json?.version,
+    JSON.stringify(activeDiscovery)
+  );
+
+  console.log("\n26) Fase 22.4 — Web Push: subscribe accepted; vapid-public-key 501s without configured keys (none set in this .dev.vars)");
   const pushSubResp = await adminPost("/x-api/push/subscribe", {
     endpoint: "https://fcm.googleapis.com/fcm/send/e2e-fake-endpoint",
     keys: { p256dh: "fake-p256dh", auth: "fake-auth" },

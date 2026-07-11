@@ -275,6 +275,45 @@ export async function handleVapidPublicKey(env: XPushEnv): Promise<Response> {
   return jsonResponse({ public_key: env.VAPID_PUBLIC_KEY });
 }
 
+/**
+ * POST .../prompts — load (or replace) the active `reply_discovery` prompt
+ * or `reply_config` JSON that reply-guy's discovery sweep reads (Fase 22.4).
+ * This is the only way that content ever enters D1 — no migration or script
+ * seeds it, by design (the vault, not this repo, is the source of truth for
+ * what the prompt/config actually say). Deactivates any previous row for
+ * the same `name` and inserts a new version, so `x_prompts` keeps every past
+ * version for auditing even though only the latest is ever read.
+ */
+export async function handlePutPrompt(
+  env: PanelApiEnv,
+  body: { name?: string; content?: string }
+): Promise<Response> {
+  if (body.name !== "reply_discovery" && body.name !== "reply_config") {
+    return jsonError('name must be "reply_discovery" or "reply_config"');
+  }
+  if (!body.content?.trim()) return jsonError("content is required");
+  const db = env.PREPAID_DB;
+  const prevMax = await db
+    .prepare("SELECT MAX(version) AS v FROM x_prompts WHERE name = ?")
+    .bind(body.name)
+    .first<{ v: number | null }>();
+  const nextVersion = (prevMax?.v ?? 0) + 1;
+  await db.prepare("UPDATE x_prompts SET active = 0 WHERE name = ? AND active = 1").bind(body.name).run();
+  await db
+    .prepare("INSERT INTO x_prompts (name, version, content, active) VALUES (?, ?, ?, 1)")
+    .bind(body.name, nextVersion, body.content)
+    .run();
+  return jsonResponse({ name: body.name, version: nextVersion, active: true });
+}
+
+/** GET .../prompts — current active prompt/config (so the panel or a session can confirm what's live without re-reading the vault). */
+export async function handleGetPrompts(env: PanelApiEnv): Promise<Response> {
+  const res = await env.PREPAID_DB
+    .prepare("SELECT name, version, content, created_at FROM x_prompts WHERE active = 1 ORDER BY name")
+    .all();
+  return jsonResponse({ prompts: res.results ?? [] });
+}
+
 /** POST .../push/subscribe — body is a standard PushSubscriptionJSON ({endpoint, keys:{p256dh,auth}}) from the browser's PushManager.subscribe(). Upserts by endpoint (re-subscribing replaces the old keys). */
 export async function handlePushSubscribe(
   env: PanelApiEnv,
@@ -353,6 +392,10 @@ export async function dispatchXAgentApi(
       const body = (await request.json().catch(() => ({}))) as { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
       return handlePushSubscribe(env, body);
     }
+    if (subpath === "prompts") {
+      const body = (await request.json().catch(() => ({}))) as { name?: string; content?: string };
+      return handlePutPrompt(env, body);
+    }
   }
 
   if (method === "GET" && subpath === "stats") return handleStats(env);
@@ -360,6 +403,7 @@ export async function dispatchXAgentApi(
   if (method === "GET" && subpath === "replies/pending") return handleRepliesPending(env);
   if (method === "GET" && subpath === "replies/status") return handleReplyStatus(env);
   if (method === "GET" && subpath === "push/vapid-public-key") return handleVapidPublicKey(env);
+  if (method === "GET" && subpath === "prompts") return handleGetPrompts(env);
 
   return null;
 }
