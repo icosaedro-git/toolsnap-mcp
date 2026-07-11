@@ -25,6 +25,7 @@ import { execSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fillPromptPlaceholders, type ReplyConfig } from "../src/x-agent/discovery.ts";
 
 const BASE = process.env.MCP_URL ?? "http://localhost:8787";
 const ADMIN_KEY = process.env.ADMIN_API_KEY;
@@ -575,6 +576,35 @@ async function main() {
   check("push subscribe accepted", pushSubResp.status === 200 && pushSubResp.json?.subscribed === true, JSON.stringify(pushSubResp.json));
   const vapidResp = await adminGet("/x-api/push/vapid-public-key");
   check("vapid-public-key 501 (not configured)", vapidResp.status === 501, JSON.stringify(vapidResp.json));
+
+  console.log("\n27) Fase 22.4 — placeholder substitution: a prompt with {max_searches}/{seed_accounts}/etc. never reaches xAI with a literal placeholder");
+  const fixtureConfig: ReplyConfig = {
+    window: { startHour: 16, endHour: 23 },
+    sweepsPerDay: { mon: 4, tue: 4, wed: 4, thu: 4, fri: 2, sat: 0, sun: 2 },
+    dailyBudgetUsd: 0.7,
+    dailyCap: 5,
+    minScore: 70,
+    ttlS: 2700,
+    maxCandidatesPerSweep: 3,
+    maxSearchesPerSweep: 4,
+    seedAccounts: ["karpathy", "levelsio"],
+    queryRotation: ["AI news", "indie hacker milestones"],
+  };
+  const filled = fillPromptPlaceholders(
+    "searches={max_searches} candidates={max_candidates} score={min_score} accounts={seed_accounts} queries={query_rotation}",
+    fixtureConfig
+  );
+  check("no placeholder braces remain after substitution", !/\{[a-z_]+\}/.test(filled), filled);
+  check("seed accounts substituted", filled.includes("karpathy, levelsio"), filled);
+  check("numeric placeholders substituted", filled.includes("searches=4 candidates=3 score=70"), filled);
+
+  console.log("\n28) Fase 22.4 — POST /x-api/replies/sweep (diagnostic trigger) bypasses the schedule gate but still respects pause");
+  const sweepNow = await adminPost("/x-api/replies/sweep");
+  check("diagnostic sweep runs even outside the configured window/calendar", sweepNow.status === 200 && sweepNow.json?.ran === true, JSON.stringify(sweepNow.json));
+  await adminPost("/x-api/replies/pause", { hours: 1 });
+  const sweepWhilePaused = await adminPost("/x-api/replies/sweep");
+  check("diagnostic sweep still refuses to run while paused", sweepWhilePaused.json?.ran === false && sweepWhilePaused.json?.reason === "paused", JSON.stringify(sweepWhilePaused.json));
+  await adminPost("/x-api/replies/resume");
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);

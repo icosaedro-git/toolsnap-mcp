@@ -15,7 +15,7 @@ export interface XDiscoveryEnv extends XaiEnv, XTelegramEnv {
   PREPAID_DB: D1Database;
 }
 
-interface ReplyConfig {
+export interface ReplyConfig {
   window: { startHour: number; endHour: number }; // Europe/Madrid, e.g. 16-23
   sweepsPerDay: Record<string, number>; // 'mon'..'sun' -> sweep count
   dailyBudgetUsd: number;
@@ -24,6 +24,13 @@ interface ReplyConfig {
   ttlS: number; // how long an unactioned candidate stays valid before expiring
   maxCandidatesPerSweep: number;
   maxSearchesPerSweep: number;
+  // Substituted into the {seed_accounts}/{query_rotation} placeholders in the
+  // reply_discovery prompt (nota 14 §3/§4) — data, not strategy embedded in
+  // code: this list is Fable's initial proposal pending Unai's curation from
+  // his own follows, and is meant to be updated via POST /x-api/prompts
+  // (name='reply_config') without a code change.
+  seedAccounts: string[];
+  queryRotation: string[];
 }
 
 const DEFAULT_CONFIG: ReplyConfig = {
@@ -35,7 +42,24 @@ const DEFAULT_CONFIG: ReplyConfig = {
   ttlS: 45 * 60,
   maxCandidatesPerSweep: 3,
   maxSearchesPerSweep: 4,
+  seedAccounts: [],
+  queryRotation: [
+    "AI/labs news gaining momentum right now",
+    "agent/MCP/Claude Code/Cursor conversation — questions, hot takes, context or cost complaints",
+    "indie hacker build-in-public milestones (revenue, launches, honest fails)",
+    "crypto x AI: agent payments, stablecoins, x402, Base",
+  ],
 };
+
+/** Fill {max_searches}/{max_candidates}/{min_score}/{seed_accounts}/{query_rotation} in the vault-sourced prompt (nota 14 §4) with the active config's actual values. Never send a placeholder to xAI verbatim. Exported for a direct unit check in scripts/x-agent-test.mts (X_DRY_RUN can't observe what xai.ts actually received over HTTP). */
+export function fillPromptPlaceholders(promptText: string, config: ReplyConfig): string {
+  return promptText
+    .replace(/\{max_searches\}/g, String(config.maxSearchesPerSweep))
+    .replace(/\{max_candidates\}/g, String(config.maxCandidatesPerSweep))
+    .replace(/\{min_score\}/g, String(config.minScore))
+    .replace(/\{seed_accounts\}/g, config.seedAccounts.length ? config.seedAccounts.join(", ") : "(none configured yet)")
+    .replace(/\{query_rotation\}/g, config.queryRotation.map((q) => `- ${q}`).join("\n"));
+}
 
 const DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
 
@@ -200,16 +224,29 @@ function passesHardFilters(c: RawCandidate, config: ReplyConfig): boolean {
  * `x_reply_candidates` + `x_queue` (kind='reply', per_post approval) rows,
  * and send a Telegram alert card for each. No-ops cleanly (with a reason) if
  * no prompt is loaded — this repo carries no fallback strategy.
+ *
+ * `opts.bypassSchedule` skips the window/calendar/min-gap-since-last-sweep
+ * checks (but NOT pause/budget/cap, which stay enforced as real safety
+ * limits) — used by the `POST /x-api/replies/sweep` diagnostic endpoint so a
+ * sweep can be tested on demand instead of waiting for the next scheduled
+ * window (e.g. verifying the xAI integration the first time, or a day the
+ * calendar has zero sweeps configured).
  */
-export async function runReplyDiscoverySweep(env: XDiscoveryEnv): Promise<{ ran: boolean; reason: string; queued: number }> {
+export async function runReplyDiscoverySweep(
+  env: XDiscoveryEnv,
+  opts: { bypassSchedule?: boolean } = {}
+): Promise<{ ran: boolean; reason: string; queued: number }> {
   const db = env.PREPAID_DB;
   const gate = await shouldRunSweep(db);
-  if (!gate.shouldRun) return { ran: false, reason: gate.reason, queued: 0 };
+  if (!gate.shouldRun && !(opts.bypassSchedule && gate.reason !== "paused" && gate.reason !== "daily budget reached" && gate.reason !== "daily reply cap reached")) {
+    return { ran: false, reason: gate.reason, queued: 0 };
+  }
 
-  const promptText = await getPrompt(db, "reply_discovery");
-  if (!promptText) return { ran: false, reason: "no reply_discovery prompt loaded in x_prompts", queued: 0 };
+  const rawPromptText = await getPrompt(db, "reply_discovery");
+  if (!rawPromptText) return { ran: false, reason: "no reply_discovery prompt loaded in x_prompts", queued: 0 };
 
   const config = await getConfig(db);
+  const promptText = fillPromptPlaceholders(rawPromptText, config);
   const { dateStr } = madridNow();
   const sweepId = `sweep-${Date.now()}`;
 

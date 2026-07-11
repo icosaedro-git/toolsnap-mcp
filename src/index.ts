@@ -756,7 +756,8 @@ export default {
       url.pathname === "/x-api/replies/resume" ||
       url.pathname === "/x-api/push/subscribe" ||
       url.pathname === "/x-api/push/vapid-public-key" ||
-      url.pathname === "/x-api/prompts"
+      url.pathname === "/x-api/prompts" ||
+      url.pathname === "/x-api/replies/sweep"
     ) {
       const adminKey = request.headers.get("x-admin-key");
       if (!env.ADMIN_API_KEY || adminKey !== env.ADMIN_API_KEY) {
