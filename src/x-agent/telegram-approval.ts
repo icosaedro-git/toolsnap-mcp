@@ -34,10 +34,11 @@ import {
   answerCallbackQuery,
   sendXAgentReply,
   type XTelegramEnv,
+  type InlineKeyboardButton,
 } from "./telegram.js";
-import { approveRow, cancelRow, editAndApproveRow, getQueueRow, markPublishedManual, rejectRow, type XQueueRow } from "./queue.js";
+import { approveRow, cancelRow, editAndApproveRow, editReplyDraft, getQueueRow, markPublishedManual, rejectRow, type XQueueRow } from "./queue.js";
 import { attemptPublishNow, type PublishOneEnv } from "./publish-one.js";
-import { pauseDiscovery, resumeDiscovery, getDiscoveryStatus } from "./discovery.js";
+import { pauseDiscovery, resumeDiscovery, getDiscoveryStatus, PAUSE_FOREVER_TS, isPausedForever } from "./discovery.js";
 
 export interface TelegramApprovalEnv extends XTelegramEnv, PublishOneEnv {}
 
@@ -99,28 +100,55 @@ function formatReplyMeta(info: ReplyCandidateInfo): string {
   ].join("\n");
 }
 
+/** `https://x.com/i/web/status/<id>` for a reply row, or null if it somehow has no target (shouldn't happen — discovery.ts always sets reply_to_tweet_id for kind='reply'). */
+function tweetUrlFor(row: XQueueRow): string | null {
+  return row.reply_to_tweet_id ? `https://x.com/i/web/status/${row.reply_to_tweet_id}` : null;
+}
+
+/**
+ * The full 4-way decision keyboard for a reply candidate — used on the
+ * initial alert AND re-presented after an edit (Fase 22.4 UX fix,
+ * 2026-07-11: editing no longer auto-decides "publish via API" for Unai).
+ * Row 1 is a URL button (opens the original post directly, no callback) —
+ * omitted if there's no link to give it.
+ */
+function replyDecisionKeyboard(queueId: number, tweetUrl: string | null): InlineKeyboardButton[][] {
+  const rows: InlineKeyboardButton[][] = [];
+  if (tweetUrl) rows.push([{ text: "🔗 Abrir post", url: tweetUrl }]);
+  rows.push([
+    { text: "✅ Publicar (API)", callback_data: `xq:${queueId}:approve` },
+    { text: "📋 Publicada a mano", callback_data: `xq:${queueId}:manual` },
+  ]);
+  rows.push([
+    { text: "✏️ Editar", callback_data: `xq:${queueId}:edit` },
+    { text: "❌ Rechazar", callback_data: `xq:${queueId}:reject` },
+  ]);
+  return rows;
+}
+
+/** Recovery keyboard for a failed API publish attempt — just the two things useful right there: open the post (to reply by hand) and mark it done. */
+function manualRecoveryKeyboard(queueId: number, tweetUrl: string | null): InlineKeyboardButton[][] {
+  const rows: InlineKeyboardButton[][] = [];
+  if (tweetUrl) rows.push([{ text: "🔗 Abrir post", url: tweetUrl }]);
+  rows.push([{ text: "📋 Publicada a mano", callback_data: `xq:${queueId}:manual` }]);
+  return rows;
+}
+
 /**
  * Send the alert for a discovered reply candidate (Fase 22.4) as TWO
- * messages (UX fix 2026-07-11): first a plain-text message with only the
- * draft — no parse_mode, no emoji header, nothing to strip before pasting
- * into X — then a metadata message (author/score/link) with all 4 buttons:
- * Approve (publishes immediately via the X API), 📋 published manually
- * (Unai pasted it himself in X — zero API cost, the preferred path since
- * he's already there for the manual like/follow), Edit, Reject.
+ * messages (UX fix 2026-07-11): first a code-block message with only the
+ * draft — Telegram copies a `<pre>` block's full contents with a single
+ * tap, and the escaped HTML means the draft always renders/copies
+ * byte-for-byte regardless of `_`/`*`/`` ` ``/`[` in the text — then a
+ * metadata message (author/score/link) with the full decision keyboard:
+ * open post / Approve via API / 📋 published manually (Unai pasted it
+ * himself — zero API cost, the preferred path since he's already there for
+ * the manual like/follow) / Edit / Reject.
  */
 export async function sendReplyApprovalCard(env: XTelegramEnv, db: D1Database, info: ReplyCandidateInfo): Promise<void> {
-  const textMessageId = await sendXAgentMessage(env, info.draftReply, { plain: true });
+  const textMessageId = await sendXAgentMessage(env, info.draftReply, { format: "code" });
   const metaMessageId = await sendXAgentMessage(env, formatReplyMeta(info), {
-    inlineKeyboard: [
-      [
-        { text: "✅ Publicar (API)", callback_data: `xq:${info.queueId}:approve` },
-        { text: "📋 Publicada a mano", callback_data: `xq:${info.queueId}:manual` },
-      ],
-      [
-        { text: "✏️ Editar", callback_data: `xq:${info.queueId}:edit` },
-        { text: "❌ Rechazar", callback_data: `xq:${info.queueId}:reject` },
-      ],
-    ],
+    inlineKeyboard: replyDecisionKeyboard(info.queueId, info.tweetUrl),
   });
   if (textMessageId || metaMessageId) {
     await db
@@ -169,34 +197,35 @@ export interface TelegramUpdate {
 
 interface ReplyPublishOutcome {
   text: string;
-  /** Set when the API attempt did NOT end in a real publish — the failure notice needs a way forward, not a dead end (found 2026-07-11: a real X 403 — "not allowed to reply unless mentioned/engaged by the author" — left the row `failed` with no button on the card to recover it). */
-  offerManualButton: boolean;
+  /** Empty when the outcome is final (published, or already in flight) — otherwise the recovery keyboard for a failed API attempt (found 2026-07-11: a real X 403 — "not allowed to reply unless mentioned/engaged by the author" — left the row `failed` with no button on the card to recover it). */
+  keyboard: InlineKeyboardButton[][];
 }
 
 /**
- * After approving/editing a `kind='reply'` row, publish it right away
- * instead of waiting for the next cron tick — timing is the whole point of
- * a reply (nota 14 §1/§5). Marks the associated candidate 'queued' either
- * way. On any outcome other than a real publish, the card keeps a
- * "📋 Publicada a mano" button (see markPublishedManual's Fase 22.4
- * extension to also accept `failed` rows) — X can legitimately reject a
- * reply (conversation restricted to mentioned/engaged accounts) and that's
- * not a bug to retry, it's Unai doing it by hand instead.
+ * Publish a `kind='reply'` row right away via the X API (called only when
+ * Unai has explicitly chosen "✅ Publicar (API)" — never as a side effect of
+ * editing, see editReplyDraft) instead of waiting for the next cron tick —
+ * timing is the whole point of a reply (nota 14 §1/§5). Marks the
+ * associated candidate 'queued' either way. On any outcome other than a
+ * real publish, the card gets the manual-recovery keyboard — X can
+ * legitimately reject a reply (conversation restricted to mentioned/engaged
+ * accounts) and that's not a bug to retry, it's Unai doing it by hand instead.
  */
 async function publishReplyNowAndMarkCandidate(env: TelegramApprovalEnv, db: D1Database, id: number): Promise<ReplyPublishOutcome> {
   const row = await getQueueRow(db, id);
   await db.prepare("UPDATE x_reply_candidates SET status = 'queued', updated_at = ? WHERE queue_id = ?").bind(Math.floor(Date.now() / 1000), id).run();
-  if (!row) return { text: "❌ *Error: fila no encontrada*", offerManualButton: false };
+  if (!row) return { text: "❌ *Error: fila no encontrada*", keyboard: [] };
+  const tweetUrl = tweetUrlFor(row);
   const result = await attemptPublishNow(env, row);
   if (result.status === "published") {
-    return { text: `${metaCardFor({ ...row, status: "published", tweet_id: result.tweetId })}\n\n✅ *Publicado*`, offerManualButton: false };
+    return { text: `${metaCardFor({ ...row, status: "published", tweet_id: result.tweetId })}\n\n✅ *Publicado*`, keyboard: [] };
   }
   if (result.status === "already_claimed") {
-    return { text: `${metaCardFor(row)}\n\n✅ *Aprobado (ya en curso)*`, offerManualButton: false };
+    return { text: `${metaCardFor(row)}\n\n✅ *Aprobado (ya en curso)*`, keyboard: [] };
   }
   return {
     text: `${metaCardFor(row)}\n\n⚠️ *Aprobado pero falló la publicación:* ${result.error.slice(0, 200)}\n\nSi la respondiste tú mismo en X, márcalo abajo.`,
-    offerManualButton: true,
+    keyboard: manualRecoveryKeyboard(id, tweetUrl),
   };
 }
 
@@ -249,8 +278,7 @@ export async function handleTelegramUpdate(
         const freshRow = await getQueueRow(db, id);
         if (freshRow?.kind === "reply") {
           const outcome = await publishReplyNowAndMarkCandidate(env, db, id);
-          const keyboard = outcome.offerManualButton ? [[{ text: "📋 Publicada a mano", callback_data: `xq:${id}:manual` }]] : [];
-          await editXAgentMessageText(env, messageId, outcome.text, { inlineKeyboard: keyboard });
+          await editXAgentMessageText(env, messageId, outcome.text, { inlineKeyboard: outcome.keyboard });
         } else {
           await editXAgentMessageText(env, messageId, `${formatCard(freshRow!)}\n\n✅ *Aprobado*`);
         }
@@ -331,19 +359,36 @@ export async function handleTelegramUpdate(
       .first<XQueueRow>();
     if (!row) return; // reply to something else (or already resolved) — ignore
     const newText = update.message.text.trim();
-    const ok = await editAndApproveRow(db, row.id, newText);
-    if (ok) {
-      if (row.kind === "reply") {
-        // Update the copy-paste text message to the corrected draft (plain,
-        // same as the original send) before publishing/reporting outcome on
-        // the meta message — the two messages must never show mismatched text.
+
+    // Fase 22.4 UX fix (2026-07-11): editing a reply no longer auto-publishes
+    // via API — it corrects the draft and hands the decision (API / manual /
+    // reject) back to Unai, same as a fresh candidate. His primary path is
+    // manual anyway, and the API can legitimately 403 on a restricted
+    // conversation; deciding "publish via API" for him on every edit was the
+    // wrong default. Every other row kind (posts/quotes/threads/reposts)
+    // keeps editAndApproveRow's behavior — edit = approve — unchanged.
+    if (row.kind === "reply") {
+      const ok = await editReplyDraft(db, row.id, newText);
+      if (ok) {
+        // Both messages must never show mismatched text: update the
+        // copy-paste text message to the correction first...
         if (row.tg_text_message_id) {
-          await editXAgentMessageText(env, row.tg_text_message_id, newText, { plain: true });
+          await editXAgentMessageText(env, row.tg_text_message_id, newText, { format: "code" });
         }
-        const outcome = await publishReplyNowAndMarkCandidate(env, db, row.id);
-        const keyboard = outcome.offerManualButton ? [[{ text: "📋 Publicada a mano", callback_data: `xq:${row.id}:manual` }]] : [];
-        if (row.tg_message_id) await editXAgentMessageText(env, row.tg_message_id, outcome.text, { inlineKeyboard: keyboard });
-      } else {
+        // ...then re-present the full decision keyboard on the meta message.
+        if (row.tg_message_id) {
+          const tweetUrl = tweetUrlFor(row);
+          await editXAgentMessageText(
+            env,
+            row.tg_message_id,
+            `${metaCardFor({ ...row, text: newText })}\n\n✏️ *Texto actualizado — elige cómo publicar*`,
+            { inlineKeyboard: replyDecisionKeyboard(row.id, tweetUrl) }
+          );
+        }
+      }
+    } else {
+      const ok = await editAndApproveRow(db, row.id, newText);
+      if (ok) {
         await editXAgentMessageText(env, repliedToId, `${formatCard({ ...row, text: newText })}\n\n✏️ *Editado y aprobado*`);
       }
     }
@@ -363,6 +408,14 @@ export async function handleTelegramUpdate(
       await sendXAgentMessage(env, `⏸ *Reply-guy pausado hasta ${untilLabel} (Madrid)*. Usa /resume para reanudar antes.`);
       return;
     }
+    // Fase 22.4 UX fix (2026-07-11) — /stop: pause indefinitely, distinct
+    // from /pause's timed windows. Same mechanism (pauseDiscovery), just the
+    // PAUSE_FOREVER_TS sentinel instead of a real epoch.
+    if (/^\/stop\b/i.test(text)) {
+      await pauseDiscovery(db, PAUSE_FOREVER_TS);
+      await sendXAgentMessage(env, `⏹ *Reply-guy detenido.* No se reanudará hasta que envíes /resume.`);
+      return;
+    }
     if (/^\/resume\b/i.test(text)) {
       await resumeDiscovery(db);
       await sendXAgentMessage(env, `▶️ *Reply-guy reanudado.*`);
@@ -370,10 +423,11 @@ export async function handleTelegramUpdate(
     }
     if (/^\/status\b/i.test(text)) {
       const status = await getDiscoveryStatus(db);
-      const pausedLabel =
-        status.pausedUntil > Math.floor(Date.now() / 1000)
-          ? `⏸ pausado hasta ${new Date(status.pausedUntil * 1000).toLocaleString("es-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}`
-          : "▶️ activo";
+      const pausedLabel = isPausedForever(status.pausedUntil)
+        ? "⏹ detenido (permanente — /resume para reanudar)"
+        : status.pausedUntil > Math.floor(Date.now() / 1000)
+        ? `⏸ pausado hasta ${new Date(status.pausedUntil * 1000).toLocaleString("es-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}`
+        : "▶️ activo";
       await sendXAgentMessage(
         env,
         [

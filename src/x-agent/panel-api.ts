@@ -17,7 +17,7 @@ import {
   rescheduleRow,
 } from "./queue.js";
 import { handleLoadBatch, handleListQueue, handleCancelRow, type BatchInput, type XAdminEnv } from "./admin.js";
-import { pauseDiscovery, resumeDiscovery, getDiscoveryStatus, runReplyDiscoverySweep, type XDiscoveryEnv } from "./discovery.js";
+import { pauseDiscovery, resumeDiscovery, getDiscoveryStatus, runReplyDiscoverySweep, PAUSE_FOREVER_TS, type XDiscoveryEnv } from "./discovery.js";
 import type { XPushEnv } from "./push.js";
 
 export interface PanelApiEnv {
@@ -255,8 +255,12 @@ export async function handleRepliesPending(env: PanelApiEnv): Promise<Response> 
   return jsonResponse({ pending: res.results ?? [] });
 }
 
-export async function handlePauseReplies(env: PanelApiEnv, body: { hours?: number; until?: number }): Promise<Response> {
-  const until = Number.isFinite(body.until) ? (body.until as number) : Math.floor(Date.now() / 1000) + (body.hours ?? 2) * 3600;
+export async function handlePauseReplies(env: PanelApiEnv, body: { hours?: number; until?: number; forever?: boolean }): Promise<Response> {
+  const until = body.forever
+    ? PAUSE_FOREVER_TS
+    : Number.isFinite(body.until)
+    ? (body.until as number)
+    : Math.floor(Date.now() / 1000) + (body.hours ?? 2) * 3600;
   await pauseDiscovery(env.PREPAID_DB, until);
   return jsonResponse({ paused_until: until });
 }
@@ -394,7 +398,7 @@ export async function dispatchXAgentApi(
       return handleAddCorrection(env, body as { queue_id?: number; original_text?: string; final_text?: string });
     }
     if (subpath === "replies/pause") {
-      const body = (await request.json().catch(() => ({}))) as { hours?: number; until?: number };
+      const body = (await request.json().catch(() => ({}))) as { hours?: number; until?: number; forever?: boolean };
       return handlePauseReplies(env, body);
     }
     if (subpath === "replies/resume") return handleResumeReplies(env);

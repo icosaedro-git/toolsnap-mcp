@@ -169,6 +169,26 @@ async function sendTelegramCancel(queueId: number) {
   return sendTelegramCallback(queueId, "cancel");
 }
 
+/** Simulate Telegram delivering a plain text message that replies to a specific message (the "respond with the correction" edit flow, and /pause /resume /status /stop text commands when replyToMessageId is omitted). */
+async function sendTelegramMessage(text: string, replyToMessageId?: number) {
+  const res = await fetch(`${BASE}/webhooks/telegram`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-telegram-bot-api-secret-token": TG_WEBHOOK_SECRET!,
+    },
+    body: JSON.stringify({
+      message: {
+        message_id: Math.floor(Math.random() * 1_000_000),
+        text,
+        chat: { id: Number(TG_CHAT_ID) },
+        ...(replyToMessageId ? { reply_to_message: { message_id: replyToMessageId } } : {}),
+      },
+    }),
+  });
+  return res.status;
+}
+
 async function main() {
   applyMigrationLocally();
 
@@ -635,6 +655,60 @@ async function main() {
   );
   const afterFailedRecovery = (await adminGet(`/x-api/queue?batch_id=${failedBatchId}`)).json?.rows?.[0];
   check("row is published_via='manual' after recovery", afterFailedRecovery?.status === "published" && afterFailedRecovery?.published_via === "manual", JSON.stringify(afterFailedRecovery));
+
+  console.log("\n30) Fase 22.4 UX fix (2026-07-11) — editing a reply does NOT auto-publish; it stays pending_approval with the corrected text");
+  const editReplyBatchId = `e2e-reply-edit-${Date.now()}`;
+  const editReplyLoad = await adminPost("/x-api/queue", {
+    batch_id: editReplyBatchId,
+    approval_mode: "per_post",
+    items: [{ local_id: "reply-e", account: "personal", kind: "reply", text: "e2e reply draft — original", reply_to_tweet_id: "4444444444", series: "reply-guy", scheduled_at: now }],
+  });
+  const editReplyId = (editReplyLoad.json?.inserted ?? []).find((r: { local_id?: string }) => r.local_id === "reply-e")?.id;
+  // X_DRY_RUN never talks to real Telegram, so tg_text_message_id/tg_message_id
+  // are never populated by a real send — stamp fake ones directly so the
+  // reply-to-message lookup has something to match against, exactly like a
+  // real split card would have after sendReplyApprovalCard ran.
+  const fakeTextMsgId = 800001;
+  const fakeMetaMsgId = 800002;
+  runD1SqlLocally(`UPDATE x_queue SET tg_text_message_id = ${fakeTextMsgId}, tg_message_id = ${fakeMetaMsgId} WHERE id = ${editReplyId};`);
+  const editCorrectionStatus = await sendTelegramMessage("e2e reply draft — corrected", fakeTextMsgId);
+  check("Telegram reply-to-text-message (edit) accepted (200)", editCorrectionStatus === 200, String(editCorrectionStatus));
+  await sleep(1000);
+  const afterEditReply = (await adminGet(`/x-api/queue?batch_id=${editReplyBatchId}`)).json?.rows?.[0];
+  check(
+    "text corrected but status STAYS pending_approval (no auto-publish)",
+    afterEditReply?.text === "e2e reply draft — corrected" && afterEditReply?.status === "pending_approval",
+    JSON.stringify(afterEditReply)
+  );
+  // Now approve explicitly — this is the only thing that should publish it.
+  const editReplyApproveStatus = await sendTelegramCallback(editReplyId, "approve");
+  check("subsequent explicit approve accepted (200)", editReplyApproveStatus === 200, String(editReplyApproveStatus));
+  await sleep(1000);
+  const afterEditReplyApprove = (await adminGet(`/x-api/queue?batch_id=${editReplyBatchId}`)).json?.rows?.[0];
+  check(
+    "published only after the explicit approve, with the corrected text carried through",
+    afterEditReplyApprove?.status === "published" && afterEditReplyApprove?.text === "e2e reply draft — corrected",
+    JSON.stringify(afterEditReplyApprove)
+  );
+
+  console.log("\n31) Fase 22.4 UX fix (2026-07-11) — /stop pauses indefinitely (distinct from /pause's timed window); /resume clears it");
+  const stopCmdStatus = await sendTelegramMessage("/stop");
+  check("/stop command accepted (200)", stopCmdStatus === 200, String(stopCmdStatus));
+  await sleep(500);
+  const statusAfterStop = await adminGet("/x-api/replies/status");
+  check("pausedUntil is the far-future PAUSE_FOREVER_TS sentinel", statusAfterStop.json?.pausedUntil >= 32503680000, JSON.stringify(statusAfterStop.json));
+  const sweepWhileStopped = await adminPost("/x-api/replies/sweep");
+  check("diagnostic sweep still refuses to run while stopped", sweepWhileStopped.json?.ran === false && sweepWhileStopped.json?.reason === "paused", JSON.stringify(sweepWhileStopped.json));
+  const resumeCmdStatus = await sendTelegramMessage("/resume");
+  check("/resume command accepted (200)", resumeCmdStatus === 200, String(resumeCmdStatus));
+  await sleep(500);
+  const statusAfterResume = await adminGet("/x-api/replies/status");
+  check("pausedUntil cleared after /resume", statusAfterResume.json?.pausedUntil === 0, JSON.stringify(statusAfterResume.json));
+
+  console.log("\n32) Fase 22.4 UX fix (2026-07-11) — POST /x-api/replies/pause {forever:true} does the same as /stop via the API/panel path");
+  const foreverApiPause = await adminPost("/x-api/replies/pause", { forever: true });
+  check("forever pause via API accepted", foreverApiPause.status === 200 && foreverApiPause.json?.paused_until >= 32503680000, JSON.stringify(foreverApiPause.json));
+  await adminPost("/x-api/replies/resume"); // clean up for any later checks
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);
