@@ -6,15 +6,26 @@
  * message.reply_to_message.message_id matching a pending row's
  * tg_message_id, which needs no server-side session state.
  *
- * Fase 22.4 adds reply-guy: a 4th button ("📋 publicada a mano") on reply
- * cards, immediate publish-on-approve for `kind='reply'` rows (timing
- * matters for replies — no waiting for the next cron tick), and /pause,
- * /resume, /status text commands. This module has an intentional circular
- * import with discovery.ts (it calls pauseDiscovery/resumeDiscovery/
- * getDiscoveryStatus; discovery.ts calls sendReplyApprovalCard here) — safe
- * because neither side touches the other's exports at module-init time,
- * only inside function bodies, which ES modules resolve correctly via live
- * bindings.
+ * Fase 22.4 adds reply-guy: /pause, /resume, /status text commands, and a
+ * reply candidate's card is SPLIT into two Telegram messages instead of one
+ * (UX fix 2026-07-11, Unai's request): a plain-text message with ONLY the
+ * draft (trivial to copy — no emoji/markdown chrome in the way when
+ * long-pressing "Copy" in Telegram), sent first, followed by a metadata
+ * message (author/score/link + all 4 buttons: Approve API / 📋 Publicada a
+ * mano / Edit / Reject). `tg_message_id` keeps meaning "the message with
+ * the buttons" everywhere (unchanged for posts/quotes/threads, which still
+ * get one combined message); `tg_text_message_id` (migration 0012) is the
+ * new copy-paste message, NULL for every non-split row. Editing a reply
+ * threads onto the TEXT message specifically — replying to either message
+ * is detected (see the `tg_message_id = ? OR tg_text_message_id = ?` query
+ * below), but the "✏️ Editar" button prompts a reply onto the text message
+ * so the flow matches "you were about to copy this text anyway".
+ *
+ * This module has an intentional circular import with discovery.ts (it
+ * calls pauseDiscovery/resumeDiscovery/getDiscoveryStatus; discovery.ts
+ * calls sendReplyApprovalCard here) — safe because neither side touches the
+ * other's exports at module-init time, only inside function bodies, which
+ * ES modules resolve correctly via live bindings.
  */
 
 import {
@@ -30,8 +41,14 @@ import { pauseDiscovery, resumeDiscovery, getDiscoveryStatus } from "./discovery
 
 export interface TelegramApprovalEnv extends XTelegramEnv, PublishOneEnv {}
 
-/** Human-readable card text for a queue row — shared by the L0 approval card and the L2 veto notice. */
-export function formatCard(row: XQueueRow): string {
+/**
+ * Human-readable card text for a queue row — shared by the L0 approval
+ * card and the L2 veto notice. `omitText` (Fase 22.4 UX fix) drops the
+ * draft-text line for the META message of a split reply card, where the
+ * text already lives in its own message right above and repeating it here
+ * is just noise.
+ */
+export function formatCard(row: XQueueRow, opts: { omitText?: boolean } = {}): string {
   const accountLabel = row.account === "product" ? "@ToolSnapMCP" : "@icosaedro_one";
   const when = row.scheduled_at ? new Date(row.scheduled_at * 1000).toISOString() : "sin hora";
   const kindLabel =
@@ -44,18 +61,21 @@ export function formatCard(row: XQueueRow): string {
       : row.kind === "repost"
       ? "repost"
       : "post";
-  const lines = [
-    `📝 *${accountLabel}* — ${kindLabel}${row.series ? ` (${row.series})` : ""}`,
-    ``,
-    row.text ?? "_(sin texto — repost puro)_",
-    ``,
-    `🕐 Programado: ${when}`,
-  ];
+  const lines = [`📝 *${accountLabel}* — ${kindLabel}${row.series ? ` (${row.series})` : ""}`];
+  if (!opts.omitText) {
+    lines.push(``, row.text ?? "_(sin texto — repost puro)_");
+  }
+  lines.push(``, `🕐 Programado: ${when}`);
   if (row.depends_on) lines.push(`↳ depende de #${row.depends_on}`);
   if (row.kind === "reply" && row.reply_to_tweet_id) {
     lines.push(`🔗 https://x.com/i/web/status/${row.reply_to_tweet_id}`);
   }
   return lines.join("\n");
+}
+
+/** Card text for editing the META/buttons message of a reply candidate — omits the draft (it's in the separate text message above). No-op (same as formatCard) for every other row kind, which never split. */
+function metaCardFor(row: XQueueRow): string {
+  return formatCard(row, { omitText: row.kind === "reply" });
 }
 
 export interface ReplyCandidateInfo {
@@ -68,26 +88,29 @@ export interface ReplyCandidateInfo {
   draftReply: string;
 }
 
-/** Fase 22.4 — the richer initial alert for a reply candidate (author/score/link the follow-up formatCard doesn't have). */
-function formatReplyCard(info: ReplyCandidateInfo): string {
+/** Fase 22.4 UX fix — the metadata message for a reply candidate (author/score/link); the draft text itself is a separate plain-text message sent right before this one, see sendReplyApprovalCard. */
+function formatReplyMeta(info: ReplyCandidateInfo): string {
   return [
     `💬 *reply candidate* — @${info.authorHandle} (${info.authorFollowers.toLocaleString()} followers) · score ${info.score}`,
     ``,
     `🔗 ${info.tweetUrl}`,
     ``,
-    `Draft:`,
-    info.draftReply,
+    `👆 texto del reply arriba, listo para copiar`,
   ].join("\n");
 }
 
 /**
- * Send the alert card for a discovered reply candidate (Fase 22.4). 4
- * buttons: Approve (publishes immediately via the X API), 📋 published
- * manually (Unai pasted it himself in X — zero API cost, the preferred
- * path since he's already there for the manual like/follow), Edit, Reject.
+ * Send the alert for a discovered reply candidate (Fase 22.4) as TWO
+ * messages (UX fix 2026-07-11): first a plain-text message with only the
+ * draft — no parse_mode, no emoji header, nothing to strip before pasting
+ * into X — then a metadata message (author/score/link) with all 4 buttons:
+ * Approve (publishes immediately via the X API), 📋 published manually
+ * (Unai pasted it himself in X — zero API cost, the preferred path since
+ * he's already there for the manual like/follow), Edit, Reject.
  */
 export async function sendReplyApprovalCard(env: XTelegramEnv, db: D1Database, info: ReplyCandidateInfo): Promise<void> {
-  const messageId = await sendXAgentMessage(env, formatReplyCard(info), {
+  const textMessageId = await sendXAgentMessage(env, info.draftReply, { plain: true });
+  const metaMessageId = await sendXAgentMessage(env, formatReplyMeta(info), {
     inlineKeyboard: [
       [
         { text: "✅ Publicar (API)", callback_data: `xq:${info.queueId}:approve` },
@@ -99,8 +122,11 @@ export async function sendReplyApprovalCard(env: XTelegramEnv, db: D1Database, i
       ],
     ],
   });
-  if (messageId) {
-    await db.prepare("UPDATE x_queue SET tg_message_id = ? WHERE id = ?").bind(messageId, info.queueId).run();
+  if (textMessageId || metaMessageId) {
+    await db
+      .prepare("UPDATE x_queue SET tg_text_message_id = ?, tg_message_id = ? WHERE id = ?")
+      .bind(textMessageId, metaMessageId, info.queueId)
+      .run();
   }
 }
 
@@ -163,13 +189,13 @@ async function publishReplyNowAndMarkCandidate(env: TelegramApprovalEnv, db: D1D
   if (!row) return { text: "❌ *Error: fila no encontrada*", offerManualButton: false };
   const result = await attemptPublishNow(env, row);
   if (result.status === "published") {
-    return { text: `${formatCard({ ...row, status: "published", tweet_id: result.tweetId })}\n\n✅ *Publicado*`, offerManualButton: false };
+    return { text: `${metaCardFor({ ...row, status: "published", tweet_id: result.tweetId })}\n\n✅ *Publicado*`, offerManualButton: false };
   }
   if (result.status === "already_claimed") {
-    return { text: `${formatCard(row)}\n\n✅ *Aprobado (ya en curso)*`, offerManualButton: false };
+    return { text: `${metaCardFor(row)}\n\n✅ *Aprobado (ya en curso)*`, offerManualButton: false };
   }
   return {
-    text: `${formatCard(row)}\n\n⚠️ *Aprobado pero falló la publicación:* ${result.error.slice(0, 200)}\n\nSi la respondiste tú mismo en X, márcalo abajo.`,
+    text: `${metaCardFor(row)}\n\n⚠️ *Aprobado pero falló la publicación:* ${result.error.slice(0, 200)}\n\nSi la respondiste tú mismo en X, márcalo abajo.`,
     offerManualButton: true,
   };
 }
@@ -243,7 +269,7 @@ export async function handleTelegramUpdate(
       if (ok && messageId) {
         await db.prepare("UPDATE x_reply_candidates SET status = 'queued', updated_at = ? WHERE queue_id = ?").bind(Math.floor(Date.now() / 1000), id).run();
         const row = await getQueueRow(db, id);
-        await editXAgentMessageText(env, messageId, `${formatCard(row!)}\n\n📋 *Publicada a mano*`);
+        await editXAgentMessageText(env, messageId, `${metaCardFor(row!)}\n\n📋 *Publicada a mano*`);
       }
       return;
     }
@@ -254,15 +280,23 @@ export async function handleTelegramUpdate(
       if (ok && messageId) {
         const row = await getQueueRow(db, id);
         await db.prepare("UPDATE x_reply_candidates SET status = 'skipped', updated_at = ? WHERE queue_id = ?").bind(Math.floor(Date.now() / 1000), id).run();
-        await editXAgentMessageText(env, messageId, `${formatCard(row!)}\n\n❌ *Rechazado*`);
+        await editXAgentMessageText(env, messageId, `${metaCardFor(row!)}\n\n❌ *Rechazado*`);
       }
       return;
     }
 
     if (action === "edit") {
-      await answerCallbackQuery(env, cq.id, "Responde a este mensaje con el texto corregido");
-      if (messageId) {
-        await sendXAgentReply(env, "✏️ Responde a la tarjeta con el texto corregido y se aprobará automáticamente.", messageId);
+      // Fase 22.4 UX fix: thread the "reply with the correction" prompt onto
+      // the TEXT message specifically (tg_text_message_id) when this is a
+      // split reply card — that's the message Unai was about to copy from
+      // anyway, so correcting it is the same gesture. Falls back to the
+      // single combined message (messageId, the one the button lives on)
+      // for every non-split row kind, unchanged from before the split.
+      const row = await getQueueRow(db, id);
+      const targetMessageId = row?.tg_text_message_id ?? messageId;
+      await answerCallbackQuery(env, cq.id, "Responde con el texto corregido");
+      if (targetMessageId) {
+        await sendXAgentReply(env, "✏️ Responde a *este* mensaje con el texto corregido y se aprobará automáticamente.", targetMessageId);
       }
       return;
     }
@@ -276,7 +310,7 @@ export async function handleTelegramUpdate(
       await answerCallbackQuery(env, cq.id, ok ? "Vetado" : "Ya no se puede cancelar (¿ya se publicó?)");
       if (ok && messageId) {
         const row = await getQueueRow(db, id);
-        await editXAgentMessageText(env, messageId, `${formatCard(row!)}\n\n🚫 *Vetado — no se publicará*`);
+        await editXAgentMessageText(env, messageId, `${metaCardFor(row!)}\n\n🚫 *Vetado — no se publicará*`);
       }
       return;
     }
@@ -287,19 +321,30 @@ export async function handleTelegramUpdate(
     const chatId = update.message.chat.id;
     if (!allowedChatId || String(chatId) !== String(allowedChatId)) return;
     const repliedToId = update.message.reply_to_message.message_id;
+    // Fase 22.4 UX fix: a split reply card can be replied-to via either
+    // message (the text one, which is what the "✏️ Editar" prompt threads
+    // onto, or the meta/buttons one, for anyone who habitually replies to
+    // the card like before) — match whichever matches.
     const row = await db
-      .prepare("SELECT * FROM x_queue WHERE tg_message_id = ? AND status = 'pending_approval'")
-      .bind(repliedToId)
+      .prepare("SELECT * FROM x_queue WHERE (tg_message_id = ? OR tg_text_message_id = ?) AND status = 'pending_approval'")
+      .bind(repliedToId, repliedToId)
       .first<XQueueRow>();
     if (!row) return; // reply to something else (or already resolved) — ignore
-    const ok = await editAndApproveRow(db, row.id, update.message.text.trim());
+    const newText = update.message.text.trim();
+    const ok = await editAndApproveRow(db, row.id, newText);
     if (ok) {
       if (row.kind === "reply") {
+        // Update the copy-paste text message to the corrected draft (plain,
+        // same as the original send) before publishing/reporting outcome on
+        // the meta message — the two messages must never show mismatched text.
+        if (row.tg_text_message_id) {
+          await editXAgentMessageText(env, row.tg_text_message_id, newText, { plain: true });
+        }
         const outcome = await publishReplyNowAndMarkCandidate(env, db, row.id);
         const keyboard = outcome.offerManualButton ? [[{ text: "📋 Publicada a mano", callback_data: `xq:${row.id}:manual` }]] : [];
-        await editXAgentMessageText(env, repliedToId, outcome.text, { inlineKeyboard: keyboard });
+        if (row.tg_message_id) await editXAgentMessageText(env, row.tg_message_id, outcome.text, { inlineKeyboard: keyboard });
       } else {
-        await editXAgentMessageText(env, repliedToId, `${formatCard({ ...row, text: update.message.text.trim() })}\n\n✏️ *Editado y aprobado*`);
+        await editXAgentMessageText(env, repliedToId, `${formatCard({ ...row, text: newText })}\n\n✏️ *Editado y aprobado*`);
       }
     }
     return;

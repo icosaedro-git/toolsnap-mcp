@@ -1,0 +1,11 @@
+-- Fase 22.4 UX fix (2026-07-11): reply-guy cards are split into two
+-- Telegram messages — one with ONLY the draft text (trivial to select/copy
+-- in Telegram's UI, no emoji/markdown chrome getting in the way when
+-- pasting into X) and one with the metadata (author/score/link) + action
+-- buttons. `tg_message_id` keeps its existing meaning ("the message the
+-- buttons live on") for every row type; this new column is the text-only
+-- message id, used so a reply-to-edit can target either message and so the
+-- text message can be edited independently of the outcome/buttons message.
+-- NULL for every row that isn't a split reply card (posts/quotes/threads
+-- keep the single-message behavior they've always had).
+ALTER TABLE x_queue ADD COLUMN tg_text_message_id INTEGER;

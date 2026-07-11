@@ -69,6 +69,14 @@ function applyMigrationLocally() {
   execSync(`npx wrangler d1 execute toolsnap-prepaid --local --file=migrations/0011_x_reply.sql`, {
     stdio: "inherit",
   });
+  console.log("Applying migrations/0012_x_queue_tg_text_message.sql to local D1 (idempotent — ALTER TABLE ADD COLUMN fails harmlessly if it already ran)...");
+  try {
+    execSync(`npx wrangler d1 execute toolsnap-prepaid --local --file=migrations/0012_x_queue_tg_text_message.sql`, {
+      stdio: "inherit",
+    });
+  } catch {
+    console.log("(0012 already applied in this local D1 — ignoring 'duplicate column' error)");
+  }
 }
 
 /** Run arbitrary SQL against the local D1 (used for test-only fixtures/backdating that have no API — never used for the real x_prompts strategy content, which is a fixture string here, not the real vault prompt). */
