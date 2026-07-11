@@ -22,11 +22,11 @@ function apiBase(env: XTelegramEnv): string | null {
   return `https://api.telegram.org/bot${env.X_TG_BOT_TOKEN}`;
 }
 
-/** Send a message, optionally with an inline keyboard. Returns the sent message id, or null if not configured/failed. */
+/** Send a message, optionally with an inline keyboard. `plain: true` (Fase 22.4, reply-guy's copy-paste text message) omits parse_mode entirely — a draft reply can contain `_`/`*`/`` ` ``/`[` that Markdown would either mangle or reject as an unbalanced entity, and the whole point of that message is a clean, trivial copy into X. Returns the sent message id, or null if not configured/failed. */
 export async function sendXAgentMessage(
   env: XTelegramEnv,
   text: string,
-  opts: { inlineKeyboard?: InlineKeyboardButton[][] } = {}
+  opts: { inlineKeyboard?: InlineKeyboardButton[][]; plain?: boolean } = {}
 ): Promise<number | null> {
   const base = apiBase(env);
   if (!base || !env.TELEGRAM_CHAT_ID) return null;
@@ -37,7 +37,7 @@ export async function sendXAgentMessage(
       body: JSON.stringify({
         chat_id: env.TELEGRAM_CHAT_ID,
         text,
-        parse_mode: "Markdown",
+        ...(opts.plain ? {} : { parse_mode: "Markdown" }),
         disable_web_page_preview: true,
         ...(opts.inlineKeyboard ? { reply_markup: { inline_keyboard: opts.inlineKeyboard } } : {}),
       }),
@@ -50,12 +50,12 @@ export async function sendXAgentMessage(
   }
 }
 
-/** Edit an existing message's text (used to close out an approval card after a decision). */
+/** Edit an existing message's text (used to close out an approval card after a decision, or to update the copy-paste text message on an edit). See sendXAgentMessage's `plain` note. */
 export async function editXAgentMessageText(
   env: XTelegramEnv,
   messageId: number,
   text: string,
-  opts: { inlineKeyboard?: InlineKeyboardButton[][] } = {}
+  opts: { inlineKeyboard?: InlineKeyboardButton[][]; plain?: boolean } = {}
 ): Promise<boolean> {
   const base = apiBase(env);
   if (!base || !env.TELEGRAM_CHAT_ID) return false;
@@ -67,7 +67,7 @@ export async function editXAgentMessageText(
         chat_id: env.TELEGRAM_CHAT_ID,
         message_id: messageId,
         text,
-        parse_mode: "Markdown",
+        ...(opts.plain ? {} : { parse_mode: "Markdown" }),
         disable_web_page_preview: true,
         reply_markup: { inline_keyboard: opts.inlineKeyboard ?? [] },
       }),
@@ -77,6 +77,7 @@ export async function editXAgentMessageText(
     return false;
   }
 }
+
 
 /** Acknowledge a callback_query (stops the client-side loading spinner on the tapped button). */
 export async function answerCallbackQuery(env: XTelegramEnv, callbackQueryId: string, text?: string): Promise<void> {
@@ -97,11 +98,11 @@ export async function sendXAgentReply(
   env: XTelegramEnv,
   text: string,
   replyToMessageId: number
-): Promise<void> {
+): Promise<number | null> {
   const base = apiBase(env);
-  if (!base || !env.TELEGRAM_CHAT_ID) return;
+  if (!base || !env.TELEGRAM_CHAT_ID) return null;
   try {
-    await fetch(`${base}/sendMessage`, {
+    const res = await fetch(`${base}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -111,8 +112,11 @@ export async function sendXAgentReply(
         reply_to_message_id: replyToMessageId,
       }),
     });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { result?: { message_id?: number } };
+    return data.result?.message_id ?? null;
   } catch {
-    // best-effort
+    return null; // best-effort
   }
 }
 

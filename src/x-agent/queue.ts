@@ -33,6 +33,9 @@ export interface XQueueRow {
   approval_mode: XApprovalMode;
   veto_notified_at: number | null;
   tg_message_id: number | null;
+  // Fase 22.4 UX fix — the separate copy-paste text-only message for a
+  // split reply card (see migration 0012). NULL for every other kind.
+  tg_text_message_id: number | null;
   tweet_id: string | null;
   published_at: number | null;
   published_via: "api" | "manual" | null;
