@@ -761,6 +761,36 @@ async function main() {
   const unknownXrStatus = await sendTelegramRawCallback("xr:bogus");
   check("unmatched xr: callback still 200 (falls through to the generic ack)", unknownXrStatus === 200, String(unknownXrStatus));
 
+  console.log("\n35) Fase 22.4 — daily plan + weekly overview in GET /x-api/replies/status");
+  loadReplyGuyFixtures(); // wide-open window (0-24h), 999 sweeps/day every day — deterministic regardless of wall-clock time
+  const statusWithPlan = await adminGet("/x-api/replies/status");
+  const todayPlan = statusWithPlan.json?.today;
+  const weekPlan = statusWithPlan.json?.week;
+  check("today.targetSweeps reflects the fixture (999)", todayPlan?.targetSweeps === 999, JSON.stringify(todayPlan));
+  check(
+    "today.state is one of the expected values given the wide-open fixture",
+    ["active", "budget_reached", "cap_reached", "quota_done"].includes(todayPlan?.state),
+    JSON.stringify(todayPlan)
+  );
+  check("week has exactly 7 entries", Array.isArray(weekPlan) && weekPlan.length === 7, JSON.stringify(weekPlan));
+  check(
+    "every week day reflects the fixture's 999 sweeps/day",
+    (weekPlan ?? []).every((d: { sweeps: number }) => d.sweeps === 999),
+    JSON.stringify(weekPlan)
+  );
+  const todayCount = (weekPlan ?? []).filter((d: { isToday: boolean }) => d.isToday).length;
+  check("exactly one week day is marked isToday", todayCount === 1, JSON.stringify(weekPlan));
+
+  console.log("\n36) Fase 22.4 — today.state reflects /stop and /resume");
+  await sendTelegramRawCallback("xr:stop");
+  await sleep(500);
+  const statusStoppedPlan = await adminGet("/x-api/replies/status");
+  check("today.state === 'stopped' while stopped", statusStoppedPlan.json?.today?.state === "stopped", JSON.stringify(statusStoppedPlan.json?.today));
+  await sendTelegramRawCallback("xr:resume");
+  await sleep(500);
+  const statusResumedPlan = await adminGet("/x-api/replies/status");
+  check("today.state no longer 'stopped' after /resume", statusResumedPlan.json?.today?.state !== "stopped", JSON.stringify(statusResumedPlan.json?.today));
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);
 }

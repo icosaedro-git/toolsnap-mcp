@@ -234,17 +234,37 @@ async function publishReplyNowAndMarkCandidate(env: TelegramApprovalEnv, db: D1D
  * `xr:` callback handlers that re-render it in place after a button tap
  * (Fase 22.4 discoverability fix, 2026-07-11).
  */
+function fmtMadridHHMM(epochSeconds: number): string {
+  return new Date(epochSeconds * 1000).toLocaleString("es-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit" });
+}
+
+/** Suffix for the "Hoy" line explaining why (not) — only for the non-obvious states; paused/stopped are already covered by the top line. */
+function todaySuffix(today: Awaited<ReturnType<typeof getDiscoveryStatus>>["today"]): string {
+  if (today.state === "active") {
+    return today.nextSweepEarliest ? ` · próximo no antes de las ${fmtMadridHHMM(today.nextSweepEarliest)}` : "";
+  }
+  if (today.state === "off_today") return " · sin barridos hoy por diseño";
+  if (today.state === "quota_done") return " · barridos de hoy completados";
+  if (today.state === "budget_reached") return " · presupuesto diario agotado";
+  if (today.state === "cap_reached") return " · cap diario alcanzado";
+  return "";
+}
+
 function formatDiscoveryStatus(status: Awaited<ReturnType<typeof getDiscoveryStatus>>): string {
   const pausedLabel = isPausedForever(status.pausedUntil)
     ? "⏹ detenido (permanente — /resume para reanudar)"
     : status.pausedUntil > Math.floor(Date.now() / 1000)
     ? `⏸ pausado hasta ${new Date(status.pausedUntil * 1000).toLocaleString("es-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}`
     : "▶️ activo";
+  const weekLine = status.week
+    .map((d) => (d.isToday ? `[${d.label}${d.sweeps || "—"}]` : `${d.label}${d.sweeps || "—"}`))
+    .join(" · ");
   return [
     `*Reply-guy status:* ${pausedLabel}`,
+    `Hoy (${status.today.dayLabel}): ${status.today.sweepsDone}/${status.today.targetSweeps} barridos · ventana ${status.today.windowStartHour}–${status.today.windowEndHour}h${todaySuffix(status.today)}`,
+    `Semana: ${weekLine}`,
     `Replies hoy: ${status.counters.repliesQueued}/${status.config.dailyCap}`,
     `Gasto xAI hoy: $${status.counters.spendUsd.toFixed(3)}/$${status.config.dailyBudgetUsd.toFixed(2)}`,
-    `Barridos hoy: ${status.counters.sweepsRun}`,
   ].join("\n");
 }
 

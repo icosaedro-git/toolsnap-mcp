@@ -36,7 +36,7 @@ in this repo — see the operational notes below) rather than hardcoded here.
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/x-api/replies` | Recent reply candidates, joined with their queue row's current status/text (`limit`, default 50) |
-| `GET` | `/x-api/replies/status` | Pause state, today's counters (sweeps/replies/spend) and the active config |
+| `GET` | `/x-api/replies/status` | Pause state, today's counters (sweeps/replies/spend), the active config, plus a computed `today` (state, sweeps done/target, window, earliest possible next sweep) and `week` (sweeps/day, Monday-first) for the panel/Telegram overview |
 | `POST` | `/x-api/replies/pause` | Pause discovery (`{ "hours"?: number, "until"?: <epoch> }`, default 2h; `{ "forever": true }` for an indefinite pause — same as the `/stop` Telegram command) — does not affect the rest of the queue |
 | `POST` | `/x-api/replies/resume` | Resume discovery (clears both a timed pause and an indefinite one) |
 | `GET` | `/x-api/push/vapid-public-key` | VAPID public key for the panel's `PushManager.subscribe()` call (501 if Web Push isn't configured) |
@@ -248,7 +248,13 @@ on its own once its cancel window closes, unless vetoed from Telegram first.
   action(s) that make sense for the current pause state (resume when
   paused/stopped; pause/stop when active) — and tapping one edits the same
   message in place with the new state, so `/status` doubles as a live
-  mini-panel.
+  mini-panel. Both `/status` and the panel's Replies tab show a daily plan
+  (sweeps done/target, active window, earliest possible next sweep) and a
+  Monday-first weekly overview (sweeps/day, including the days a 0 by
+  design) — computed from existing config/state (`discovery.ts`'s
+  `getDiscoveryStatus`), no new state. Sweeps never have fixed times (only a
+  minimum gap enforced by `shouldRunSweep`), so "earliest possible next
+  sweep" is exactly that — never an invented schedule.
 - Web Push notifications are a "tickle" with no payload: the push wakes the
   service worker (`GET /x-agent-sw.js`), which fetches
   `GET /x-agent/api/replies/pending` same-origin (the Access session cookie
