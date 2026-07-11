@@ -141,15 +141,37 @@ export interface TelegramUpdate {
   };
 }
 
-/** After approving/editing a `kind='reply'` row, publish it right away instead of waiting for the next cron tick — timing is the whole point of a reply (nota 14 §1/§5). Marks the associated candidate 'queued' either way. */
-async function publishReplyNowAndMarkCandidate(env: TelegramApprovalEnv, db: D1Database, id: number): Promise<string> {
+interface ReplyPublishOutcome {
+  text: string;
+  /** Set when the API attempt did NOT end in a real publish — the failure notice needs a way forward, not a dead end (found 2026-07-11: a real X 403 — "not allowed to reply unless mentioned/engaged by the author" — left the row `failed` with no button on the card to recover it). */
+  offerManualButton: boolean;
+}
+
+/**
+ * After approving/editing a `kind='reply'` row, publish it right away
+ * instead of waiting for the next cron tick — timing is the whole point of
+ * a reply (nota 14 §1/§5). Marks the associated candidate 'queued' either
+ * way. On any outcome other than a real publish, the card keeps a
+ * "📋 Publicada a mano" button (see markPublishedManual's Fase 22.4
+ * extension to also accept `failed` rows) — X can legitimately reject a
+ * reply (conversation restricted to mentioned/engaged accounts) and that's
+ * not a bug to retry, it's Unai doing it by hand instead.
+ */
+async function publishReplyNowAndMarkCandidate(env: TelegramApprovalEnv, db: D1Database, id: number): Promise<ReplyPublishOutcome> {
   const row = await getQueueRow(db, id);
   await db.prepare("UPDATE x_reply_candidates SET status = 'queued', updated_at = ? WHERE queue_id = ?").bind(Math.floor(Date.now() / 1000), id).run();
-  if (!row) return "❌ *Error: fila no encontrada*";
+  if (!row) return { text: "❌ *Error: fila no encontrada*", offerManualButton: false };
   const result = await attemptPublishNow(env, row);
-  if (result.status === "published") return `${formatCard({ ...row, status: "published", tweet_id: result.tweetId })}\n\n✅ *Publicado*`;
-  if (result.status === "already_claimed") return `${formatCard(row)}\n\n✅ *Aprobado (ya en curso)*`;
-  return `${formatCard(row)}\n\n⚠️ *Aprobado pero falló la publicación:* ${result.error.slice(0, 200)}`;
+  if (result.status === "published") {
+    return { text: `${formatCard({ ...row, status: "published", tweet_id: result.tweetId })}\n\n✅ *Publicado*`, offerManualButton: false };
+  }
+  if (result.status === "already_claimed") {
+    return { text: `${formatCard(row)}\n\n✅ *Aprobado (ya en curso)*`, offerManualButton: false };
+  }
+  return {
+    text: `${formatCard(row)}\n\n⚠️ *Aprobado pero falló la publicación:* ${result.error.slice(0, 200)}\n\nSi la respondiste tú mismo en X, márcalo abajo.`,
+    offerManualButton: true,
+  };
 }
 
 /** Parse "/pause", "/pause 2h", "/pause hoy" -> a pause-until epoch (2h default; "hoy" = end of the Madrid calendar day). */
@@ -199,8 +221,13 @@ export async function handleTelegramUpdate(
       await answerCallbackQuery(env, cq.id, ok ? "Aprobado" : "Ya no está pendiente");
       if (ok && messageId) {
         const freshRow = await getQueueRow(db, id);
-        const text = freshRow?.kind === "reply" ? await publishReplyNowAndMarkCandidate(env, db, id) : `${formatCard(freshRow!)}\n\n✅ *Aprobado*`;
-        await editXAgentMessageText(env, messageId, text);
+        if (freshRow?.kind === "reply") {
+          const outcome = await publishReplyNowAndMarkCandidate(env, db, id);
+          const keyboard = outcome.offerManualButton ? [[{ text: "📋 Publicada a mano", callback_data: `xq:${id}:manual` }]] : [];
+          await editXAgentMessageText(env, messageId, outcome.text, { inlineKeyboard: keyboard });
+        } else {
+          await editXAgentMessageText(env, messageId, `${formatCard(freshRow!)}\n\n✅ *Aprobado*`);
+        }
       }
       return;
     }
@@ -267,8 +294,13 @@ export async function handleTelegramUpdate(
     if (!row) return; // reply to something else (or already resolved) — ignore
     const ok = await editAndApproveRow(db, row.id, update.message.text.trim());
     if (ok) {
-      const text = row.kind === "reply" ? await publishReplyNowAndMarkCandidate(env, db, row.id) : `${formatCard({ ...row, text: update.message.text.trim() })}\n\n✏️ *Editado y aprobado*`;
-      await editXAgentMessageText(env, repliedToId, text);
+      if (row.kind === "reply") {
+        const outcome = await publishReplyNowAndMarkCandidate(env, db, row.id);
+        const keyboard = outcome.offerManualButton ? [[{ text: "📋 Publicada a mano", callback_data: `xq:${row.id}:manual` }]] : [];
+        await editXAgentMessageText(env, repliedToId, outcome.text, { inlineKeyboard: keyboard });
+      } else {
+        await editXAgentMessageText(env, repliedToId, `${formatCard({ ...row, text: update.message.text.trim() })}\n\n✏️ *Editado y aprobado*`);
+      }
     }
     return;
   }

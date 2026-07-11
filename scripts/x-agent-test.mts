@@ -606,6 +606,28 @@ async function main() {
   check("diagnostic sweep still refuses to run while paused", sweepWhilePaused.json?.ran === false && sweepWhilePaused.json?.reason === "paused", JSON.stringify(sweepWhilePaused.json));
   await adminPost("/x-api/replies/resume");
 
+  console.log("\n29) Fase 22.4 fix (2026-07-11) — a real X 403 leaves a row 'failed', not stranded: mark-published now recovers it");
+  const failedBatchId = `e2e-reply-failed-${Date.now()}`;
+  const failedLoad = await adminPost("/x-api/queue", {
+    batch_id: failedBatchId,
+    approval_mode: "batch",
+    items: [{ local_id: "reply-d", account: "personal", kind: "reply", text: "e2e reply — simulated X 403", reply_to_tweet_id: "6666666666", series: "reply-guy", scheduled_at: now }],
+  });
+  const failedReplyId = (failedLoad.json?.inserted ?? []).find((r: { local_id?: string }) => r.local_id === "reply-d")?.id;
+  // Simulate what a real non-retryable X API failure (e.g. the 403 "not
+  // allowed to reply unless mentioned/engaged") leaves behind — there is no
+  // way to force a real failure under X_DRY_RUN (it always "succeeds"), so
+  // this backdoors the exact end state markFailedOrRetry would produce.
+  runD1SqlLocally(`UPDATE x_queue SET status = 'failed', error = 'X API error (403): simulated for e2e' WHERE id = ${failedReplyId};`);
+  const markPublishedOnFailed = await adminPost(`/x-api/queue/${failedReplyId}/mark-published`, {});
+  check(
+    "mark-published now succeeds on a 'failed' row (previously only scheduled/pending_approval)",
+    markPublishedOnFailed.status === 200 && markPublishedOnFailed.json?.marked_published === true,
+    JSON.stringify(markPublishedOnFailed.json)
+  );
+  const afterFailedRecovery = (await adminGet(`/x-api/queue?batch_id=${failedBatchId}`)).json?.rows?.[0];
+  check("row is published_via='manual' after recovery", afterFailedRecovery?.status === "published" && afterFailedRecovery?.published_via === "manual", JSON.stringify(afterFailedRecovery));
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);
 }
