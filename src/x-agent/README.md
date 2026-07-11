@@ -28,6 +28,31 @@ admin surface (`ADMIN_API_KEY` secret). Deliberately **outside** `/admin/*`
 | `POST` | `/x-api/telegram/setup-webhook` | (Re-)register the Telegram webhook — one-time/diagnostic |
 | `GET` | `/x-api/telegram/webhook-info` | Current webhook registration state |
 
+Reply-guy (Fase 22.4) — discovery, scoring and drafting of replies to
+external posts. This machinery is generic; the actual discovery/scoring/
+drafting prompt and its parameters are loaded from `x_prompts` (not present
+in this repo — see the operational notes below) rather than hardcoded here.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/x-api/replies` | Recent reply candidates, joined with their queue row's current status/text (`limit`, default 50) |
+| `GET` | `/x-api/replies/status` | Pause state, today's counters (sweeps/replies/spend) and the active config |
+| `POST` | `/x-api/replies/pause` | Pause discovery (`{ "hours"?: number, "until"?: <epoch> }`, default 2h) — does not affect the rest of the queue |
+| `POST` | `/x-api/replies/resume` | Resume discovery |
+| `GET` | `/x-api/push/vapid-public-key` | VAPID public key for the panel's `PushManager.subscribe()` call (501 if Web Push isn't configured) |
+| `POST` | `/x-api/push/subscribe` | Register a browser's push subscription (`PushSubscriptionJSON` body) |
+
+A discovered candidate is queued as an ordinary `x_queue` row
+(`kind='reply'`, `approval_mode='per_post'`) — every existing action
+(`approve`/`reject`/`edit`/`mark-published`) works on it unchanged. Approving
+or editing a `kind='reply'` row publishes it immediately (does not wait for
+the next cron tick) since timing matters for a reply in a way it doesn't for
+a scheduled post. The Telegram card for a reply candidate has one extra
+button beyond the usual three — "published manually" — which marks the row
+published without ever calling the X API (the same "publish it yourself,
+tell the system after" path the panel's `mark-published` already supports),
+at zero X API cost.
+
 The same handlers are also mounted at `/x-agent/api/*` behind a Cloudflare
 Access application (the interactive panel at `/x-agent`) — see the routing
 note below for why there are two mounts instead of one.
@@ -182,3 +207,23 @@ on its own once its cancel window closes, unless vetoed from Telegram first.
   contains a link** (posts read: $0.005 each, capped at 2M reads/month, no
   monthly minimum). This is why series policy (vault nota 13) restricts
   links to 2–3 high-intent posts per week rather than every post.
+- Reply-guy (Fase 22.4) has no strategy in this repo: the discovery/scoring/
+  drafting prompt is a row in `x_prompts` (`name='reply_discovery'`), and its
+  tunables (active window, per-weekday sweep count, daily budget/cap, score
+  threshold, candidate TTL) are a JSON row (`name='reply_config'`). Neither
+  is inserted by any migration or seeded by any script — without them loaded,
+  the discovery sweep is a documented no-op (`{ ran: false, reason: "no
+  reply_discovery prompt loaded in x_prompts" }`), never a hardcoded
+  fallback. Discovery calls the xAI Responses API (`x_search` tool) —
+  `src/x-agent/xai.ts` parses the response defensively and is written to
+  fail loudly (not silently misparse) if xAI's actual response shape differs
+  from what its public docs describe; the first real sweep against
+  production is the real verification of that parsing.
+- Web Push notifications are a "tickle" with no payload: the push wakes the
+  service worker (`GET /x-agent-sw.js`), which fetches
+  `GET /x-agent/api/replies/pending` same-origin (the Access session cookie
+  travels with it) to build the notification from real data. This sidesteps
+  payload encryption (RFC 8291) entirely — only a VAPID-signed
+  `Authorization` header is needed. Not configured (no `VAPID_PUBLIC_KEY`/
+  `VAPID_PRIVATE_KEY` secrets) → `/x-api/push/vapid-public-key` returns 501
+  and the panel's notification button surfaces that instead of failing silently.
