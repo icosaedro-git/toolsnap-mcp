@@ -95,6 +95,8 @@ export const X_PANEL_HTML = `<!DOCTYPE html>
   .sub-panel { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-top: 10px; }
   .thumb { width: 60px; height: 60px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); margin-right: 6px; }
   .table-scroll { overflow-x: auto; }
+  .today-state { font-size: 16px; font-weight: 700; }
+  .today-state-detail { font-size: 12px; color: var(--muted); }
   .week-strip { display: flex; gap: 6px; margin-top: 14px; }
   .week-pill { flex: 1; text-align: center; padding: 8px 4px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); }
   .week-pill.today { border-color: var(--accent); }
@@ -526,14 +528,17 @@ const PAUSE_FOREVER_TS = 32503680000; // year 3000 — matches discovery.ts's PA
 // discovery.ts's getDiscoveryStatus().today; sweeps have no fixed times (see
 // discovery.ts's header comment), so this shows done/target + the earliest
 // possible next sweep, never an invented schedule.
-const TODAY_STATE_LABEL = {
-  active: '▶️ active',
-  paused: '⏸ paused',
-  stopped: '⏹ stopped (permanent)',
-  off_today: '💤 no sweeps today (by design)',
-  quota_done: "✅ today's sweeps done",
-  budget_reached: '💰 daily budget reached',
-  cap_reached: '🧢 daily cap reached'
+// Fase: status word made visually distinct (2026-07-11, Unai's request) —
+// icon+word in a bigger/bolder/colored badge so the state reads at a glance
+// instead of blending into the rest of the line's plain-size text.
+const TODAY_STATE_STYLE = {
+  active: { icon: '▶️', word: 'Active', color: 'var(--green)' },
+  paused: { icon: '⏸', word: 'Paused', color: 'var(--accent)' },
+  stopped: { icon: '⏹', word: 'Stopped', color: 'var(--red)' },
+  off_today: { icon: '💤', word: 'Off today', color: 'var(--muted)' },
+  quota_done: { icon: '✅', word: 'Quota done', color: 'var(--green)' },
+  budget_reached: { icon: '💰', word: 'Budget reached', color: 'var(--yellow)' },
+  cap_reached: { icon: '🧢', word: 'Cap reached', color: 'var(--yellow)' }
 };
 
 function fmtMadridTime(epochSeconds) {
@@ -543,11 +548,14 @@ function fmtMadridTime(epochSeconds) {
 function todayLine(rs) {
   const t = rs.today;
   if (!t) return '';
-  let label = TODAY_STATE_LABEL[t.state] || t.state;
-  if (t.state === 'paused') label += ' until ' + fmtMadridTime(rs.pausedUntil);
-  const parts = [label, 'Sweeps: ' + t.sweepsDone + '/' + t.targetSweeps, 'Window ' + t.windowStartHour + '–' + t.windowEndHour + 'h'];
+  const st = TODAY_STATE_STYLE[t.state] || { icon: '', word: t.state, color: 'var(--text)' };
+  let badge = '<span class="today-state" style="color:' + st.color + '">' + st.icon + ' ' + esc(st.word) + '</span>';
+  if (t.state === 'paused') badge += '<span class="today-state-detail">until ' + fmtMadridTime(rs.pausedUntil) + '</span>';
+  else if (t.state === 'stopped') badge += '<span class="today-state-detail">(permanent)</span>';
+  else if (t.state === 'off_today') badge += '<span class="today-state-detail">by design</span>';
+  const parts = ['Sweeps: ' + t.sweepsDone + '/' + t.targetSweeps, 'Window ' + t.windowStartHour + '–' + t.windowEndHour + 'h'];
   if (t.nextSweepEarliest) parts.push('next not before ' + fmtMadridTime(t.nextSweepEarliest));
-  return parts.map(p => '<span>' + esc(p) + '</span>').join('');
+  return badge + parts.map(p => '<span>' + esc(p) + '</span>').join('');
 }
 
 function weekStrip(rs) {
