@@ -37,8 +37,8 @@ in this repo — see the operational notes below) rather than hardcoded here.
 |---|---|---|
 | `GET` | `/x-api/replies` | Recent reply candidates, joined with their queue row's current status/text (`limit`, default 50) |
 | `GET` | `/x-api/replies/status` | Pause state, today's counters (sweeps/replies/spend) and the active config |
-| `POST` | `/x-api/replies/pause` | Pause discovery (`{ "hours"?: number, "until"?: <epoch> }`, default 2h) — does not affect the rest of the queue |
-| `POST` | `/x-api/replies/resume` | Resume discovery |
+| `POST` | `/x-api/replies/pause` | Pause discovery (`{ "hours"?: number, "until"?: <epoch> }`, default 2h; `{ "forever": true }` for an indefinite pause — same as the `/stop` Telegram command) — does not affect the rest of the queue |
+| `POST` | `/x-api/replies/resume` | Resume discovery (clears both a timed pause and an indefinite one) |
 | `GET` | `/x-api/push/vapid-public-key` | VAPID public key for the panel's `PushManager.subscribe()` call (501 if Web Push isn't configured) |
 | `POST` | `/x-api/push/subscribe` | Register a browser's push subscription (`PushSubscriptionJSON` body) |
 | `POST` | `/x-api/prompts` | Load/replace the active `reply_discovery` prompt or `reply_config` JSON (`{ "name": "reply_discovery"\|"reply_config", "content": "..." }`) — the only way this content enters D1, see below |
@@ -48,13 +48,24 @@ in this repo — see the operational notes below) rather than hardcoded here.
 A discovered candidate is queued as an ordinary `x_queue` row
 (`kind='reply'`, `approval_mode='per_post'`) — every existing action
 (`approve`/`reject`/`edit`/`mark-published`) works on it unchanged. Approving
-or editing a `kind='reply'` row publishes it immediately (does not wait for
-the next cron tick) since timing matters for a reply in a way it doesn't for
-a scheduled post. The Telegram card for a reply candidate has one extra
-button beyond the usual three — "published manually" — which marks the row
-published without ever calling the X API (the same "publish it yourself,
-tell the system after" path the panel's `mark-published` already supports),
-at zero X API cost.
+a `kind='reply'` row publishes it immediately (does not wait for the next
+cron tick) since timing matters for a reply in a way it doesn't for a
+scheduled post; *editing* one does NOT auto-publish (UX fix 2026-07-11) — it
+corrects the draft and hands the decision back, since the primary path is
+manual and the X API can legitimately 403 a restricted conversation.
+
+The Telegram alert for a candidate is two messages, not one: a code-block
+message with only the draft (Telegram copies a full code block with a
+single tap — no long-press/select needed, and the draft always
+renders/copies byte-for-byte regardless of characters that would otherwise
+need Markdown-escaping) followed by a metadata message (author/score/a link
+button to the original post) with the decision keyboard — Approve via API,
+"published manually" (marks the row published without ever calling the X
+API, the same "publish it yourself, tell the system after" path the panel's
+`mark-published` already supports, at zero X API cost), Edit, Reject. A
+failed API publish attempt keeps the same manual-publish path available on
+the failure notice itself, so a real X rejection (a legitimate, non-bug 403
+on a restricted conversation) never strands the row.
 
 The same handlers are also mounted at `/x-agent/api/*` behind a Cloudflare
 Access application (the interactive panel at `/x-agent`) — see the routing

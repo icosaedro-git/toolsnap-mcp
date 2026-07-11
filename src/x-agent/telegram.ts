@@ -12,9 +12,11 @@ export interface XTelegramEnv {
   TELEGRAM_CHAT_ID?: string;
 }
 
+/** `url` is set for a link button (opens externally, no callback); `callback_data` for an action button. Telegram requires exactly one of the two per button. */
 export interface InlineKeyboardButton {
   text: string;
-  callback_data: string;
+  callback_data?: string;
+  url?: string;
 }
 
 function apiBase(env: XTelegramEnv): string | null {
@@ -22,11 +24,33 @@ function apiBase(env: XTelegramEnv): string | null {
   return `https://api.telegram.org/bot${env.X_TG_BOT_TOKEN}`;
 }
 
-/** Send a message, optionally with an inline keyboard. `plain: true` (Fase 22.4, reply-guy's copy-paste text message) omits parse_mode entirely — a draft reply can contain `_`/`*`/`` ` ``/`[` that Markdown would either mangle or reject as an unbalanced entity, and the whole point of that message is a clean, trivial copy into X. Returns the sent message id, or null if not configured/failed. */
+/** Escape the 3 characters HTML parse_mode treats specially — deliberately NOT a general HTML sanitizer, just enough for a `<pre>` block (see `format: "code"` below). */
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * `format` (Fase 22.4 UX fix, 2026-07-11):
+ * - `"markdown"` (default): today's behavior, `parse_mode: "Markdown"`.
+ * - `"code"`: renders the text as a single `<pre>` block via `parse_mode:
+ *   "HTML"` — reply-guy's copy-paste text message. Telegram lets you copy a
+ *   code block's full contents with ONE tap (no long-press/select needed),
+ *   and the escaped `<pre>` body means a draft containing `_`/`*`/`` ` ``/`[`
+ *   (which Markdown would mangle or reject as an unbalanced entity) always
+ *   renders and copies byte-for-byte.
+ */
+type MessageFormat = "markdown" | "code";
+
+function bodyForFormat(text: string, format: MessageFormat): { text: string; parse_mode?: string } {
+  if (format === "code") return { text: `<pre>${escapeHtml(text)}</pre>`, parse_mode: "HTML" };
+  return { text, parse_mode: "Markdown" };
+}
+
+/** Send a message, optionally with an inline keyboard. See `format`'s doc comment above. Returns the sent message id, or null if not configured/failed. */
 export async function sendXAgentMessage(
   env: XTelegramEnv,
   text: string,
-  opts: { inlineKeyboard?: InlineKeyboardButton[][]; plain?: boolean } = {}
+  opts: { inlineKeyboard?: InlineKeyboardButton[][]; format?: MessageFormat } = {}
 ): Promise<number | null> {
   const base = apiBase(env);
   if (!base || !env.TELEGRAM_CHAT_ID) return null;
@@ -36,8 +60,7 @@ export async function sendXAgentMessage(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         chat_id: env.TELEGRAM_CHAT_ID,
-        text,
-        ...(opts.plain ? {} : { parse_mode: "Markdown" }),
+        ...bodyForFormat(text, opts.format ?? "markdown"),
         disable_web_page_preview: true,
         ...(opts.inlineKeyboard ? { reply_markup: { inline_keyboard: opts.inlineKeyboard } } : {}),
       }),
@@ -50,12 +73,12 @@ export async function sendXAgentMessage(
   }
 }
 
-/** Edit an existing message's text (used to close out an approval card after a decision, or to update the copy-paste text message on an edit). See sendXAgentMessage's `plain` note. */
+/** Edit an existing message's text (used to close out an approval card after a decision, or to update the copy-paste text message on an edit). See sendXAgentMessage's `format` note. */
 export async function editXAgentMessageText(
   env: XTelegramEnv,
   messageId: number,
   text: string,
-  opts: { inlineKeyboard?: InlineKeyboardButton[][]; plain?: boolean } = {}
+  opts: { inlineKeyboard?: InlineKeyboardButton[][]; format?: MessageFormat } = {}
 ): Promise<boolean> {
   const base = apiBase(env);
   if (!base || !env.TELEGRAM_CHAT_ID) return false;
@@ -66,8 +89,7 @@ export async function editXAgentMessageText(
       body: JSON.stringify({
         chat_id: env.TELEGRAM_CHAT_ID,
         message_id: messageId,
-        text,
-        ...(opts.plain ? {} : { parse_mode: "Markdown" }),
+        ...bodyForFormat(text, opts.format ?? "markdown"),
         disable_web_page_preview: true,
         reply_markup: { inline_keyboard: opts.inlineKeyboard ?? [] },
       }),

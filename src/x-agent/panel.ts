@@ -513,16 +513,26 @@ function candidateRow(c) {
   </tr>\`;
 }
 
+const PAUSE_FOREVER_TS = 32503680000; // year 3000 — matches discovery.ts's PAUSE_FOREVER_TS sentinel for /stop
+
 function repliesSection() {
   const rs = state.replyStatus;
+  const statusLabel = rs
+    ? (rs.pausedUntil >= PAUSE_FOREVER_TS
+        ? '⏹ stopped (permanent)'
+        : rs.pausedUntil > Math.floor(Date.now() / 1000)
+        ? '⏸ paused until ' + new Date(rs.pausedUntil * 1000).toLocaleString('en-GB', { timeZone: 'Europe/Madrid' })
+        : '▶️ active')
+    : '';
   const statusCard = rs ? \`<div class="card">
     <h3>Status</h3>
     <div class="controls-bar">
-      <span>\${rs.pausedUntil > Math.floor(Date.now() / 1000) ? '⏸ paused until ' + new Date(rs.pausedUntil * 1000).toLocaleString('en-GB', { timeZone: 'Europe/Madrid' }) : '▶️ active'}</span>
+      <span>\${statusLabel}</span>
       <span>Replies today: \${rs.counters.repliesQueued}/\${rs.config.dailyCap}</span>
       <span>Spend today: $\${rs.counters.spendUsd.toFixed(3)}/$\${rs.config.dailyBudgetUsd.toFixed(2)}</span>
       <span>Sweeps today: \${rs.counters.sweepsRun}</span>
       <button class="btn small" onclick="pauseReplies(2)">⏸ pause 2h</button>
+      <button class="btn small danger" onclick="stopReplies()">⏹ stop</button>
       <button class="btn small" onclick="resumeReplies()">▶️ resume</button>
     </div>
   </div>\` : '';
@@ -544,6 +554,10 @@ async function replyAction(id, action, body) {
 
 async function pauseReplies(hours) {
   await apiPost('/replies/pause', { hours });
+  load();
+}
+async function stopReplies() {
+  await apiPost('/replies/pause', { forever: true });
   load();
 }
 async function resumeReplies() {

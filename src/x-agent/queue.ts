@@ -123,9 +123,28 @@ export async function editRowText(db: D1Database, id: number, newText: string, s
   return (res.meta.changes ?? 0) > 0;
 }
 
-/** Edit the text of a pending_approval row, record the correction, and approve it (L0 Telegram flow). */
+/** Edit the text of a pending_approval row, record the correction, and approve it (L0 Telegram flow — posts/quotes/threads/reposts). */
 export async function editAndApproveRow(db: D1Database, id: number, newText: string): Promise<boolean> {
   return editRowText(db, id, newText, "telegram_edit");
+}
+
+/**
+ * Edit a reply's draft text WITHOUT approving/publishing (Fase 22.4 UX fix,
+ * 2026-07-11) — unlike editAndApproveRow, status stays `pending_approval` so
+ * Unai is handed back the full decision (API / manual / reject) after a
+ * correction instead of the system deciding "publish via API" for him. Only
+ * ever called for `kind='reply'` rows; every other row kind keeps using
+ * editAndApproveRow (edit = approve there, unchanged).
+ */
+export async function editReplyDraft(db: D1Database, id: number, newText: string): Promise<boolean> {
+  const row = await getQueueRow(db, id);
+  if (!row || row.status !== "pending_approval") return false;
+  await insertCorrection(db, id, row.text ?? "", newText, "telegram_edit");
+  const res = await db
+    .prepare("UPDATE x_queue SET text = ?, updated_at = ? WHERE id = ? AND status = 'pending_approval'")
+    .bind(newText, now(), id)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
 }
 
 /**

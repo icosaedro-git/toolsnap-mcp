@@ -143,7 +143,14 @@ export interface DiscoveryGateResult {
   reason: string;
 }
 
-/** Pause the discovery sweep for `untilTs` (epoch seconds). Approving/rejecting the queue itself is unaffected. */
+/** Sentinel "paused until" timestamp for an indefinite pause (`/stop`, Fase 22.4 UX fix 2026-07-11) — year 3000, far enough out that no real `hours`/`until` pause could ever reach it by accident. */
+export const PAUSE_FOREVER_TS = 32503680000;
+
+export function isPausedForever(untilTs: number): boolean {
+  return untilTs >= PAUSE_FOREVER_TS;
+}
+
+/** Pause the discovery sweep for `untilTs` (epoch seconds, or PAUSE_FOREVER_TS for an indefinite pause). Approving/rejecting the queue itself is unaffected. */
 export async function pauseDiscovery(db: D1Database, untilTs: number): Promise<void> {
   await setState(db, "paused_until", String(untilTs));
 }
