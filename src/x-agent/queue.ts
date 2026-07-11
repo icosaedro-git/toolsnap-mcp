@@ -159,18 +159,25 @@ export async function publishNowRow(db: D1Database, id: number): Promise<boolean
 }
 
 /**
- * "Publicado manualmente" (panel D6): Unai posted it himself outside the
- * agent. Marks the row published without calling the X API. If a tweet URL
- * was given, `tweetId` carries the real id (metrics + depends_on children
- * can resolve it like any API-published row); if not, `tweetId` is null and
- * any children are blocked immediately (same as cancel/reject/fail) since
- * they can never get a real parent tweet_id to chain from.
+ * "Publicado manualmente" (panel D6, extended Fase 22.4 to also cover
+ * `failed`): Unai posted it himself outside the agent. Marks the row
+ * published without calling the X API. If a tweet URL was given, `tweetId`
+ * carries the real id (metrics + depends_on children can resolve it like
+ * any API-published row); if not, `tweetId` is null and any children are
+ * blocked immediately (same as cancel/reject/fail) since they can never get
+ * a real parent tweet_id to chain from.
+ *
+ * Including `failed` (added after a real 403 from X: "not allowed to reply
+ * unless mentioned/engaged by the author" — a legitimate, non-retryable X
+ * restriction, not a bug) means an API publish attempt that fails no longer
+ * strands the row: Unai can still do the reply by hand and tell the system
+ * it happened, from the same failure notice (Telegram button) or the panel.
  */
 export async function markPublishedManual(db: D1Database, id: number, tweetId: string | null): Promise<boolean> {
   const ts = now();
   const res = await db
     .prepare(
-      "UPDATE x_queue SET status = 'published', tweet_id = ?, published_at = ?, published_via = 'manual', updated_at = ? WHERE id = ? AND status IN ('scheduled', 'pending_approval')"
+      "UPDATE x_queue SET status = 'published', tweet_id = ?, published_at = ?, published_via = 'manual', updated_at = ? WHERE id = ? AND status IN ('scheduled', 'pending_approval', 'failed')"
     )
     .bind(tweetId, ts, ts, id)
     .run();

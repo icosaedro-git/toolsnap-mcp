@@ -483,17 +483,24 @@ function statsSection() {
 
 function candidateStatusBadge(c) {
   const s = c.queue_status || c.status;
-  const color = s === 'published' ? 'var(--green)' : s === 'pending_approval' ? 'var(--yellow)' : s === 'rejected' || s === 'canceled' ? 'var(--red)' : 'var(--muted)';
+  const color = s === 'published' ? 'var(--green)' : s === 'pending_approval' ? 'var(--yellow)' : s === 'rejected' || s === 'canceled' || s === 'failed' ? 'var(--red)' : 'var(--muted)';
   return '<span style="color:' + color + '">' + esc(s) + '</span>';
 }
 
 function candidateRow(c) {
   const link = c.tweet_url || ('https://x.com/i/web/status/' + c.tweet_id);
   const text = c.queue_text || c.draft_reply || '';
-  const actions = (c.queue_status === 'pending_approval')
+  // Fase 22.4 fix (2026-07-11): a real X 403 ("not allowed to reply unless
+  // mentioned/engaged by the author") showed a failure has no dead end —
+  // 'failed' rows can still be marked published-by-hand, same button as
+  // pending_approval, just without approve/reject (the API attempt already
+  // happened and won't be retried automatically for a non-retryable error).
+  const actions = c.queue_status === 'pending_approval'
     ? '<button class="btn small primary" onclick="replyAction(' + c.queue_id + ', \\'approve\\')">✅</button> ' +
       '<button class="btn small" onclick="replyAction(' + c.queue_id + ', \\'mark-published\\', {})">📋</button> ' +
       '<button class="btn small danger" onclick="replyAction(' + c.queue_id + ', \\'reject\\')">❌</button>'
+    : c.queue_status === 'failed'
+    ? '<button class="btn small" onclick="replyAction(' + c.queue_id + ', \\'mark-published\\', {})">📋 publicada a mano</button>'
     : '';
   return \`<tr>
     <td>\${new Date(c.created_at * 1000).toLocaleString('en-GB', { timeZone: 'Europe/Madrid', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
