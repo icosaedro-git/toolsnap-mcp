@@ -43,6 +43,7 @@ in this repo — see the operational notes below) rather than hardcoded here.
 | `POST` | `/x-api/push/subscribe` | Register a browser's push subscription (`PushSubscriptionJSON` body) |
 | `POST` | `/x-api/prompts` | Load/replace the active `reply_discovery` prompt or `reply_config` JSON (`{ "name": "reply_discovery"\|"reply_config", "content": "..." }`) — the only way this content enters D1, see below |
 | `GET` | `/x-api/prompts` | Currently-active prompt/config rows |
+| `POST` | `/x-api/replies/sweep` | Diagnostic: run one discovery sweep right now, bypassing the window/calendar/min-gap schedule gate (pause/budget/cap stay enforced) |
 
 A discovered candidate is queued as an ordinary `x_queue` row
 (`kind='reply'`, `approval_mode='per_post'`) — every existing action
@@ -212,15 +213,22 @@ on its own once its cancel window closes, unless vetoed from Telegram first.
 - Reply-guy (Fase 22.4) has no strategy in this repo: the discovery/scoring/
   drafting prompt is a row in `x_prompts` (`name='reply_discovery'`), and its
   tunables (active window, per-weekday sweep count, daily budget/cap, score
-  threshold, candidate TTL) are a JSON row (`name='reply_config'`). Neither
-  is inserted by any migration or seeded by any script — without them loaded,
-  the discovery sweep is a documented no-op (`{ ran: false, reason: "no
-  reply_discovery prompt loaded in x_prompts" }`), never a hardcoded
-  fallback. Discovery calls the xAI Responses API (`x_search` tool) —
-  `src/x-agent/xai.ts` parses the response defensively and is written to
-  fail loudly (not silently misparse) if xAI's actual response shape differs
-  from what its public docs describe; the first real sweep against
-  production is the real verification of that parsing.
+  threshold, candidate TTL, seed accounts, query rotation) are a JSON row
+  (`name='reply_config'`). Neither is inserted by any migration or seeded by
+  any script — without a prompt loaded, the discovery sweep is a documented
+  no-op (`{ ran: false, reason: "no reply_discovery prompt loaded in
+  x_prompts" }`), never a hardcoded fallback (config falls back to safe P1
+  defaults if no `reply_config` row exists, since those numbers are pure
+  rate-limiting, not strategy). The prompt text may contain
+  `{max_searches}`/`{max_candidates}`/`{min_score}`/`{seed_accounts}`/
+  `{query_rotation}` placeholders — `discovery.ts` fills them from the active
+  config before every call, so the prompt document itself never hardcodes
+  numbers that belong in config. Discovery calls the xAI Responses API
+  (`x_search` tool) — `src/x-agent/xai.ts` parses the response defensively
+  and is written to fail loudly (not silently misparse) if xAI's actual
+  response shape differs from what its public docs describe; the first real
+  sweep against production (`POST /x-api/replies/sweep`) is the real
+  verification of that parsing.
 - Web Push notifications are a "tickle" with no payload: the push wakes the
   service worker (`GET /x-agent-sw.js`), which fetches
   `GET /x-agent/api/replies/pending` same-origin (the Access session cookie
