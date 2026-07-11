@@ -12,7 +12,7 @@ import { writeEvent } from "./analytics/logger.js";
 import { looksLikeOAuthToken, verifyOAuthToken, touchOAuthToken } from "./oauth/tokens.js";
 import { runXPublisher } from "./x-agent/publisher.js";
 import { handleTelegramUpdate, type TelegramUpdate } from "./x-agent/telegram-approval.js";
-import { setWebhook, getWebhookInfo } from "./x-agent/telegram.js";
+import { setWebhook, getWebhookInfo, setMyCommands } from "./x-agent/telegram.js";
 import { X_PANEL_HTML } from "./x-agent/panel.js";
 import { X_PUSH_SW_JS } from "./x-agent/push-sw.js";
 import { dispatchXAgentApi } from "./x-agent/panel-api.js";
@@ -774,6 +774,9 @@ export default {
     // miss amid the route-fix deploy. These two admin routes call it using
     // the X_TG_BOT_TOKEN secret already stored in Cloudflare, so re-running
     // setup or checking status never requires re-sharing the raw bot token.
+    // Also registers the bot's command menu (setMyCommands, Fase 22.4
+    // discoverability fix 2026-07-11) — same idempotent call, re-run
+    // whenever the command set changes.
     if (url.pathname === "/x-api/telegram/setup-webhook" && method === "POST") {
       const adminKey = request.headers.get("x-admin-key");
       if (!env.ADMIN_API_KEY || adminKey !== env.ADMIN_API_KEY) {
@@ -782,8 +785,9 @@ export default {
       if (!env.X_TG_WEBHOOK_SECRET) {
         return jsonResponse({ error: "X_TG_WEBHOOK_SECRET is not configured" }, 500);
       }
-      const result = await setWebhook(env, "https://mcp.toolsnap.app/webhooks/telegram", env.X_TG_WEBHOOK_SECRET);
-      return jsonResponse(result);
+      const webhook = await setWebhook(env, "https://mcp.toolsnap.app/webhooks/telegram", env.X_TG_WEBHOOK_SECRET);
+      const commands = await setMyCommands(env);
+      return jsonResponse({ webhook, commands });
     }
     if (url.pathname === "/x-api/telegram/webhook-info" && method === "GET") {
       const adminKey = request.headers.get("x-admin-key");

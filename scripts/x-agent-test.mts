@@ -169,6 +169,25 @@ async function sendTelegramCancel(queueId: number) {
   return sendTelegramCallback(queueId, "cancel");
 }
 
+/** Simulate a callback_query with arbitrary data (the `xr:pause2h`/`xr:stop`/`xr:resume` /status control buttons have no queue row id, unlike sendTelegramCallback's `xq:<id>:<action>`). */
+async function sendTelegramRawCallback(data: string) {
+  const res = await fetch(`${BASE}/webhooks/telegram`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-telegram-bot-api-secret-token": TG_WEBHOOK_SECRET!,
+    },
+    body: JSON.stringify({
+      callback_query: {
+        id: `cb-${Date.now()}`,
+        data,
+        message: { message_id: 1, chat: { id: Number(TG_CHAT_ID) } },
+      },
+    }),
+  });
+  return res.status;
+}
+
 /** Simulate Telegram delivering a plain text message that replies to a specific message (the "respond with the correction" edit flow, and /pause /resume /status /stop text commands when replyToMessageId is omitted). */
 async function sendTelegramMessage(text: string, replyToMessageId?: number) {
   const res = await fetch(`${BASE}/webhooks/telegram`, {
@@ -709,6 +728,38 @@ async function main() {
   const foreverApiPause = await adminPost("/x-api/replies/pause", { forever: true });
   check("forever pause via API accepted", foreverApiPause.status === 200 && foreverApiPause.json?.paused_until >= 32503680000, JSON.stringify(foreverApiPause.json));
   await adminPost("/x-api/replies/resume"); // clean up for any later checks
+
+  console.log("\n33) Fase 22.4 discoverability fix (2026-07-11) — /status command accepted; /status control keyboard callbacks (xr:pause2h/stop/resume) drive the same pause state as the text commands");
+  const statusCmdStatus = await sendTelegramMessage("/status");
+  check("/status command accepted (200)", statusCmdStatus === 200, String(statusCmdStatus));
+
+  const pause2hCbStatus = await sendTelegramRawCallback("xr:pause2h");
+  check("xr:pause2h callback accepted (200)", pause2hCbStatus === 200, String(pause2hCbStatus));
+  await sleep(500);
+  const statusAfterPause2hCb = await adminGet("/x-api/replies/status");
+  const pausedUntilAfterPause2h = statusAfterPause2hCb.json?.pausedUntil ?? 0;
+  const nowTs = Math.floor(Date.now() / 1000);
+  check(
+    "xr:pause2h set pausedUntil to roughly now+2h",
+    pausedUntilAfterPause2h > nowTs + 7000 && pausedUntilAfterPause2h < nowTs + 7400,
+    JSON.stringify(statusAfterPause2hCb.json)
+  );
+
+  const stopCbStatus = await sendTelegramRawCallback("xr:stop");
+  check("xr:stop callback accepted (200)", stopCbStatus === 200, String(stopCbStatus));
+  await sleep(500);
+  const statusAfterStopCb = await adminGet("/x-api/replies/status");
+  check("xr:stop set the PAUSE_FOREVER_TS sentinel", statusAfterStopCb.json?.pausedUntil >= 32503680000, JSON.stringify(statusAfterStopCb.json));
+
+  const resumeCbStatus = await sendTelegramRawCallback("xr:resume");
+  check("xr:resume callback accepted (200)", resumeCbStatus === 200, String(resumeCbStatus));
+  await sleep(500);
+  const statusAfterResumeCb = await adminGet("/x-api/replies/status");
+  check("xr:resume cleared pausedUntil", statusAfterResumeCb.json?.pausedUntil === 0, JSON.stringify(statusAfterResumeCb.json));
+
+  console.log("\n34) Fase 22.4 regression — an unrecognized xr: callback and a normal xq: callback both still behave as before");
+  const unknownXrStatus = await sendTelegramRawCallback("xr:bogus");
+  check("unmatched xr: callback still 200 (falls through to the generic ack)", unknownXrStatus === 200, String(unknownXrStatus));
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);

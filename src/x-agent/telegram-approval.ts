@@ -229,6 +229,45 @@ async function publishReplyNowAndMarkCandidate(env: TelegramApprovalEnv, db: D1D
   };
 }
 
+/**
+ * Discovery status text — shared by the `/status` command and the
+ * `xr:` callback handlers that re-render it in place after a button tap
+ * (Fase 22.4 discoverability fix, 2026-07-11).
+ */
+function formatDiscoveryStatus(status: Awaited<ReturnType<typeof getDiscoveryStatus>>): string {
+  const pausedLabel = isPausedForever(status.pausedUntil)
+    ? "⏹ detenido (permanente — /resume para reanudar)"
+    : status.pausedUntil > Math.floor(Date.now() / 1000)
+    ? `⏸ pausado hasta ${new Date(status.pausedUntil * 1000).toLocaleString("es-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}`
+    : "▶️ activo";
+  return [
+    `*Reply-guy status:* ${pausedLabel}`,
+    `Replies hoy: ${status.counters.repliesQueued}/${status.config.dailyCap}`,
+    `Gasto xAI hoy: $${status.counters.spendUsd.toFixed(3)}/$${status.config.dailyBudgetUsd.toFixed(2)}`,
+    `Barridos hoy: ${status.counters.sweepsRun}`,
+  ].join("\n");
+}
+
+/**
+ * Contextual control keyboard for the `/status` message — only the actions
+ * that make sense given the current pause state, so `/status` doubles as a
+ * live mini-panel: paused/stopped shows "▶️ Reanudar"; active shows
+ * "⏸ Pausa 2h" + "⏹ Stop". Callback prefix `xr:` ("x reply-guy control") is
+ * deliberately distinct from `xq:<id>:<action>` (which always carries a
+ * queue row id) — no id needed here, there's only one discovery state.
+ */
+function discoveryControlKeyboard(pausedUntil: number): InlineKeyboardButton[][] {
+  if (pausedUntil > Math.floor(Date.now() / 1000)) {
+    return [[{ text: "▶️ Reanudar", callback_data: "xr:resume" }]];
+  }
+  return [
+    [
+      { text: "⏸ Pausa 2h", callback_data: "xr:pause2h" },
+      { text: "⏹ Stop", callback_data: "xr:stop" },
+    ],
+  ];
+}
+
 /** Parse "/pause", "/pause 2h", "/pause hoy" -> a pause-until epoch (2h default; "hoy" = end of the Madrid calendar day). */
 function parsePauseUntil(text: string): number {
   const nowTs = Math.floor(Date.now() / 1000);
@@ -262,6 +301,33 @@ export async function handleTelegramUpdate(
       await answerCallbackQuery(env, cq.id, "No autorizado");
       return;
     }
+    // Fase 22.4 discoverability fix (2026-07-11): the `/status` control
+    // keyboard's buttons — pause 2h / stop / resume, no queue row id
+    // involved (see discoveryControlKeyboard's doc comment). Checked before
+    // the `xq:` match since the prefixes are disjoint by construction.
+    const controlMatch = cq.data?.match(/^xr:(pause2h|stop|resume)$/);
+    if (controlMatch) {
+      const controlAction = controlMatch[1];
+      if (controlAction === "pause2h") {
+        await pauseDiscovery(db, Math.floor(Date.now() / 1000) + 2 * 3600);
+        await answerCallbackQuery(env, cq.id, "Pausado 2h");
+      } else if (controlAction === "stop") {
+        await pauseDiscovery(db, PAUSE_FOREVER_TS);
+        await answerCallbackQuery(env, cq.id, "Detenido");
+      } else {
+        await resumeDiscovery(db);
+        await answerCallbackQuery(env, cq.id, "Reanudado");
+      }
+      const messageId = cq.message?.message_id;
+      if (messageId) {
+        const status = await getDiscoveryStatus(db);
+        await editXAgentMessageText(env, messageId, formatDiscoveryStatus(status), {
+          inlineKeyboard: discoveryControlKeyboard(status.pausedUntil),
+        });
+      }
+      return;
+    }
+
     const match = cq.data?.match(/^xq:(\d+):(approve|reject|edit|cancel|manual)$/);
     if (!match) {
       await answerCallbackQuery(env, cq.id);
@@ -423,20 +489,9 @@ export async function handleTelegramUpdate(
     }
     if (/^\/status\b/i.test(text)) {
       const status = await getDiscoveryStatus(db);
-      const pausedLabel = isPausedForever(status.pausedUntil)
-        ? "⏹ detenido (permanente — /resume para reanudar)"
-        : status.pausedUntil > Math.floor(Date.now() / 1000)
-        ? `⏸ pausado hasta ${new Date(status.pausedUntil * 1000).toLocaleString("es-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}`
-        : "▶️ activo";
-      await sendXAgentMessage(
-        env,
-        [
-          `*Reply-guy status:* ${pausedLabel}`,
-          `Replies hoy: ${status.counters.repliesQueued}/${status.config.dailyCap}`,
-          `Gasto xAI hoy: $${status.counters.spendUsd.toFixed(3)}/$${status.config.dailyBudgetUsd.toFixed(2)}`,
-          `Barridos hoy: ${status.counters.sweepsRun}`,
-        ].join("\n")
-      );
+      await sendXAgentMessage(env, formatDiscoveryStatus(status), {
+        inlineKeyboard: discoveryControlKeyboard(status.pausedUntil),
+      });
       return;
     }
   }

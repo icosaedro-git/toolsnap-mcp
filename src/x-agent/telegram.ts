@@ -175,3 +175,30 @@ export async function getWebhookInfo(env: XTelegramEnv): Promise<unknown> {
   const res = await fetch(`${base}/getWebhookInfo`);
   return res.json();
 }
+
+/**
+ * Register the bot's command menu with Telegram (`setMyCommands`) — the
+ * list Telegram shows when tapping the "/" button or the bot's menu button,
+ * autocomplete included. Found 2026-07-11: the reply-guy control commands
+ * (/pause, /stop, /resume, /status) already worked but were undiscoverable
+ * — nothing in the Telegram UI hinted they existed. Re-run alongside
+ * setWebhook (same one-time/idempotent admin call, see setup-webhook in
+ * src/index.ts) whenever the command set changes.
+ */
+export async function setMyCommands(env: XTelegramEnv): Promise<{ ok: boolean; description?: string }> {
+  const base = apiBase(env);
+  if (!base) return { ok: false, description: "X_TG_BOT_TOKEN not configured" };
+  const res = await fetch(`${base}/setMyCommands`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      commands: [
+        { command: "status", description: "Estado del reply-guy + botones de control" },
+        { command: "pause", description: "Pausar discovery (2h por defecto; /pause 4h, /pause hoy)" },
+        { command: "stop", description: "Detener discovery hasta /resume" },
+        { command: "resume", description: "Reanudar discovery" },
+      ],
+    }),
+  });
+  return (await res.json()) as { ok: boolean; description?: string };
+}
