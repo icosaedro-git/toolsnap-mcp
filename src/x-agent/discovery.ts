@@ -63,6 +63,19 @@ export function fillPromptPlaceholders(promptText: string, config: ReplyConfig):
 
 const DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
 
+/** Monday-first order for the weekly panel/Telegram overview — DAY_KEYS above is Sunday-first because that's what Intl's weekday parsing hands back. */
+const WEEK_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+
+const DAY_LABELS: Record<(typeof DAY_KEYS)[number], { short: string; label3: string }> = {
+  mon: { short: "L", label3: "lun" },
+  tue: { short: "M", label3: "mar" },
+  wed: { short: "X", label3: "mié" },
+  thu: { short: "J", label3: "jue" },
+  fri: { short: "V", label3: "vie" },
+  sat: { short: "S", label3: "sáb" },
+  sun: { short: "D", label3: "dom" },
+};
+
 function madridNow(): { hour: number; dayKey: (typeof DAY_KEYS)[number]; dateStr: string } {
   const d = new Date();
   const fmt = new Intl.DateTimeFormat("en-US", {
@@ -80,6 +93,12 @@ function madridNow(): { hour: number; dayKey: (typeof DAY_KEYS)[number]; dateStr
   const dayKey = (DAY_KEYS.find((k) => k === weekday) ?? "mon") as (typeof DAY_KEYS)[number];
   const dateStr = `${parts.find((p) => p.type === "year")?.value}-${parts.find((p) => p.type === "month")?.value}-${parts.find((p) => p.type === "day")?.value}`;
   return { hour, dayKey, dateStr };
+}
+
+/** Epoch seconds for `dateStr` (YYYY-MM-DD, Madrid-local) at `hour`:00 — same fixed-offset approximation already used by parsePauseUntil in telegram-approval.ts ("hoy"), good enough for a status display, not a scheduling decision. */
+function madridHourEpoch(dateStr: string, hour: number): number {
+  const hh = String(hour).padStart(2, "0");
+  return Math.floor(new Date(`${dateStr}T${hh}:00:00+02:00`).getTime() / 1000);
 }
 
 async function getPrompt(db: D1Database, name: string): Promise<string | null> {
@@ -159,16 +178,102 @@ export async function resumeDiscovery(db: D1Database): Promise<void> {
   await setState(db, "paused_until", "0");
 }
 
+export type TodayState =
+  | "active"
+  | "paused"
+  | "stopped"
+  | "off_today"
+  | "quota_done"
+  | "budget_reached"
+  | "cap_reached";
+
+export interface TodayPlan {
+  dayKey: string;
+  dayLabel: string; // 3-letter Spanish abbreviation, e.g. "vie"
+  targetSweeps: number;
+  sweepsDone: number;
+  windowStartHour: number;
+  windowEndHour: number;
+  minGapS: number; // spacing shouldRunSweep enforces between sweeps, for "one every ~1h45" style copy
+  state: TodayState;
+  /** Earliest epoch the NEXT sweep could possibly run (not a schedule — see discovery.ts's header comment: sweeps have no fixed times). null when there's no more room today (state != "active", or the earliest possible instant would already be past the window close). */
+  nextSweepEarliest: number | null;
+}
+
+export interface WeekDayPlan {
+  key: string;
+  label: string; // single-letter, e.g. "V" — for the panel's weekly strip
+  sweeps: number;
+  isToday: boolean;
+}
+
+/**
+ * The day's plan (Fase 22.4 panel/Telegram overview, 2026-07-11): not a
+ * schedule — see the module header comment, sweeps only have a minimum gap
+ * from `shouldRunSweep`, never fixed times — but everything here is a
+ * deterministic read of state/config that answers "what will (or won't)
+ * happen today, and when's the earliest the next sweep could fire".
+ */
+async function getTodayPlan(db: D1Database, pausedUntil: number, counters: DayCounters, config: ReplyConfig): Promise<TodayPlan> {
+  const { dayKey, dateStr } = madridNow();
+  const targetSweeps = config.sweepsPerDay[dayKey] ?? 0;
+  const windowSeconds = (config.window.endHour - config.window.startHour) * 3600;
+  const minGapS = Math.floor(windowSeconds / Math.max(targetSweeps, 1));
+
+  let state: TodayState;
+  if (isPausedForever(pausedUntil)) state = "stopped";
+  else if (pausedUntil > now()) state = "paused";
+  else if (targetSweeps <= 0) state = "off_today";
+  else if (counters.sweepsRun >= targetSweeps) state = "quota_done";
+  else if (counters.spendUsd >= config.dailyBudgetUsd) state = "budget_reached";
+  else if (counters.repliesQueued >= config.dailyCap) state = "cap_reached";
+  else state = "active";
+
+  let nextSweepEarliest: number | null = null;
+  if (state === "active") {
+    const lastSweepAt = Number((await getState(db, "last_sweep_at")) ?? "0");
+    const windowStartEpoch = madridHourEpoch(dateStr, config.window.startHour);
+    const windowEndEpoch = madridHourEpoch(dateStr, config.window.endHour);
+    const earliest = Math.max(now(), lastSweepAt + minGapS, windowStartEpoch);
+    nextSweepEarliest = earliest < windowEndEpoch ? earliest : null;
+  }
+
+  return {
+    dayKey,
+    dayLabel: DAY_LABELS[dayKey].label3,
+    targetSweeps,
+    sweepsDone: counters.sweepsRun,
+    windowStartHour: config.window.startHour,
+    windowEndHour: config.window.endHour,
+    minGapS,
+    state,
+    nextSweepEarliest,
+  };
+}
+
+function getWeekPlan(config: ReplyConfig, todayKey: string): WeekDayPlan[] {
+  return WEEK_ORDER.map((key) => ({
+    key,
+    label: DAY_LABELS[key].short,
+    sweeps: config.sweepsPerDay[key] ?? 0,
+    isToday: key === todayKey,
+  }));
+}
+
 export async function getDiscoveryStatus(db: D1Database): Promise<{
   pausedUntil: number;
   counters: DayCounters;
   config: ReplyConfig;
+  today: TodayPlan;
+  week: WeekDayPlan[];
 }> {
   const pausedUntil = Number((await getState(db, "paused_until")) ?? "0");
   const { dateStr } = madridNow();
   const counters = await getTodayCounters(db, dateStr);
   const config = await getConfig(db);
-  return { pausedUntil, counters, config };
+  const today = await getTodayPlan(db, pausedUntil, counters, config);
+  const week = getWeekPlan(config, today.dayKey);
+  return { pausedUntil, counters, config, today, week };
 }
 
 /** True if a sweep should run right now — checked on every publisher tick (every 5 min), cheap D1 reads only. */
