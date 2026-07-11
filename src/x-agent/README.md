@@ -25,7 +25,7 @@ admin surface (`ADMIN_API_KEY` secret). Deliberately **outside** `/admin/*`
 | `POST` | `/x-api/media` | Upload one image (raw bytes, `Content-Type: image/*`, ≤5MB) → `{ media_key }` for use in `media_keys` |
 | `GET` | `/x-api/stats` | Correction rate and engagement by series/account |
 | `POST` | `/x-api/corrections` | Backfill a correction made outside the running system (`source: "vault_review"`) |
-| `POST` | `/x-api/telegram/setup-webhook` | (Re-)register the Telegram webhook — one-time/diagnostic |
+| `POST` | `/x-api/telegram/setup-webhook` | (Re-)register the Telegram webhook and the bot's command menu (`/status`, `/pause`, `/stop`, `/resume`) — one-time/diagnostic |
 | `GET` | `/x-api/telegram/webhook-info` | Current webhook registration state |
 
 Reply-guy (Fase 22.4) — discovery, scoring and drafting of replies to
@@ -240,6 +240,15 @@ on its own once its cancel window closes, unless vetoed from Telegram first.
   response shape differs from what its public docs describe; the first real
   sweep against production (`POST /x-api/replies/sweep`) is the real
   verification of that parsing.
+- Telegram control commands (`/status`, `/pause [2h|hoy]`, `/stop`,
+  `/resume`) are registered with Telegram's command menu (`setMyCommands`,
+  called alongside `setWebhook` by `POST /x-api/telegram/setup-webhook`) so
+  they're discoverable from the "/" button instead of needing to be
+  remembered. `/status` also carries a contextual inline keyboard — only the
+  action(s) that make sense for the current pause state (resume when
+  paused/stopped; pause/stop when active) — and tapping one edits the same
+  message in place with the new state, so `/status` doubles as a live
+  mini-panel.
 - Web Push notifications are a "tickle" with no payload: the push wakes the
   service worker (`GET /x-agent-sw.js`), which fetches
   `GET /x-agent/api/replies/pending` same-origin (the Access session cookie
