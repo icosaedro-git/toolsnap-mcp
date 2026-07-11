@@ -17,7 +17,7 @@ import {
   rescheduleRow,
 } from "./queue.js";
 import { handleLoadBatch, handleListQueue, handleCancelRow, type BatchInput, type XAdminEnv } from "./admin.js";
-import { pauseDiscovery, resumeDiscovery, getDiscoveryStatus } from "./discovery.js";
+import { pauseDiscovery, resumeDiscovery, getDiscoveryStatus, runReplyDiscoverySweep, type XDiscoveryEnv } from "./discovery.js";
 import type { XPushEnv } from "./push.js";
 
 export interface PanelApiEnv {
@@ -25,7 +25,7 @@ export interface PanelApiEnv {
   SCREENSHOTS_BUCKET: R2Bucket;
 }
 
-export interface XAgentApiEnv extends XAdminEnv, PanelApiEnv, XPushEnv {}
+export interface XAgentApiEnv extends XAdminEnv, PanelApiEnv, XPushEnv, XDiscoveryEnv {}
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data, null, 2), { status, headers: { "Content-Type": "application/json" } });
@@ -270,6 +270,16 @@ export async function handleReplyStatus(env: PanelApiEnv): Promise<Response> {
   return jsonResponse(await getDiscoveryStatus(env.PREPAID_DB));
 }
 
+/**
+ * POST .../replies/sweep — diagnostic: run one discovery sweep right now,
+ * bypassing the window/calendar/min-gap schedule gate (pause/budget/cap
+ * stay enforced). For testing the xAI integration or a manual sweep on a
+ * day the calendar has zero scheduled — see discovery.ts's doc comment.
+ */
+export async function handleTriggerSweep(env: XDiscoveryEnv): Promise<Response> {
+  return jsonResponse(await runReplyDiscoverySweep(env, { bypassSchedule: true }));
+}
+
 export async function handleVapidPublicKey(env: XPushEnv): Promise<Response> {
   if (!env.VAPID_PUBLIC_KEY) return jsonError("Web Push not configured (VAPID_PUBLIC_KEY missing)", 501);
   return jsonResponse({ public_key: env.VAPID_PUBLIC_KEY });
@@ -396,6 +406,7 @@ export async function dispatchXAgentApi(
       const body = (await request.json().catch(() => ({}))) as { name?: string; content?: string };
       return handlePutPrompt(env, body);
     }
+    if (subpath === "replies/sweep") return handleTriggerSweep(env);
   }
 
   if (method === "GET" && subpath === "stats") return handleStats(env);
