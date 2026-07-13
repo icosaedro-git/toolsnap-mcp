@@ -136,7 +136,7 @@ function rowsToCSV(rows: Record<string, string>[], headers: string[]): string {
 export const csvQueryTool: McpTool = {
   name: "csv_query",
   description:
-    "Query a CSV: select/filter/sort/limit. Provide exactly one source: url (to fetch) or csv (raw text).",
+    "Query a CSV: select/filter/sort/limit. Provide exactly one source: url (to fetch) or csv (raw text). Prefer url when the file is already hosted — the fetch + query run server-side and only the result returns, so a large CSV never passes through your context. Use csv only for data you already hold (small files, or a file read from disk); the raw text then counts against your context.",
   inputSchema: {
     type: "object",
     properties: {
