@@ -7,6 +7,7 @@ import { PANEL_HTML } from "./analytics/panel.js";
 import { checkUsageAlerts } from "./alerts/usage-alerts.js";
 import { checkSurfaceDigest } from "./alerts/surface-digest.js";
 import { looksLikeApiKey, issueKey, revokeKey, accountExists, accountAddress } from "./fiat/keys.js";
+import { handleCmsAuthStart, handleCmsAuthCallback } from "./cms-auth.js";
 import { verifyPolarSignature, debugPolarSignature, getOrCreateAccountByEmail, creditOrder } from "./fiat/polar.js";
 import { writeEvent } from "./analytics/logger.js";
 import { looksLikeOAuthToken, verifyOAuthToken, touchOAuthToken } from "./oauth/tokens.js";
@@ -144,6 +145,13 @@ export interface Env {
   // Native Workers ratelimit binding — @cloudflare/workers-types in this repo
   // doesn't ship a RateLimit type yet, so it's declared inline here.
   FREE_FETCH_RL: { limit(opts: { key: string }): Promise<{ success: boolean }> };
+
+  // Blog CMS GitHub OAuth (Decap at /admin) — see src/cms-auth.ts. Optional
+  // so the Worker keeps running without them; the /admin/auth route fails
+  // loudly when missing (set via: wrangler secret put GITHUB_CLIENT_ID /
+  // GITHUB_CLIENT_SECRET).
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -703,6 +711,18 @@ export default {
         )
       );
       return jsonResponse({ ok: true });
+    }
+
+    // Blog CMS GitHub OAuth (Decap popup flow) — same-origin on purpose so
+    // the popup↔tab postMessage handshake never crosses origins. Both paths
+    // sit behind the Cloudflare Access app covering /admin*, which is fine:
+    // this flow is only ever driven by an Access-authenticated browser.
+    // See src/cms-auth.ts for the incident history that motivated this.
+    if (method === "GET" && url.pathname === "/admin/auth") {
+      return handleCmsAuthStart(request, env);
+    }
+    if (method === "GET" && url.pathname === "/admin/callback") {
+      return handleCmsAuthCallback(request, env);
     }
 
     // Admin-only key management (pre-portal). Same x-admin-key gate as /mcp.

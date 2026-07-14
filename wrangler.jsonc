@@ -180,6 +180,11 @@
   //   wrangler secret put POLAR_WEBHOOK_SECRET   (Fase 17 — Polar webhook signing secret,
   //                                               "whsec_..."; /webhooks/polar rejects with
   //                                               401 without it)
+  //   wrangler secret put GITHUB_CLIENT_ID       (blog CMS OAuth — GitHub OAuth App whose
+  //   wrangler secret put GITHUB_CLIENT_SECRET    callback URL is /admin/callback; without
+  //                                               them GET /admin/auth returns a clear 500,
+  //                                               never a silent client_id=undefined — see
+  //                                               src/cms-auth.ts for the 2026-07-14 incident)
   //   -- Fase 22.1 — ToolSnap X Agent (see vault nota 06 Fase 22 + nota 10 for setup steps) --
   //   wrangler secret put X_API_KEY                       (X app consumer key, developer.x.com)
   //   wrangler secret put X_API_SECRET                     (X app consumer secret)
