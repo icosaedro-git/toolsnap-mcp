@@ -256,14 +256,25 @@ async function main() {
   check("parent has a dry-run tweet_id", typeof parentRow1?.tweet_id === "string" && parentRow1.tweet_id.startsWith("dryrun_"));
   check("child still scheduled after tick 1 (parent just published)", childRow1?.status === "scheduled", JSON.stringify(childRow1));
 
-  console.log("\n3) Second publisher tick: child should now be eligible and publish, quoting the parent's tweet_id");
+  console.log("\n3) Second publisher tick: child (a quote) is now due, but X's API rejects automated quotes"
+    + " (Fase 22.5, 2026-07-14 403 incident) — it must be diverted to a manual-publish Telegram card, not published via API");
   const tick2 = await fireCron("*/5 * * * *");
   check("cron tick 2 fired (200)", tick2 === 200, String(tick2));
   await sleep(500);
 
   const afterTick2 = await adminGet(`/x-api/queue?batch_id=${batchId}`);
   const childRow2 = (afterTick2.json?.rows ?? []).find((r: { id: number }) => r.id === childId);
-  check("child published after tick 2", childRow2?.status === "published", JSON.stringify(childRow2));
+  check("child moved to pending_approval (diverted to manual, not API-published)", childRow2?.status === "pending_approval", JSON.stringify(childRow2));
+  check("child has no tweet_id yet (never touched the API)", childRow2?.tweet_id == null, JSON.stringify(childRow2));
+
+  console.log("\n3b) Unai publishes the quote by hand and marks it via the panel's mark-published endpoint, with the tweet URL for metrics");
+  const markQuoteResp = await adminPost(`/x-api/queue/${childId}/mark-published`, {
+    tweet_url: "https://x.com/icosaedro_one/status/9876543210987654321",
+  });
+  check("mark-published on the diverted quote accepted", markQuoteResp.status === 200 && markQuoteResp.json?.marked_published === true, JSON.stringify(markQuoteResp.json));
+  const afterMarkQuote = (await adminGet(`/x-api/queue?batch_id=${batchId}`)).json?.rows?.find((r: { id: number }) => r.id === childId);
+  check("quote published_via='manual'", afterMarkQuote?.published_via === "manual", JSON.stringify(afterMarkQuote));
+  check("quote tweet_id parsed from URL (ready for metrics)", afterMarkQuote?.tweet_id === "9876543210987654321", JSON.stringify(afterMarkQuote));
 
   console.log("\n4) Reject validation: a batch with a bad depends_on is rejected with 400");
   const badLoad = await adminPost("/x-api/queue", {

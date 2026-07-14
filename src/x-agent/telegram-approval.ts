@@ -36,7 +36,7 @@ import {
   type XTelegramEnv,
   type InlineKeyboardButton,
 } from "./telegram.js";
-import { approveRow, cancelRow, editAndApproveRow, editReplyDraft, getQueueRow, markPublishedManual, rejectRow, type XQueueRow } from "./queue.js";
+import { approveRow, cancelRow, editAndApproveRow, editReplyDraft, getQueueRow, markPublishedManual, now as nowTs, rejectRow, resolveQuoteTargetUrl, type XQueueRow } from "./queue.js";
 import { attemptPublishNow, type PublishOneEnv } from "./publish-one.js";
 import { pauseDiscovery, resumeDiscovery, getDiscoveryStatus, PAUSE_FOREVER_TS, isPausedForever } from "./discovery.js";
 
@@ -74,9 +74,9 @@ export function formatCard(row: XQueueRow, opts: { omitText?: boolean } = {}): s
   return lines.join("\n");
 }
 
-/** Card text for editing the META/buttons message of a reply candidate — omits the draft (it's in the separate text message above). No-op (same as formatCard) for every other row kind, which never split. */
+/** Card text for editing the META/buttons message of a reply candidate or manual quote — omits the draft (it's in the separate text message above). No-op (same as formatCard) for every other row kind, which never split. */
 function metaCardFor(row: XQueueRow): string {
-  return formatCard(row, { omitText: row.kind === "reply" });
+  return formatCard(row, { omitText: row.kind === "reply" || row.kind === "quote" });
 }
 
 export interface ReplyCandidateInfo {
@@ -132,6 +132,80 @@ function manualRecoveryKeyboard(queueId: number, tweetUrl: string | null): Inlin
   if (tweetUrl) rows.push([{ text: "🔗 Abrir post", url: tweetUrl }]);
   rows.push([{ text: "📋 Publicada a mano", callback_data: `xq:${queueId}:manual` }]);
   return rows;
+}
+
+/** Decision keyboard for a manual-quote card (kind='quote') — no "Publicar (API)" option exists, X rejects automated quotes (2026-07-14 incident). */
+function manualQuoteKeyboard(queueId: number, quoteUrl: string | null): InlineKeyboardButton[][] {
+  const rows: InlineKeyboardButton[][] = [];
+  if (quoteUrl) rows.push([{ text: "🔗 Abrir post", url: quoteUrl }]);
+  rows.push([
+    { text: "📋 Publicada a mano", callback_data: `xq:${queueId}:manual` },
+    { text: "❌ Rechazar", callback_data: `xq:${queueId}:reject` },
+  ]);
+  return rows;
+}
+
+/** Meta message text for a manual-quote card. */
+function formatManualQuoteMeta(row: XQueueRow, quoteUrl: string | null): string {
+  const accountLabel = row.account === "product" ? "@ToolSnapMCP" : "@icosaedro_one";
+  const lines = [
+    `🔁 *quote manual* — ${accountLabel} cita a${quoteUrl ? ` ${quoteUrl}` : " (post desconocido)"}`,
+    ``,
+    `⚠️ La API de X no permite citar posts de forma automatizada (restricción de plataforma, no de config de cuenta) — públicala tú mismo copiando el texto de arriba.`,
+    ``,
+    `👆 texto listo para copiar arriba`,
+  ];
+  return lines.join("\n");
+}
+
+/**
+ * Send a manual-publish card for a `kind='quote'` row (Fase 22.5 — X's API
+ * 403s every automated quote, see divertQuoteToManual in publisher.ts). Same
+ * split-message pattern as sendReplyApprovalCard: a copy-paste-only text
+ * message, then a metadata message with the link to the post being quoted
+ * and a decision keyboard (published by hand / reject — no API option).
+ */
+export async function sendManualQuoteCard(env: XTelegramEnv, db: D1Database, row: XQueueRow, quoteUrl: string | null): Promise<void> {
+  const textMessageId = await sendXAgentMessage(env, row.text ?? "", { format: "code" });
+  const metaMessageId = await sendXAgentMessage(env, formatManualQuoteMeta(row, quoteUrl), {
+    inlineKeyboard: manualQuoteKeyboard(row.id, quoteUrl),
+  });
+  if (textMessageId || metaMessageId) {
+    await db
+      .prepare("UPDATE x_queue SET tg_text_message_id = ?, tg_message_id = ? WHERE id = ?")
+      .bind(textMessageId, metaMessageId, row.id)
+      .run();
+  }
+}
+
+const TWEET_URL_ID_RE = /status\/(\d+)/;
+
+/**
+ * Fase 22.5 — after "📋 Publicada a mano" (quotes, replies, or a panel-side
+ * failed-row recovery), the row is `published` with `tweet_id` still NULL:
+ * Unai posted it himself, so there's no id from an API response. Metrics
+ * (getRecentPublishedRowsWithTweetId) can only pick the row up once a real
+ * tweet_id is set. This is the other half of that flow: a reply to the
+ * "responde con la URL" card carrying an x.com/status/<id> link gets parsed
+ * and written back. No-ops (silently) if repliedToId doesn't match any such
+ * row or the text has no tweet id in it — could be an unrelated reply.
+ */
+async function tryCaptureManualTweetUrl(env: XTelegramEnv, db: D1Database, repliedToId: number, text: string): Promise<void> {
+  const row = await db
+    .prepare("SELECT * FROM x_queue WHERE (tg_message_id = ? OR tg_text_message_id = ?) AND status = 'published' AND tweet_id IS NULL")
+    .bind(repliedToId, repliedToId)
+    .first<XQueueRow>();
+  if (!row) return;
+
+  const match = text.match(TWEET_URL_ID_RE);
+  if (!match) {
+    await sendXAgentReply(env, "No he podido leer un id de tweet ahí — responde con la URL completa de x.com/status/…", repliedToId);
+    return;
+  }
+
+  await db.prepare("UPDATE x_queue SET tweet_id = ?, updated_at = ? WHERE id = ?").bind(match[1], nowTs(), row.id).run();
+  const messageId = row.tg_message_id ?? repliedToId;
+  await editXAgentMessageText(env, messageId, `${metaCardFor({ ...row, tweet_id: match[1] })}\n\n📋 *Publicada a mano*\n✅ *URL registrada — entrará en métricas*`);
 }
 
 /**
@@ -383,7 +457,15 @@ export async function handleTelegramUpdate(
       if (ok && messageId) {
         await db.prepare("UPDATE x_reply_candidates SET status = 'queued', updated_at = ? WHERE queue_id = ?").bind(Math.floor(Date.now() / 1000), id).run();
         const row = await getQueueRow(db, id);
-        await editXAgentMessageText(env, messageId, `${metaCardFor(row!)}\n\n📋 *Publicada a mano*`);
+        // tweet_id is still NULL at this point (markPublishedManual was
+        // called with tweetId=null) — ask for the real URL so metrics can
+        // pick this row up (Fase 22.5, see the reply_to_message handler
+        // below for where the answer gets parsed).
+        await editXAgentMessageText(
+          env,
+          messageId,
+          `${metaCardFor(row!)}\n\n📋 *Publicada a mano* — responde a este mensaje con la URL del tweet para activar métricas.`
+        );
       }
       return;
     }
@@ -435,7 +517,7 @@ export async function handleTelegramUpdate(
     const chatId = update.message.chat.id;
     if (!allowedChatId || String(chatId) !== String(allowedChatId)) return;
     const repliedToId = update.message.reply_to_message.message_id;
-    // Fase 22.4 UX fix: a split reply card can be replied-to via either
+    // Fase 22.4 UX fix: a split reply/quote card can be replied-to via either
     // message (the text one, which is what the "✏️ Editar" prompt threads
     // onto, or the meta/buttons one, for anyone who habitually replies to
     // the card like before) — match whichever matches.
@@ -443,7 +525,14 @@ export async function handleTelegramUpdate(
       .prepare("SELECT * FROM x_queue WHERE (tg_message_id = ? OR tg_text_message_id = ?) AND status = 'pending_approval'")
       .bind(repliedToId, repliedToId)
       .first<XQueueRow>();
-    if (!row) return; // reply to something else (or already resolved) — ignore
+
+    if (!row) {
+      // Fase 22.5 — no pending row matched: maybe this is a reply to an
+      // already-"published manually" card (tweet_id still NULL) carrying the
+      // real tweet URL, so metrics can pick it up. Anything else is ignored.
+      await tryCaptureManualTweetUrl(env, db, repliedToId, update.message.text.trim());
+      return;
+    }
     const newText = update.message.text.trim();
 
     // Fase 22.4 UX fix (2026-07-11): editing a reply no longer auto-publishes
@@ -451,8 +540,13 @@ export async function handleTelegramUpdate(
     // reject) back to Unai, same as a fresh candidate. His primary path is
     // manual anyway, and the API can legitimately 403 on a restricted
     // conversation; deciding "publish via API" for him on every edit was the
-    // wrong default. Every other row kind (posts/quotes/threads/reposts)
-    // keeps editAndApproveRow's behavior — edit = approve — unchanged.
+    // wrong default. Fase 22.5 extends the same "edit doesn't auto-decide"
+    // behavior to kind='quote' — quotes have no API path at all now (see
+    // divertQuoteToManual in publisher.ts), so editAndApproveRow (which
+    // would send it back to 'scheduled' for the cron to re-divert, sending a
+    // duplicate card) is wrong here too. Every other row kind
+    // (posts/threads/reposts) keeps editAndApproveRow's behavior — edit =
+    // approve — unchanged.
     if (row.kind === "reply") {
       const ok = await editReplyDraft(db, row.id, newText);
       if (ok) {
@@ -469,6 +563,22 @@ export async function handleTelegramUpdate(
             row.tg_message_id,
             `${metaCardFor({ ...row, text: newText })}\n\n✏️ *Texto actualizado — elige cómo publicar*`,
             { inlineKeyboard: replyDecisionKeyboard(row.id, tweetUrl) }
+          );
+        }
+      }
+    } else if (row.kind === "quote") {
+      const ok = await editReplyDraft(db, row.id, newText);
+      if (ok) {
+        if (row.tg_text_message_id) {
+          await editXAgentMessageText(env, row.tg_text_message_id, newText, { format: "code" });
+        }
+        if (row.tg_message_id) {
+          const quoteUrl = await resolveQuoteTargetUrl(db, row);
+          await editXAgentMessageText(
+            env,
+            row.tg_message_id,
+            `${formatManualQuoteMeta({ ...row, text: newText }, quoteUrl)}\n\n✏️ *Texto actualizado*`,
+            { inlineKeyboard: manualQuoteKeyboard(row.id, quoteUrl) }
           );
         }
       }
