@@ -139,6 +139,11 @@ export interface Env {
   // src/x-agent/push.ts for why no ASN.1/DER handling is needed.
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
+
+  // Rate limiting for free fetch-based tools (security hardening pass).
+  // Native Workers ratelimit binding — @cloudflare/workers-types in this repo
+  // doesn't ship a RateLimit type yet, so it's declared inline here.
+  FREE_FETCH_RL: { limit(opts: { key: string }): Promise<{ success: boolean }> };
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -198,6 +203,7 @@ export default {
       const adminKey = request.headers.get("x-admin-key");
       const isAdmin = Boolean(env.ADMIN_API_KEY && adminKey === env.ADMIN_API_KEY);
       const clientUA = request.headers.get("user-agent") ?? "";
+      const clientIp = request.headers.get("cf-connecting-ip") ?? "unknown";
       const sessionId = request.headers.get("mcp-session-id") ?? "";
       const internalHeader = request.headers.get("x-toolsnap-internal");
       const isInternal = Boolean(
@@ -291,7 +297,8 @@ export default {
         sessionId,
         isInternal,
         rawApiKey,
-        oauthIdentity
+        oauthIdentity,
+        clientIp
       );
 
       if (response === null) {

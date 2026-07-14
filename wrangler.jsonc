@@ -150,7 +150,25 @@
       "binding": "SCREENSHOTS_BUCKET",
       "bucket_name": "toolsnap-screenshots"
     }
-  ]
+  ],
+  // Rate limiting binding (Workers' native ratelimit API — free, no KV/D1
+  // round-trip). Caps free fetch-based tools (fetch_extract, csv_query,
+  // sitemap_parse, etc. — anything that fetches a caller-supplied URL and
+  // doesn't already pay per call) at 120 calls/min per IP, so the free tier
+  // can't be used as an open download proxy. See RATE_LIMITED_FETCH_TOOLS in
+  // src/mcp/server.ts for the exact tool set and enforcement point.
+  // namespace_id is an arbitrary small integer, unique per ratelimit binding
+  // in this account — there's only one, so "1001" needs no special meaning.
+  "unsafe": {
+    "bindings": [
+      {
+        "name": "FREE_FETCH_RL",
+        "type": "ratelimit",
+        "namespace_id": "1001",
+        "simple": { "limit": 120, "period": 60 }
+      }
+    ]
+  }
   // Secrets (never stored here — upload via wrangler secret put):
   //   wrangler secret put X402_PAY_TO_ADDRESS   (already done)
   //   wrangler secret put RELAYER_PRIVATE_KEY    (already done)
