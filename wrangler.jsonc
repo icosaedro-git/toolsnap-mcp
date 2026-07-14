@@ -132,6 +132,19 @@
   // R2 bucket for screenshot_url captures (Fase 11.2).
   // Created 2026-06-25 (`wrangler r2 bucket create toolsnap-screenshots`).
   // Public access enabled via r2.dev dev URL (see R2_PUBLIC_URL var above).
+  //
+  // Lifecycle rules (security/privacy hardening pass): every object in this
+  // bucket auto-deletes within 24h, regardless of prefix or whether a tool
+  // ever consumed it. Rules live in Cloudflare, not in this repo — wrangler
+  // has no config surface for them, so they were applied directly:
+  //   wrangler r2 bucket lifecycle add toolsnap-screenshots --name uploads-24h      --prefix uploads/      --expire-days 1
+  //   wrangler r2 bucket lifecycle add toolsnap-screenshots --name screenshots-24h --prefix screenshots/ --expire-days 1
+  //   wrangler r2 bucket lifecycle add toolsnap-screenshots --name rembg-24h       --prefix rembg/       --expire-days 1
+  // Verify with: wrangler r2 bucket lifecycle list toolsnap-screenshots
+  // This is the fix for a real gap: uploads/ (upload_file, /upload) and
+  // rembg/ (remove_background output not yet fetched) had NO expiry before
+  // this — objects that were never consumed lived in R2 forever, contradicting
+  // the "temporary"/"~24h" language in their tool descriptions.
   "r2_buckets": [
     {
       "binding": "SCREENSHOTS_BUCKET",
