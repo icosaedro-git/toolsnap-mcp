@@ -124,6 +124,26 @@ const PRICING_DATA = {
         note: "Removes the background from any public image URL (JPEG/PNG/WEBP) using the U²-Net model. Returns a transparent PNG hosted on a public URL (expires ~24h) — never raw bytes. Priced above the flat rate due to generative AI inference COGS. No first-call-free. Costs $0.03 pay-per-call or $0.02 prepaid.",
       },
     },
+    {
+      name: "csv_query_xl",
+      tier: "paid",
+      price_usdc: 0.02,
+      prepaid_price_usdc: 0.01,
+      first_call_free: false,
+      value: {
+        note: "Paid sibling of the free csv_query, for URL-hosted CSVs from 5 MB up to 100 MB. Streamed server-side (never buffered whole), so the file never touches your context. Flat rate despite the large size cap — the marginal cost is CPU time, not storage or a third-party API. No first-call-free: it's a paid file-size tier (csv_query already gives you a free first taste), not a marketing freebie. You pay for the query, not the row count.",
+      },
+    },
+    {
+      name: "json_query_xl",
+      tier: "paid",
+      price_usdc: 0.02,
+      prepaid_price_usdc: 0.01,
+      first_call_free: false,
+      value: {
+        note: "Paid sibling of the free json_query, for URL-hosted JSON from 5 MB up to 25 MB. Buffered (JSON needs the whole document to parse), bounded by Worker memory. Flat rate; no first-call-free (same reasoning as csv_query_xl).",
+      },
+    },
     // fetch_extract and fetch_html have detailed entries above; exclude them
     // here to avoid duplicates.
     ...FREE_TOOLS.filter((name) => name !== "fetch_extract" && name !== "fetch_html").map(

@@ -75,7 +75,9 @@ export const FAMILIES: Record<string, Family> = {
     oneLiner: "Query CSV/JSON, run regex, diff strings, format JSON, count tokens, get text stats.",
     tools: [
       "csv_query",
+      "csv_query_xl",
       "json_query",
+      "json_query_xl",
       "html_table_extract",
       "regex_extract",
       "diff_text",
@@ -143,9 +145,13 @@ export const NOTES: Record<string, string> = {
   pdf_text_extract:
     "Handles FlateDecode-compressed streams and RC4-encrypted PDFs that open with an empty password. Works on text-based PDFs (Word, LaTeX, web-generated); does NOT perform OCR on scanned/image-only PDFs.",
   csv_query:
-    "Provide exactly one of url or csv. Supports select/filter/sort_by/sort_dir/limit/format(json|csv). Filter operators: = != > >= < <= contains startswith endswith.",
+    "Provide exactly one of url or csv. Supports select/filter/sort_by/sort_dir/limit/format(json|csv). Filter operators: = != > >= < <= contains startswith endswith. Free up to 5 MB; for larger URL-hosted CSVs, see csv_query_xl. Prefer url over csv when the file is already hosted: the fetch and query run server-side and only the result returns, so a large file never passes through your context. Use csv only for data you already hold — the raw text then counts against your context like any other argument.",
+  csv_query_xl:
+    "Paid sibling of csv_query for URL-hosted CSVs from 5 MB up to 100 MB, streamed server-side (never buffered whole, never touches your context). Same query language, URL-only (no inline csv). $0.02/call or $0.01 prepaid; no first-call-free — it's a paid file-size tier, not a marketing freebie. Billed per query, not per row returned.",
   json_query:
-    "JSONPath-lite: property access, [*] wildcard, [-1] negative index, ..key recursive descent, [?(@.price < 10)] filters. Provide exactly one of url or json.",
+    "JSONPath-lite: property access, [*] wildcard, [-1] negative index, ..key recursive descent, [?(@.price < 10)] filters. Provide exactly one of url or json. Free up to 5 MB; for larger URL-hosted JSON, see json_query_xl.",
+  json_query_xl:
+    "Paid sibling of json_query for URL-hosted JSON from 5 MB up to 25 MB. Same JSONPath-lite query language, URL-only (no inline json). $0.02/call or $0.01 prepaid; no first-call-free.",
   sitemap_parse:
     "Handles both urlset and sitemapindex, plus image/news sitemap extensions. Use to enumerate all pages of a site or build a crawl queue.",
   rss_parse: "Handles RSS 2.0 and Atom 1.0. Returns feed metadata plus title/link/pubDate/author/categories/enclosure per item.",

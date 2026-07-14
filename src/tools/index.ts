@@ -11,8 +11,8 @@ import { fetchExtractTool } from "./fetch-extract.js";
 import { htmlToMarkdownTool } from "./html-to-markdown.js";
 import { extractStructuredTool } from "./extract-structured.js";
 import { diffTextTool } from "./diff-text.js";
-import { csvQueryTool } from "./csv-query.js";
-import { jsonQueryTool } from "./json-query.js";
+import { csvQueryTool, csvQueryXlTool } from "./csv-query.js";
+import { jsonQueryTool, jsonQueryXlTool } from "./json-query.js";
 import { pdfTextExtractTool } from "./pdf-text-extract.js";
 import { regexExtractTool } from "./regex-extract.js";
 import { webpageMetadataTool } from "./webpage-metadata.js";
@@ -67,7 +67,9 @@ export const tools: McpTool[] = [
   extractStructuredTool,
   diffTextTool,
   csvQueryTool,
+  csvQueryXlTool,
   jsonQueryTool,
+  jsonQueryXlTool,
   pdfTextExtractTool,
   regexExtractTool,
   webpageMetadataTool,
