@@ -1,7 +1,10 @@
 import type { McpTool } from "../mcp/types.js";
+import { safeFetch } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_JSON_BYTES = 5_000_000; // 5 MB
+const XL_FETCH_TIMEOUT_MS = 30_000;
+const XL_MAX_JSON_BYTES = 25_000_000; // 25 MB — buffered (JSON needs the whole doc to parse), bounded by Worker RAM.
 
 // ---------------------------------------------------------------------------
 // JSONPath-lite evaluator
@@ -186,6 +189,12 @@ function evalFilter(item: JSONValue, expr: string): boolean {
   }
 }
 
+/** Append every element of `src` to `dest` without spreading — `dest.push(...src)`
+ *  throws RangeError on large arrays (engines cap spread/apply argument counts). */
+function pushAll<T>(dest: T[], src: readonly T[]): void {
+  for (const item of src) dest.push(item);
+}
+
 function getNestedKey(obj: JSONValue, key: string): JSONValue | undefined {
   if (obj === null || typeof obj !== "object" || Array.isArray(obj)) {
     return undefined;
@@ -233,22 +242,22 @@ function evalTokens(
 
       case "wildcard": {
         if (Array.isArray(node)) {
-          results.push(...node);
+          pushAll(results, node);
         } else if (node !== null && typeof node === "object") {
-          results.push(...Object.values(node as Record<string, JSONValue>));
+          pushAll(results, Object.values(node as Record<string, JSONValue>));
         }
         break;
       }
 
       case "recursive": {
         // Find all occurrences of key in the subtree
-        results.push(...findRecursive(node, token.key));
+        pushAll(results, findRecursive(node, token.key));
         break;
       }
 
       case "filter": {
         if (Array.isArray(node)) {
-          results.push(...node.filter((item) => evalFilter(item, token.expr)));
+          pushAll(results, node.filter((item) => evalFilter(item, token.expr)));
         }
         break;
       }
@@ -264,13 +273,13 @@ function findRecursive(node: JSONValue, key: string): JSONValue[] {
 
   if (Array.isArray(node)) {
     for (const item of node) {
-      results.push(...findRecursive(item, key));
+      pushAll(results, findRecursive(item, key));
     }
   } else {
     const obj = node as Record<string, JSONValue>;
     if (key in obj) results.push(obj[key]);
     for (const val of Object.values(obj)) {
-      results.push(...findRecursive(val, key));
+      pushAll(results, findRecursive(val, key));
     }
   }
   return results;
@@ -279,6 +288,87 @@ function findRecursive(node: JSONValue, key: string): JSONValue[] {
 // ---------------------------------------------------------------------------
 // Tool
 // ---------------------------------------------------------------------------
+
+interface JsonQueryEngineOptions {
+  toolName: string;
+  allowInline: boolean;
+  maxBytes: number;
+  fetchTimeoutMs: number;
+  tooLargeHint: string;
+}
+
+async function runJsonQuery(args: Record<string, unknown>, opts: JsonQueryEngineOptions): Promise<string> {
+  if (typeof args.query !== "string" || !args.query.trim()) {
+    throw new Error("`query` is required.");
+  }
+
+  const hasUrl = typeof args.url === "string" && (args.url as string).length > 0;
+  const hasJson = opts.allowInline && typeof args.json === "string" && (args.json as string).length > 0;
+
+  if (!hasUrl && !hasJson) {
+    throw new Error(opts.allowInline ? "Provide either `url` or `json`." : "`url` is required.");
+  }
+  if (hasUrl && hasJson) throw new Error("Provide either `url` or `json`, not both.");
+
+  let rawJson: string;
+  if (hasUrl) {
+    const url = args.url as string;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), opts.fetchTimeoutMs);
+    let response: Response;
+    try {
+      response = await safeFetch(url, {
+        signal: controller.signal,
+        headers: { "User-Agent": `toolsnap-mcp/1.0 (${opts.toolName}; +https://toolsnap.app)` },
+      });
+    } catch (err) {
+      throw new Error(`Failed to fetch: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    const buf = await response.arrayBuffer();
+    if (buf.byteLength > opts.maxBytes) {
+      throw new Error(`JSON too large for ${opts.toolName}: ${buf.byteLength} bytes (max ${opts.maxBytes}). ${opts.tooLargeHint}`);
+    }
+    rawJson = new TextDecoder().decode(buf);
+  } else {
+    rawJson = args.json as string;
+  }
+
+  let data: JSONValue;
+  try {
+    data = JSON.parse(rawJson) as JSONValue;
+  } catch (err) {
+    throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Parse and evaluate the path
+  let tokens: Token[];
+  try {
+    tokens = tokenize((args.query as string).trim());
+  } catch (err) {
+    throw new Error(`Invalid query: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Start evaluation from root
+  const results = evalTokens([data], tokens, 1); // skip root token; data IS the root
+
+  // Limit
+  const rawLimit = args.limit !== undefined ? Number(args.limit) : 100;
+  const limit = Math.min(Math.max(1, Math.floor(rawLimit)), 1000);
+  const total = results.length;
+  const sliced = results.slice(0, limit);
+  const truncated = total > limit;
+
+  const output = sliced.length === 1 ? sliced[0] : sliced;
+
+  return JSON.stringify(
+    truncated ? { results: output, total, returned: sliced.length } : output,
+    null,
+    2
+  );
+}
 
 export const jsonQueryTool: McpTool = {
   name: "json_query",
@@ -293,77 +383,38 @@ export const jsonQueryTool: McpTool = {
     },
     required: ["query"],
   },
-  async run(args) {
-    if (typeof args.query !== "string" || !args.query.trim()) {
-      throw new Error("`query` is required.");
-    }
+  run(args) {
+    return runJsonQuery(args, {
+      toolName: "json_query",
+      allowInline: true,
+      maxBytes: MAX_JSON_BYTES,
+      fetchTimeoutMs: FETCH_TIMEOUT_MS,
+      tooLargeHint:
+        "Use `json_query_xl` (paid: $0.02/call or $0.01 prepaid, up to 25 MB) with the same url and query.",
+    });
+  },
+};
 
-    const hasUrl = typeof args.url === "string" && (args.url as string).length > 0;
-    const hasJson = typeof args.json === "string" && (args.json as string).length > 0;
-
-    if (!hasUrl && !hasJson) throw new Error("Provide either `url` or `json`.");
-    if (hasUrl && hasJson) throw new Error("Provide either `url` or `json`, not both.");
-
-    let rawJson: string;
-    if (hasUrl) {
-      const url = args.url as string;
-      if (!url.startsWith("http://") && !url.startsWith("https://")) {
-        throw new Error("`url` must start with http:// or https://");
-      }
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-      let response: Response;
-      try {
-        response = await fetch(url, {
-          signal: controller.signal,
-          headers: { "User-Agent": "toolsnap-mcp/1.0 (json_query; +https://toolsnap.app)" },
-        });
-      } catch (err) {
-        throw new Error(`Failed to fetch: ${err instanceof Error ? err.message : String(err)}`);
-      } finally {
-        clearTimeout(timer);
-      }
-      if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
-      const buf = await response.arrayBuffer();
-      if (buf.byteLength > MAX_JSON_BYTES) {
-        throw new Error(`JSON too large: ${buf.byteLength} bytes (max ${MAX_JSON_BYTES}).`);
-      }
-      rawJson = new TextDecoder().decode(buf);
-    } else {
-      rawJson = args.json as string;
-    }
-
-    let data: JSONValue;
-    try {
-      data = JSON.parse(rawJson) as JSONValue;
-    } catch (err) {
-      throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
-    }
-
-    // Parse and evaluate the path
-    let tokens: Token[];
-    try {
-      tokens = tokenize((args.query as string).trim());
-    } catch (err) {
-      throw new Error(`Invalid query: ${err instanceof Error ? err.message : String(err)}`);
-    }
-
-    // Start evaluation from root
-    const results = evalTokens([data], tokens, 1); // skip root token; data IS the root
-
-    // Limit
-    const rawLimit = args.limit !== undefined ? Number(args.limit) : 100;
-    const limit = Math.min(Math.max(1, Math.floor(rawLimit)), 1000);
-    const total = results.length;
-    const sliced = results.slice(0, limit);
-    const truncated = total > limit;
-
-    const output = sliced.length === 1 ? sliced[0] : sliced;
-
-    return JSON.stringify(
-      truncated ? { results: output, total, returned: sliced.length } : output,
-      null,
-      2
-    );
+export const jsonQueryXlTool: McpTool = {
+  name: "json_query_xl",
+  description:
+    "Paid sibling of json_query for larger URL-hosted JSON (up to 25 MB, vs 5 MB free). Same JSONPath-lite query language. URL-only (no inline json — a 25 MB payload would blow out your context anyway). $0.02/call pay-per-call or $0.01 prepaid; no first-call-free (a paid file-size tier, not a marketing freebie). Below 5 MB, use the free json_query instead.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      url: { type: "string", description: "URL of the JSON document to fetch (http:// or https://). Required." },
+      query: { type: "string", description: "e.g. '$.users[*].name'." },
+      limit: { type: "number" },
+    },
+    required: ["url", "query"],
+  },
+  run(args) {
+    return runJsonQuery(args, {
+      toolName: "json_query_xl",
+      allowInline: false,
+      maxBytes: XL_MAX_JSON_BYTES,
+      fetchTimeoutMs: XL_FETCH_TIMEOUT_MS,
+      tooLargeHint: "This file exceeds even json_query_xl's 25 MB cap.",
+    });
   },
 };

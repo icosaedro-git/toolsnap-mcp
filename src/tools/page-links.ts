@@ -1,4 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
+import { safeFetch } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 12_000;
 const READ_LIMIT = 2 * 1024 * 1024;
@@ -124,13 +125,12 @@ export const pageLinksTool: McpTool = {
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await safeFetch(url, {
         signal: controller.signal,
         headers: {
           "User-Agent": "toolsnap-mcp/1.0 (page_links; +https://toolsnap.app)",
           Accept: "text/html,application/xhtml+xml",
         },
-        redirect: "follow",
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

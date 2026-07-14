@@ -185,9 +185,18 @@ export interface PaymentConfig {
  *
  * fetch_extract and fetch_html were liberated to free in Fase 18 (2026-07-03,
  * approved decision) — they are the free flagship tools now. Only real-COGS
- * tools remain paid.
+ * tools remain paid, PLUS the two "_xl" file-size tiers (csv_query_xl,
+ * json_query_xl): near-zero marginal cost, but deliberately paid — see the
+ * TOOL_PRICE_OVERRIDES comment below for why they're excluded from
+ * first-call-free despite having no real COGS.
  */
-const PAID_TOOLS = new Set(["screenshot_url", "keyword_research", "remove_background"]);
+const PAID_TOOLS = new Set([
+  "screenshot_url",
+  "keyword_research",
+  "remove_background",
+  "csv_query_xl",
+  "json_query_xl",
+]);
 
 /** Returns true if the tool requires a payment. */
 export function requiresPayment(toolName: string): boolean {
@@ -208,6 +217,15 @@ const TOOL_PRICE_OVERRIDES: Record<string, { payPerCall: string; prepaid: string
   screenshot_url: { payPerCall: "0.04", prepaid: "0.025" },
   keyword_research: { payPerCall: "0.04", prepaid: "0.025" },
   remove_background: { payPerCall: "0.03", prepaid: "0.02" },
+  // csv_query_xl / json_query_xl: this override matches the global flat rate
+  // exactly ($0.02 / $0.01) — it exists ONLY to opt these two tools out of
+  // first-call-free (see firstCallFreeEligible below), not to change their
+  // price. Decision: the free csv_query/json_query already let an agent try
+  // the product; a free first call on the "_xl" paid tier would hand out up
+  // to 100 MB of streamed compute per throwaway wallet for nothing, which is
+  // a real (if small) COGS and an abuse vector, not pure marketing.
+  csv_query_xl: { payPerCall: "0.02", prepaid: "0.01" },
+  json_query_xl: { payPerCall: "0.02", prepaid: "0.01" },
 };
 
 export interface ToolPrice {

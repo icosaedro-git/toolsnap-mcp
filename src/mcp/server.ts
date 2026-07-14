@@ -347,6 +347,31 @@ function errorResponse(
 const EXPANDED_FAMILIES_KEY_PREFIX = "expanded_families:";
 const EXPANDED_FAMILIES_TTL_SECONDS = 3_600; // 1h
 
+/**
+ * Free tools that fetch a caller-supplied URL — the set a free download proxy
+ * would actually abuse. Rate-limited per IP (FREE_FETCH_RL, 120/min — see
+ * wrangler.jsonc) so the free tier can't be used as an open fetch relay.
+ * Paid tools (screenshot_url, keyword_research, remove_background, and the
+ * two "_xl" tools) already pay per call, so they're excluded — no incentive
+ * to spam them, and they never reach the free-tool code path below anyway.
+ */
+const RATE_LIMITED_FETCH_TOOLS = new Set([
+  "csv_query",
+  "json_query",
+  "fetch_extract",
+  "fetch_html",
+  "html_to_markdown",
+  "html_table_extract",
+  "fetch_metadata",
+  "fetch_structured",
+  "page_assets",
+  "page_links",
+  "sitemap_parse",
+  "rss_parse",
+  "link_check",
+  "pdf_text_extract",
+]);
+
 export async function dispatch(
   request: JsonRpcRequest,
   env: Env,
@@ -356,7 +381,8 @@ export async function dispatch(
   sessionId = "",
   isInternal = false,
   rawApiKey: string | null = null,
-  oauthIdentity: VerifiedOAuthToken | null = null
+  oauthIdentity: VerifiedOAuthToken | null = null,
+  clientIp = "unknown"
 ): Promise<JsonRpcResponse | null> {
   const id: string | number | null =
     request.id !== undefined ? (request.id ?? null) : null;
@@ -1082,6 +1108,32 @@ export async function dispatch(
       // -----------------------------------------------------------------------
       {
         const t0 = Date.now();
+
+        if (!isAdmin && !isInternal && RATE_LIMITED_FETCH_TOOLS.has(toolName)) {
+          const { success } = await env.FREE_FETCH_RL.limit({ key: clientIp });
+          if (!success) {
+            log({
+              toolName,
+              paymentType: "tool_error",
+              payer: "anon",
+              revenueUsdc: 0,
+              latencyMs: Date.now() - t0,
+              detail: "rate_limited",
+              client: clientUA,
+              internal: isInternal,
+            });
+            return successResponse(id, {
+              content: [
+                {
+                  type: "text",
+                  text: "Rate limit: max 120 fetch calls per minute per IP on free tools. Wait a few seconds and retry.",
+                },
+              ],
+              isError: true,
+            });
+          }
+        }
+
         try {
           const result = await callTool(toolName, toolArgs, env);
           log({
@@ -1151,7 +1203,8 @@ export async function handleMcpRequest(
   sessionId = "",
   isInternal = false,
   rawApiKey: string | null = null,
-  oauthIdentity: VerifiedOAuthToken | null = null
+  oauthIdentity: VerifiedOAuthToken | null = null,
+  clientIp = "unknown"
 ): Promise<{ response: string | null; status: number }> {
   let request: JsonRpcRequest;
   try {
@@ -1161,7 +1214,18 @@ export async function handleMcpRequest(
     return { response: JSON.stringify(err), status: 400 };
   }
 
-  const result = await dispatch(request, env, isAdmin, ctx, clientUA, sessionId, isInternal, rawApiKey, oauthIdentity);
+  const result = await dispatch(
+    request,
+    env,
+    isAdmin,
+    ctx,
+    clientUA,
+    sessionId,
+    isInternal,
+    rawApiKey,
+    oauthIdentity,
+    clientIp
+  );
 
   if (result === null) {
     // Notification — no response body

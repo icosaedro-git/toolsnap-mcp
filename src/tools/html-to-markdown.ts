@@ -1,4 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
+import { safeFetch } from "./safe-fetch.js";
 
 const DEFAULT_MAX_CHARS = 12_000;
 const HARD_MAX_CHARS = 50_000;
@@ -160,7 +161,7 @@ async function fetchHtml(url: string): Promise<string> {
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await safeFetch(url, {
       signal: controller.signal,
       headers: {
         "User-Agent": "toolsnap-mcp/1.0 (html_to_markdown; +https://toolsnap.app)",

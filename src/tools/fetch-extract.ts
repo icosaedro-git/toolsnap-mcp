@@ -1,4 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
+import { safeFetch } from "./safe-fetch.js";
 
 const DEFAULT_MAX_CHARS = 8_000;
 const HARD_MAX_CHARS = 32_000;
@@ -113,7 +114,7 @@ export const fetchExtractTool: McpTool = {
 
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await safeFetch(url, {
         signal: controller.signal,
         headers: {
           "User-Agent": "toolsnap-mcp/1.0 (fetch_extract; +https://toolsnap.app)",

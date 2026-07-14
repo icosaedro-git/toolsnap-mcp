@@ -1,4 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
+import { safeFetch } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_URLS = 1000;
@@ -97,7 +98,7 @@ async function fetchSitemap(url: string): Promise<string> {
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await safeFetch(url, {
       signal: controller.signal,
       headers: {
         "User-Agent": "toolsnap-mcp/1.0 (sitemap_parse; +https://toolsnap.app)",

@@ -3,8 +3,13 @@ import type { Env } from "../index.js";
 
 /**
  * upload_file (Fase 13.0b) — accepts a base64-encoded image and stores it in
- * R2, returning a permanent public URL that can be passed to remove_background
+ * R2, returning a temporary public URL that can be passed to remove_background
  * or other image tools. Free — supporting operation for paid tools.
+ *
+ * Deletion: remove_background deletes the object immediately after reading
+ * it (see remove-background.ts). Anything never consumed still auto-expires
+ * via an R2 lifecycle rule on the uploads/ prefix (24h, set outside this
+ * repo — see wrangler.jsonc) so nothing lingers forever.
  *
  * Env-aware (needs SCREENSHOTS_BUCKET + R2_PUBLIC_URL).
  */
@@ -22,7 +27,7 @@ const ALLOWED_MIME: Record<string, string> = {
 export const uploadFileTool: McpTool = {
   name: "upload_file",
   description:
-    "Upload a base64-encoded image to ToolSnap temporary storage and receive a short-lived URL to pass to tools like remove_background. The file is automatically deleted once consumed by a tool. Returns JSON with url (temporary), key, content_type, file_size_bytes. Returns an error if the base64 data is malformed or the content_type is not supported. Do NOT use this URL as a permanent link. Accepts JPEG, PNG, WEBP, or GIF up to 10 MB. Free — no payment required.",
+    "Upload a base64-encoded image to ToolSnap temporary storage and receive a short-lived URL to pass to tools like remove_background. Deleted once consumed by a tool, and always auto-deleted within 24 hours either way. Returns JSON with url (temporary), key, content_type, file_size_bytes. Returns an error if the base64 data is malformed or the content_type is not supported. Do NOT use this URL as a permanent link. Accepts JPEG, PNG, WEBP, or GIF up to 10 MB. Free — no payment required.",
   inputSchema: {
     type: "object",
     properties: {
