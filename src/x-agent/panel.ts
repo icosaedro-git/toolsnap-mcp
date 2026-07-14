@@ -271,6 +271,12 @@ function modalActions(row) {
     btns.push('<button class="btn small" onclick="toggleModalMode(\\'mark-published\\')">📝 Publicado manualmente</button>');
     btns.push('<button class="btn danger small" onclick="doCancel(' + row.id + ')">🚫 Cancelar</button>');
   }
+  // A failed API attempt (e.g. X 403ing an automated quote/reply) can still
+  // be recovered: Unai posts it by hand and marks it here so it counts as
+  // published and picks up metrics once he pastes the tweet URL.
+  if (row.status === 'failed') {
+    btns.push('<button class="btn small" onclick="toggleModalMode(\\'mark-published\\')">📝 Publicado manualmente</button>');
+  }
   return btns.join('');
 }
 

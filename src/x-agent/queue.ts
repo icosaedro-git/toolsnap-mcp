@@ -53,6 +53,22 @@ export async function getQueueRow(db: D1Database, id: number): Promise<XQueueRow
   return db.prepare("SELECT * FROM x_queue WHERE id = ?").bind(id).first<XQueueRow>();
 }
 
+/**
+ * Resolve the URL of the tweet a `kind='quote'` row targets — either its own
+ * quote_tweet_id, or (the common case, series posts) its depends_on
+ * parent's tweet_id. For rows the publisher cron just picked up, getDueRows
+ * already guarantees a depends_on parent is published, so parent.tweet_id is
+ * present; for a row looked up later (e.g. re-presenting the manual-quote
+ * card after an edit) the parent could in principle not be published yet —
+ * this simply returns null in that case rather than throwing. Shared by
+ * publisher.ts (divertQuoteToManual) and telegram-approval.ts (the edit flow
+ * for a manual-quote card).
+ */
+export async function resolveQuoteTargetUrl(db: D1Database, row: XQueueRow): Promise<string | null> {
+  const targetId = row.quote_tweet_id ?? (row.depends_on ? (await getQueueRow(db, row.depends_on))?.tweet_id : null);
+  return targetId ? `https://x.com/i/web/status/${targetId}` : null;
+}
+
 /** Approve a pending_approval row -> scheduled. No-op (false) if not currently pending_approval. */
 export async function approveRow(db: D1Database, id: number): Promise<boolean> {
   const res = await db
@@ -176,6 +192,24 @@ export async function publishNowRow(db: D1Database, id: number): Promise<boolean
       "UPDATE x_queue SET status = 'scheduled', scheduled_at = ?, veto_notified_at = NULL, updated_at = ? WHERE id = ? AND status IN ('scheduled', 'pending_approval')"
     )
     .bind(ts, ts, id)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+/**
+ * Move a `scheduled` row (a `kind='quote'` picked up by the publisher cron)
+ * to `pending_approval` without touching its text — X's API rejects
+ * automated quote-posts of "unrelated" accounts with a 403 (platform
+ * restriction, not fixable via account settings; same family as the
+ * reply-conversation-restricted 403). The cron uses this instead of
+ * attemptPublishNow for quotes, then sends a manual-publish card
+ * (sendManualQuoteCard). Atomic guard on status='scheduled' so an
+ * overlapping cron tick can't send the card twice.
+ */
+export async function moveToManualPending(db: D1Database, id: number): Promise<boolean> {
+  const res = await db
+    .prepare("UPDATE x_queue SET status = 'pending_approval', updated_at = ? WHERE id = ? AND status = 'scheduled'")
+    .bind(now(), id)
     .run();
   return (res.meta.changes ?? 0) > 0;
 }

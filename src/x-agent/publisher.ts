@@ -7,12 +7,15 @@
 import type { XAgentEnv } from "./client.js";
 import type { XTelegramEnv } from "./telegram.js";
 import { sendXAgentMessage } from "./telegram.js";
-import { formatCard } from "./telegram-approval.js";
+import { formatCard, sendManualQuoteCard } from "./telegram-approval.js";
 import { attemptPublishNow, type PublishOneEnv } from "./publish-one.js";
 import {
   getDueRows,
   getVetoRowsNeedingNotice,
   markVetoNotified,
+  moveToManualPending,
+  resolveQuoteTargetUrl,
+  type XQueueRow,
 } from "./queue.js";
 import { runReplyDiscoverySweep, expireStaleReplyCandidates, type XDiscoveryEnv } from "./discovery.js";
 
@@ -68,6 +71,25 @@ async function sendVetoNotices(env: XPublisherEnv, db: D1Database): Promise<void
 }
 
 /**
+ * X's API rejects automated quote-posts with a 403 ("not mentioned or part
+ * of the conversation") whenever the quoted post isn't one the API
+ * considers "yours to engage with" — a platform restriction, not fixable
+ * via account settings (verified 2026-07-14: "who can reply" was already
+ * set to "Everyone"). Every kind='quote' row therefore skips the API
+ * entirely and goes to a manual-publish Telegram card instead (texto
+ * copy-paste + link to the post being quoted + "published by hand" button),
+ * same pattern as reply-guy's manual path. Returns true if a card was sent
+ * (or the row was already moved out of 'scheduled' by an overlapping tick).
+ */
+async function divertQuoteToManual(env: XPublisherEnv, db: D1Database, row: XQueueRow): Promise<boolean> {
+  const moved = await moveToManualPending(db, row.id);
+  if (!moved) return false; // another tick already claimed/moved this row
+  const quoteUrl = await resolveQuoteTargetUrl(db, row);
+  await sendManualQuoteCard(env, db, row, quoteUrl);
+  return true;
+}
+
+/**
  * Run one publisher tick: send due veto notices, attempt every
  * currently-eligible row once, then (Fase 22.4) run a reply-guy discovery
  * sweep if the gate says it's time, and expire any reply candidates that
@@ -82,6 +104,11 @@ export async function runXPublisher(env: XPublisherEnv): Promise<{ attempted: nu
   let failed = 0;
 
   for (const row of due) {
+    if (row.kind === "quote") {
+      await divertQuoteToManual(env, db, row);
+      continue;
+    }
+
     const result = await attemptPublishNow(env, row);
     if (result.status === "already_claimed") continue; // another cron tick (or overlap) already took it
     if (result.status === "published") {
