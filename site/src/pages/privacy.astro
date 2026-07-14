@@ -3,21 +3,39 @@ import DocsLayout from '../layouts/DocsLayout.astro';
 ---
 
 <DocsLayout
-  title="Privacy Policy — ToolSnap MCP"
+  title="Privacy Policy, ToolSnap MCP"
   description="Privacy Policy for ToolSnap MCP, operated by Icosaedro Music &amp; Human Development LLC."
   heroTitle="Privacy Policy"
-  lead="Last updated 2026-07-05."
+  lead="Last updated 2026-07-14."
 >
   <div class="legal">
     <p>Data controller: <strong>Icosaedro Music &amp; Human Development LLC</strong>, 2201 Menaul Blvd NE Ste A, Albuquerque, NM 87107, USA.</p>
-    <p>We collect the minimum needed to operate the service: your email (via Polar, for account identification and receipts), a hash of your API key, and per-call usage metadata (tool name, timestamp, latency) for billing and abuse prevention.</p>
-    <p>We do not sell personal data. Payment card data is handled entirely by Polar (our Merchant of Record) and never touches our servers.</p>
+
+    <h2>What we collect</h2>
+    <p>We collect the minimum needed to operate the service: your email (via Polar, for account identification and receipts), a hash of your API key, and per-call usage metadata (tool name, timestamp, latency, client name/version, session id, payment metadata) for billing and abuse prevention.</p>
+
+    <h2>What we don't collect</h2>
+    <p>We do not log the URLs you fetch, the content of files you process, or the arguments of your tool calls. On a failed call, we log only the error message text, nothing else about the request. Full detail is in our <a href="/security">Security &amp; Data Handling</a> page.</p>
+
+    <h2>Retention</h2>
+    <p>Usage metadata is retained for 730 days and purged automatically. Uploaded images (upload_file, screenshot_url, remove_background) auto-delete within 24 hours. Session-level data used to remember which tools you've discovered is held in ephemeral key-value storage and expires within hours.</p>
+
+    <h2>Basis for processing</h2>
+    <p>We process the data described above to operate the service (delivering tool results, billing usage) and to prevent abuse (rate limiting, fraud detection). We do not use it for any other purpose.</p>
+
+    <h2>Subprocessors</h2>
+    <p>Cloudflare (compute, storage, edge network) and Polar (Merchant of Record for card payments) process data on our behalf for every request. Tools that call an external provider on your behalf, only when you call them, additionally use fal.ai, DataForSEO, or ScreenshotOne/Microlink.</p>
+
+    <h2>Your rights</h2>
+    <p>We do not sell personal data. Payment card data is handled entirely by Polar and never touches our servers. To request a copy or deletion of your account data, contact us below.</p>
+
     <p>Contact: <a href="mailto:support@toolsnap.app">support@toolsnap.app</a></p>
   </div>
 </DocsLayout>
 
 <style>
   .legal { color: var(--text); }
+  .legal h2 { font-size: 1.15rem; margin-top: 2em; margin-bottom: 0.5em; }
   .legal p { color: var(--text-soft); margin-bottom: 1.1em; line-height: 1.7; }
   .legal a { color: var(--cyan-soft); text-decoration: underline; }
 </style>
