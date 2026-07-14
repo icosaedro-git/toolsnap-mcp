@@ -2,7 +2,11 @@ backend:
   name: github
   repo: icosaedro-git/toolsnap-mcp
   branch: main
-  base_url: https://cms-auth-toolsnap.icosaedro-academy.workers.dev
+  # Same-origin OAuth: both endpoints live in the main Worker (src/cms-auth.ts)
+  # so the popup handshake never crosses origins. Replaced the orphan
+  # cms-auth-toolsnap worker on 2026-07-14.
+  base_url: https://mcp.toolsnap.app
+  auth_endpoint: admin/auth
 
 media_folder: "site/public/img/blog"
 public_folder: "/img/blog"
