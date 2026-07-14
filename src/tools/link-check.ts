@@ -1,4 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
+import { assertPublicHttpUrl } from "./safe-fetch.js";
 
 /**
  * link_check (Fase 18.1) — batch HTTP status/redirect checker.
@@ -54,6 +55,20 @@ async function checkOne(
       };
     }
     budget.remaining--;
+
+    try {
+      assertPublicHttpUrl(current);
+    } catch (err) {
+      return {
+        url,
+        status: null,
+        final_url: current,
+        redirect_count: hop,
+        chain,
+        latency_ms: Date.now() - start,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);

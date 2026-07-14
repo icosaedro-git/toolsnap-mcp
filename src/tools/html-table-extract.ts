@@ -1,4 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
+import { safeFetch } from "./safe-fetch.js";
 
 /**
  * html_table_extract (Fase 18.1) — <table> → JSON/CSV.
@@ -148,13 +149,12 @@ async function fetchHtmlLimited(url: string): Promise<string> {
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await safeFetch(url, {
       signal: controller.signal,
       headers: {
         "User-Agent": "toolsnap-mcp/1.0 (html_table_extract; +https://toolsnap.app)",
         Accept: "text/html,application/xhtml+xml",
       },
-      redirect: "follow",
     });
   } catch (err) {
     throw new Error(`Failed to fetch URL: ${err instanceof Error ? err.message : String(err)}`);
