@@ -3,10 +3,10 @@ import DocsLayout from '../layouts/DocsLayout.astro';
 ---
 
 <DocsLayout
-  title="Terms of Service — ToolSnap MCP"
+  title="Terms of Service, ToolSnap MCP"
   description="Terms of Service for ToolSnap MCP, operated by Icosaedro Music &amp; Human Development LLC."
   heroTitle="Terms of Service"
-  lead="Last updated 2026-07-05."
+  lead="Last updated 2026-07-14."
 >
   <div class="legal">
     <p>ToolSnap MCP is operated by <strong>Icosaedro Music &amp; Human Development LLC</strong>, 2201 Menaul Blvd NE Ste A, Albuquerque, NM 87107, USA. By purchasing credits or using paid tools, you agree to these terms.</p>
@@ -15,9 +15,23 @@ import DocsLayout from '../layouts/DocsLayout.astro';
     <h2>Credits</h2>
     <p>Credits are prepaid and non-refundable (see <a href="/refunds">Refund Policy</a>). Unused balance does not expire.</p>
     <h2>API keys</h2>
-    <p>You are responsible for keeping your API key confidential. We store only a cryptographic hash of your key, never the key itself, and cannot recover a lost key — only revoke and reissue.</p>
+    <p>You are responsible for keeping your API key confidential. We store only a cryptographic hash of your key, never the key itself, and cannot recover a lost key: only revoke and reissue.</p>
+    <h2>Data handling</h2>
+    <p>Our data tools (csv_query, json_query, fetch_extract, and the rest of the fetch/extract family) process content by reference: they fetch the URL you give them, run the query or extraction in memory for that one request, and return the result. We do not store the content you process. Full detail on what we log and what we never log is in our <a href="/security">Security &amp; Data Handling</a> page, which is incorporated into these terms by reference.</p>
+    <h2>Uploaded files</h2>
+    <p>Files uploaded via upload_file or POST /upload are temporary: deleted immediately once consumed by a tool, and auto-deleted within 24 hours regardless. Do not use these URLs as permanent hosting; they are a staging step for other tools, not a file storage service.</p>
+    <h2>Service limits &amp; fair use</h2>
+    <p>Free tools that fetch a caller-supplied URL are rate-limited per IP address to prevent the free tier from being used as an open download proxy. Individual tools enforce their own size and timeout limits (documented in each tool's description). We may adjust any of these limits at any time to protect the service for all users.</p>
+    <h2>Availability &amp; warranty disclaimer</h2>
+    <p>The service is provided "as is" and "as available," without warranty of any kind, express or implied. We do not guarantee uptime or a specific service level for the free tier. To the maximum extent permitted by law, our total liability for any claim arising from your use of the service is limited to the amount you paid us in the 12 months preceding the claim.</p>
+    <h2>Third-party processors</h2>
+    <p>We rely on the following processors to operate the service: Cloudflare (compute, storage, and edge network), Polar (Merchant of Record for card payments). Tools that call an external provider on your behalf, and only when you call them, additionally use: fal.ai (remove_background), DataForSEO (keyword_research), and ScreenshotOne or Microlink (screenshot_url).</p>
     <h2>Acceptable use</h2>
     <p>Automated abuse, resale without agreement, or circumventing rate limits may result in account suspension.</p>
+    <h2>Governing law</h2>
+    <p>These terms are governed by the laws of the State of New Mexico, USA, without regard to conflict-of-law principles.</p>
+    <h2>Changes</h2>
+    <p>We may update these terms from time to time. Material changes will be announced on our blog or on this page. Continued use of the service after a change takes effect constitutes acceptance of the updated terms.</p>
     <p>Contact: <a href="mailto:support@toolsnap.app">support@toolsnap.app</a></p>
   </div>
 </DocsLayout>

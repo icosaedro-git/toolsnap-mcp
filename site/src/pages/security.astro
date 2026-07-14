@@ -1,0 +1,112 @@
+---
+import DocsLayout from '../layouts/DocsLayout.astro';
+import DocSection from '../components/DocSection.astro';
+import Callout from '../components/Callout.astro';
+
+const title = 'Security & Data Handling, ToolSnap MCP';
+const description = 'How ToolSnap MCP handles your data: ephemeral processing, what we log (and refuse to), retention limits, and how to keep sensitive files entirely under your own control.';
+
+const toc = [
+  { id: 'ephemeral', label: 'Ephemeral by design' },
+  { id: 'logging', label: 'What we log' },
+  { id: 'storage', label: 'What we store' },
+  { id: 'byo-storage', label: 'Bring your own storage' },
+  { id: 'no-ai', label: 'No AI in the middle' },
+  { id: 'disclosure', label: 'Responsible disclosure' },
+];
+---
+
+<DocsLayout
+  title={title}
+  description={description}
+  heroTitle="Security and data handling"
+  lead="Your data passes through. It never stays."
+  toc={toc}
+>
+  <DocSection title="Ephemeral by design" id="ephemeral" num="1">
+    <p>ToolSnap's data tools (csv_query, json_query, fetch_extract, html_to_markdown, pdf_text_extract, and the rest of the fetch/extract family) fetch a URL, process it in memory for the duration of that one request, and return the result. That's it. There is no database, no queue, no cache holding the content you sent through. The file exists in the Worker's RAM for milliseconds and is gone once the response is written.</p>
+    <p>This isn't a policy we follow. It's the architecture: these tools never call a write to any storage layer at all. There is nothing to leak, because there is nothing kept.</p>
+  </DocSection>
+
+  <DocSection title="What we log" id="logging" num="2">
+    <p>We keep analytics for billing, abuse prevention, and knowing which tools people actually use. Here is exactly where that line sits.</p>
+
+    <table class="sec-table">
+      <thead><tr><th>We log</th><th>We never log</th></tr></thead>
+      <tbody>
+        <tr><td>Tool name and timestamp</td><td>The URLs you fetch</td></tr>
+        <tr><td>Latency and payment metadata</td><td>The content of your files</td></tr>
+        <tr><td>Client name/version, session id</td><td>Tool call arguments</td></tr>
+        <tr><td>On error: the error message text</td><td>Anything from a successful call's payload</td></tr>
+      </tbody>
+    </table>
+
+    <p>Retention on that metadata is 730 days, purged automatically by a daily cron. There is no separate "extended" log anywhere with more detail than what's in the table above. What you see here is the whole of it.</p>
+  </DocSection>
+
+  <DocSection title="What we store, and for how long" id="storage" num="3">
+    <p>Only two tools write anything to storage at all, and both are images, both temporary:</p>
+    <table class="sec-table">
+      <thead><tr><th>Path</th><th>Tool</th><th>Retention</th></tr></thead>
+      <tbody>
+        <tr><td>uploads/</td><td>upload_file, POST /upload</td><td>Deleted on consumption; auto-deleted within 24h either way</td></tr>
+        <tr><td>screenshots/</td><td>screenshot_url</td><td>Auto-deleted within 24h</td></tr>
+        <tr><td>rembg/</td><td>remove_background</td><td>Deleted on consumption; auto-deleted within 24h either way</td></tr>
+      </tbody>
+    </table>
+    <p>Every object in that bucket auto-deletes within 24 hours, full stop, whether or not a tool ever consumed it. Beyond that: your prepaid balance and API key hash live in D1 for as long as your account does (that's what makes them work), and payment card details never touch our servers at all. Polar, our Merchant of Record, handles those directly.</p>
+  </DocSection>
+
+  <DocSection title="Bring your own storage" id="byo-storage" num="4">
+    <p>If your data is sensitive enough that "we don't keep it" isn't reassurance enough on its own, don't send it to us at all. Generate a short-lived, read-only presigned URL from storage you already control (S3, R2, GCS, Azure Blob) and hand that to the tool instead of a public link.</p>
+    <p>The file never reposes on ToolSnap. Access control stays entirely with you: you set the expiry, you can revoke it, and our logs (see above) never even record which bucket it came from. We only see bytes in transit, for the one request, then nothing.</p>
+    <Callout variant="tip" label="A minute of setup, an afternoon of peace of mind">
+      <code class="inline">aws s3 presign s3://your-bucket/data.csv --expires-in 300</code> gives you a URL valid for 5 minutes. Pass that to csv_query (or csv_query_xl for anything over 5&nbsp;MB) instead of making the object public.
+    </Callout>
+  </DocSection>
+
+  <DocSection title="No AI in the middle" id="no-ai" num="5">
+    <p>The data tools are deterministic, server-side parsers, not language models. Your CSV or JSON never gets sent to any AI provider. There is no LLM in that pipeline to leak into, hallucinate about, or retain a copy of your data in a training set.</p>
+    <p>Two explicit exceptions, both opt-in and both obvious from the tool name: <code class="inline">remove_background</code> sends the image you give it to fal.ai for background removal, and <code class="inline">keyword_research</code> sends the keywords you give it to DataForSEO. Nothing else in the catalog talks to a third-party AI provider.</p>
+  </DocSection>
+
+  <DocSection title="Responsible disclosure" id="disclosure" num="6">
+    <p>Found a security issue? Email <a href="mailto:security@toolsnap.app">security@toolsnap.app</a>. We'll acknowledge it and work with you on a fix before any public disclosure.</p>
+  </DocSection>
+</DocsLayout>
+
+<style>
+  .sec-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-block: 20px;
+    font-size: 0.9rem;
+  }
+  .sec-table th {
+    text-align: left;
+    color: var(--text-mute);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    padding: 8px 16px 8px 0;
+    border-bottom: 1px solid var(--border-strong);
+  }
+  .sec-table td {
+    color: var(--text);
+    padding: 10px 16px 10px 0;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .sec-table tr:last-child td { border-bottom: none; }
+  code.inline {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    color: var(--cyan-soft);
+  }
+</style>
