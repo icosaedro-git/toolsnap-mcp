@@ -10,6 +10,15 @@
  * (assertCatalogComplete) so a drifted FAMILIES/CORE_TOOLS entry fails loudly
  * instead of shipping silently.
  *
+ * Budget history:
+ *  - Fase 18 (2026-07-03): 1,600 — original curated-core budget.
+ *  - 2026-07-15: 2,300 — deliberate raise (+~615 measured) to fund parameter
+ *    descriptions on every core-tool input and minimal MCP annotations
+ *    (spec-default-aware, 1-2 keys/tool). Decision: fewer malformed calls
+ *    from agents beats a leaner list; one fetch_extract call repays the
+ *    overhead ~80x. Descriptions are budget-conscious (3-6 words); do NOT
+ *    add prose here to chase directory scores — see nota 06.2 §📐 principio 7.
+ *
  * Run:  npx tsx scripts/first-connection-audit.ts
  */
 import { listTools, tools } from "../src/tools/index.js";
@@ -17,7 +26,7 @@ import { assertCatalogComplete } from "../src/tools/catalog.js";
 import { buildServerInstructions } from "../src/mcp/server.js";
 import type { Env } from "../src/index.js";
 
-const TOKEN_BUDGET = 1_600;
+const TOKEN_BUDGET = 2_300;
 
 /** Rough token estimate: chars / 4 (same heuristic used across the project docs). */
 function estimateTokens(s: string): number {

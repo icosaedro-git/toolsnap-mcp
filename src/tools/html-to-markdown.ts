@@ -189,12 +189,13 @@ export const htmlToMarkdownTool: McpTool = {
   inputSchema: {
     type: "object",
     properties: {
-      url: { type: "string" },
-      html: { type: "string", description: "Alt. to url." },
-      maxChars: { type: "number" },
+      url: { type: "string", description: "Page URL (alt. to html)." },
+      html: { type: "string", description: "Raw HTML (alt. to url)." },
+      maxChars: { type: "number", description: `Default ${DEFAULT_MAX_CHARS}, max ${HARD_MAX_CHARS}.` },
       headers: HEADERS_SCHEMA_PROPERTY,
     },
   },
+  annotations: { readOnlyHint: true },
   async run(args) {
     const hasUrl = typeof args.url === "string" && args.url.length > 0;
     const hasHtml = typeof args.html === "string" && args.html.length > 0;

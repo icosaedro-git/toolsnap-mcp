@@ -306,13 +306,14 @@ export const keywordResearchTool: McpTool = {
   inputSchema: {
     type: "object",
     properties: {
-      keywords: { type: "array" },
-      language_code: { type: "string", default: "es" },
-      location_code: { type: "number", default: 2724 },
-      include_suggestions: { type: "boolean", default: true },
+      keywords: { type: "array", description: "1-20 keywords." },
+      language_code: { type: "string", default: "es", description: "ISO 639-1." },
+      location_code: { type: "number", default: 2724, description: "DataForSEO location (default Spain)." },
+      include_suggestions: { type: "boolean", default: true, description: "Add related suggestions." },
     },
     required: ["keywords"],
   },
+  annotations: { readOnlyHint: true },
   run() {
     throw new Error(HANDLED_AT_SERVER);
   },

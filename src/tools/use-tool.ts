@@ -21,11 +21,14 @@ export const useToolTool: McpTool = {
   inputSchema: {
     type: "object",
     properties: {
-      name: { type: "string" },
-      args: { type: "object" },
+      name: { type: "string", description: "Tool name (see tool_catalog)." },
+      args: { type: "object", description: "Args per that tool's inputSchema." },
     },
     required: ["name"],
   },
+  // Dispatches to an arbitrary tool by name, so it inherits that tool's
+  // side effects (e.g. account_deposit) — annotations stay conservative.
+  annotations: { destructiveHint: true, openWorldHint: true },
   run() {
     throw new Error(HANDLED_AT_SERVER);
   },

@@ -14,10 +14,11 @@ export const taskRecipesTool: McpTool = {
   inputSchema: {
     type: "object",
     properties: {
-      recipe: { type: "string" },
+      recipe: { type: "string", description: "Recipe id; omit for menu." },
     },
     required: [],
   },
+  annotations: { readOnlyHint: true, openWorldHint: false },
   run(args) {
     const id = typeof args.recipe === "string" ? args.recipe.trim() : "";
     if (!id) {

@@ -116,11 +116,12 @@ export const webpageMetadataTool: McpTool = {
   inputSchema: {
     type: "object",
     properties: {
-      url: { type: "string" },
+      url: { type: "string", description: "Page URL." },
       headers: HEADERS_SCHEMA_PROPERTY,
     },
     required: ["url"],
   },
+  annotations: { readOnlyHint: true },
   async run(args) {
     const url = args.url as string;
     if (!url) throw new Error("`url` is required.");

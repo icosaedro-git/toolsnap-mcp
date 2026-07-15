@@ -123,11 +123,12 @@ export const sitemapParseTool: McpTool = {
   inputSchema: {
     type: "object",
     properties: {
-      url: { type: "string" },
+      url: { type: "string", description: "Sitemap URL." },
       maxUrls: { type: "number", description: `Max ${MAX_URLS}.` },
     },
     required: ["url"],
   },
+  annotations: { readOnlyHint: true },
   async run(args) {
     const url = args.url as string;
     if (!url) throw new Error("`url` is required.");

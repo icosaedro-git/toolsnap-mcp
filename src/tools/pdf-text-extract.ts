@@ -706,12 +706,13 @@ export const pdfTextExtractTool: McpTool = {
   inputSchema: {
     type: "object",
     properties: {
-      url: { type: "string" },
-      maxChars: { type: "number" },
+      url: { type: "string", description: "PDF URL." },
+      maxChars: { type: "number", description: `Default ${DEFAULT_MAX_CHARS}, max ${HARD_MAX_CHARS}.` },
       headers: HEADERS_SCHEMA_PROPERTY,
     },
     required: ["url"],
   },
+  annotations: { readOnlyHint: true },
   async run(args) {
     if (typeof args.url !== "string") throw new Error("`url` must be a string.");
     const url = args.url;
