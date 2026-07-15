@@ -1,20 +1,36 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import InnerHero from '../components/InnerHero.astro';
+import toolsData from '../data/tools.json';
 
 const title = 'Pricing — ToolSnap MCP';
-const description = '35 free tools. 3 paid tools from $0.02 per call. Pay with card credits (Polar) or USDC on Base (x402). No subscriptions, no expiry.';
+const description = `${toolsData.free} free tools. ${toolsData.paid} paid tools from $0.02 per call. Pay with card credits (Polar) or USDC on Base (x402). No subscriptions, no expiry.`;
 
-const paidTools = [
-  { name: 'screenshot_url', desc: 'Full-page or viewport screenshots, returned as a URL', pay: '$0.04', credit: '$0.025' },
-  { name: 'keyword_research', desc: 'Search volume, CPC and competition from Google Ads data', pay: '$0.04', credit: '$0.025' },
-  { name: 'remove_background', desc: 'ML background removal, returns a hosted PNG', pay: '$0.03', credit: '$0.02' },
-];
+// Short, human "what it does" one-liners for the pricing table — the raw
+// tools.json descriptions already embed price info (redundant with the
+// pay/credit columns) and vary wildly in length for the XL tiers.
+const PAID_TOOL_BLURBS: Record<string, string> = {
+  screenshot_url: 'Full-page or viewport screenshots, returned as a URL',
+  fetch_rendered: 'Renders a JS page (SPA) with a server-side browser, returns clean text',
+  keyword_research: 'Search volume, CPC and competition from Google Ads data',
+  remove_background: 'ML background removal, returns a hosted PNG',
+  csv_query_xl: 'csv_query for URL-hosted CSVs up to 100 MB, streamed server-side',
+  json_query_xl: 'json_query for URL-hosted JSON up to 25 MB',
+};
+
+const paidTools = toolsData.tools
+  .filter((t: any) => t.tier === 'paid')
+  .map((t: any) => ({
+    name: t.name,
+    desc: PAID_TOOL_BLURBS[t.name] ?? t.description,
+    pay: `$${t.price_usdc}`,
+    credit: `$${t.prepaid_price_usdc}`,
+  }));
 
 const faq = [
   { q: 'Do credits expire?', a: 'No. They stay on your balance until you spend them.' },
   { q: 'Are credits refundable?', a: 'As a rule, no — see the refund policy for the two exceptions (purchase errors and tool failures reported within 14 days).' },
-  { q: 'Is there a free trial of paid tools?', a: "The three paid tools have real per-call costs, so every call settles. At $0.02–$0.04 a call, the trial is the price." },
+  { q: 'Is there a free trial of paid tools?', a: "Paid tools have real costs behind them — headless browsers, data APIs, ML inference, or oversized files — so every call settles. At $0.02–$0.04 a call, the trial is the price." },
   { q: 'Can I use my balance across different agents and platforms?', a: "Yes. Your credits belong to your ToolSnap account, not to any single agent or app. Connect from Claude Desktop with one click, use an API key in a script, switch to Cursor next week — it's all the same balance, and several agents can spend from it at the same time. Crypto works the same way: the balance follows your wallet, so any agent holding that wallet can spend it." },
   { q: 'If I switch from Claude to another agent, do I lose anything?', a: "No. Nothing is tied to the client. Reconnect from the new agent — sign in with OAuth, or paste your existing API key — and you're exactly where you left off: same account, same balance, same history." },
   { q: "What's the difference between OAuth sign-in and an API key?", a: 'Same account, same balance — just two doors. OAuth is for interactive clients (Claude Desktop, claude.ai, Cursor): connect with a URL, sign in once, no copying. API keys are for scripts and headless agents that can\'t open a browser. Use both at once if you like.' },
@@ -24,17 +40,17 @@ const faq = [
 <BaseLayout title={title} description={description}>
   <InnerHero
     title="Pricing"
-    lead="No subscriptions. No seats. No expiry. You pay per call, only for the three tools that cost us real money to run."
+    lead="No subscriptions. No seats. No expiry. You pay per call, only for the handful of tools that cost us real money to run."
   />
 
   <div class="container pricing-page">
     <section class="reveal">
-      <h2>Free — 35 tools, no limits that matter</h2>
+      <h2>Free — {toolsData.free} tools, no limits that matter</h2>
       <p class="text-soft">The free tier isn't a trial, it's the product. Web extraction, SEO parsing, data queries, PDF text, utilities — all free, no account, no key. We keep it free because an agent that saves context with ToolSnap every day is worth more to us than a toll booth.</p>
     </section>
 
     <section class="reveal">
-      <h2>The paid three</h2>
+      <h2>The paid tools</h2>
       <div class="table-card card">
         <div class="table-row table-head mono text-mute">
           <span>Tool</span><span>What it does</span><span>Pay-per-call</span><span>With credits</span>

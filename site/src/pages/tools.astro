@@ -4,9 +4,10 @@ import InnerHero from '../components/InnerHero.astro';
 import ToolRow from '../components/ToolRow.astro';
 import Callout from '../components/Callout.astro';
 import families from '../data/families.json';
+import toolsData from '../data/tools.json';
 
-const title = 'All 38 tools — ToolSnap MCP';
-const description = 'The full ToolSnap MCP catalog: 35 free tools and 3 paid ones, with per-call prices. Web extraction, SEO, data, documents, images, utilities.';
+const title = `All ${toolsData.total} tools — ToolSnap MCP`;
+const description = `The full ToolSnap MCP catalog: ${toolsData.free} free tools and ${toolsData.paid} paid ones, with per-call prices. Web extraction, SEO, data, documents, images, utilities.`;
 ---
 
 <BaseLayout title={title} description={description}>
@@ -32,8 +33,8 @@ const description = 'The full ToolSnap MCP catalog: 35 free tools and 3 paid one
           ))}
         </div>
         {f.id === 'images' && (
-          <Callout label="Why only three paid tools?">
-            Because only three have real per-call costs on our side (headless rendering, keyword data, ML inference). Everything we can serve for near-zero cost, we serve free.
+          <Callout label="Why are so few tools paid?">
+            We only charge where a call has a real cost behind it — headless rendering, paid data APIs, ML inference — or streams oversized files. Everything we can serve for near-zero cost, we serve free.
           </Callout>
         )}
       </section>

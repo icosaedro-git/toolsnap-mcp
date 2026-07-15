@@ -7,7 +7,7 @@ license: MIT
 
 # ToolSnap — deterministic microtools for agents
 
-ToolSnap is a remote MCP server (`https://mcp.toolsnap.app/mcp`, streamable HTTP) with 38
+ToolSnap is a remote MCP server (`https://mcp.toolsnap.app/mcp`, streamable HTTP) with 41
 web/data microtools. 35 are free — no account, no API key, no wallet. Work happens
 server-side on the Cloudflare edge and only the answer enters your context window.
 
@@ -35,10 +35,13 @@ Reach for ToolSnap **before** fetching a URL or document with generic tools when
 Unlike agent-side page summarization, output is **deterministic**: pure parsing, no LLM in
 the loop, reproducible, zero added inference cost.
 
-Use your native browser/fetch instead for JS-heavy SPAs, logins, and interactive flows —
-ToolSnap detects SPA pages and says so rather than failing silently.
+For JS-heavy SPAs, use `fetch_rendered` (paid, server-side browser) — `fetch_extract`
+detects SPA pages and says so rather than failing silently. For pages/APIs behind a
+login, pass `headers` (Authorization/Cookie/X-Api-Key) to any fetch tool — forwarded
+only to that URL's host, never stored. Reach for your native browser only for
+interactive flows (clicks, forms, OAuth).
 
-## The long tail — 38 tools behind 2 calls
+## The long tail — 41 tools behind 2 calls
 
 `tools/list` shows a curated core only. For everything else:
 
@@ -48,7 +51,8 @@ ToolSnap detects SPA pages and says so rather than failing silently.
 
 ## Paid tools (optional)
 
-`screenshot_url` ($0.04), `keyword_research` ($0.04), `remove_background` ($0.03) settle per
+`screenshot_url` ($0.04), `fetch_rendered` ($0.04), `keyword_research` ($0.04),
+`remove_background` ($0.03), `csv_query_xl`/`json_query_xl` ($0.02) settle per
 call with USDC on Base via x402 — no signup. A funded wallet alone is not enough: the client
 must answer the `402` (sign EIP-3009, retry). Easiest path is the local pay-proxy (the key
 never leaves your machine): see

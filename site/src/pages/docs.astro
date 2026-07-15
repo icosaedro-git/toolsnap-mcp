@@ -2,6 +2,7 @@
 import DocsLayout from '../layouts/DocsLayout.astro';
 import DocSection from '../components/DocSection.astro';
 import CodeBlock from '../components/CodeBlock.astro';
+import toolsData from '../data/tools.json';
 
 const title = 'Docs — connect, pay, build | ToolSnap MCP';
 const description = 'Technical reference: connecting from Claude Code, Claude Desktop, claude.ai and Cursor; OAuth sign-in; API keys; x402 payments; prepaid balance; pay-proxy.';
@@ -23,21 +24,21 @@ const toc = [
   title={title}
   description={description}
   heroTitle="Docs"
-  lead="Everything you need to wire ToolSnap into any MCP client, and to understand exactly how payment works when you use the paid three."
+  lead="Everything you need to wire ToolSnap into any MCP client, and to understand exactly how payment works when you use the paid tools."
   toc={toc}
 >
   <DocSection num="01" title="Endpoint" id="endpoint">
     <p>The server speaks Streamable HTTP MCP at:</p>
     <CodeBlock lang="" code={`https://mcp.toolsnap.app/mcp`} />
     <p>Server card: <code class="inline">/.well-known/mcp.json</code> &middot; Machine-readable pricing: <code class="inline">/.well-known/pricing.json</code></p>
-    <p>On first connection your agent sees a curated core of 18 tools (~1.6k tokens). The other 20 are listed by the free tool_catalog tool and callable directly by name or through use_tool.</p>
+    <p>On first connection your agent sees a curated core of {toolsData.coreCount} tools (~1.6k tokens). The other {toolsData.total - toolsData.coreCount} are listed by the free tool_catalog tool and callable directly by name or through use_tool.</p>
   </DocSection>
 
   <DocSection num="02" title="Connect by client" id="connect">
     <p><strong>Claude Code</strong></p>
     <CodeBlock lang="bash" code={`claude mcp add --transport http toolsnap https://mcp.toolsnap.app/mcp\n# with an API key (paid tools):\nclaude mcp add --transport http toolsnap https://mcp.toolsnap.app/mcp --header "Authorization: Bearer sk_live_…"`} />
     <p class="text-mute">Power users: install the <a href="https://github.com/icosaedro-git/toolsnap-claude-plugin">Claude Code plugin</a> instead — bundles the MCP connection with the <code class="inline">toolsnap</code> skill in one step (<code class="inline">/plugin marketplace add icosaedro-git/toolsnap-claude-plugin</code> then <code class="inline">/plugin install toolsnap</code>).</p>
-    <p><strong>Claude Desktop / claude.ai</strong> — Settings &rarr; Connectors &rarr; Add custom connector &rarr; URL: <code class="inline">https://mcp.toolsnap.app/mcp</code> (free tools, no sign-in). Want the paid three? Use <code class="inline">https://mcp.toolsnap.app/mcp/oauth</code> instead — see <a href="#oauth">Sign in with OAuth</a> below.</p>
+    <p><strong>Claude Desktop / claude.ai</strong> — Settings &rarr; Connectors &rarr; Add custom connector &rarr; URL: <code class="inline">https://mcp.toolsnap.app/mcp</code> (free tools, no sign-in). Want the paid tools? Use <code class="inline">https://mcp.toolsnap.app/mcp/oauth</code> instead — see <a href="#oauth">Sign in with OAuth</a> below.</p>
     <p><strong>Cursor / generic JSON</strong></p>
     <CodeBlock lang="json" code={`{ "mcpServers": { "toolsnap": { "url": "https://mcp.toolsnap.app/mcp", "headers": { "Authorization": "Bearer sk_live_…" } } } }`} />
     <p class="text-mute">Troubleshooting: if your client is old and can't add a remote streamable-HTTP server directly, wrap it with <a href="https://github.com/geelen/mcp-remote"><code class="inline">mcp-remote</code></a> as a stdio bridge. It's not the recommended path — every current client (Claude Desktop, Claude Code, Cursor, VS Code) supports the direct URL.</p>
@@ -50,7 +51,7 @@ const toc = [
     <ul>
       <li>Same account, same balance as an API key — <a href="#accounts">see below</a>. Use OAuth from Claude and a key from a script at the same time; both spend from the same credits.</li>
       <li>Manage or revoke a connected app anytime from <a href="https://portal.toolsnap.app/apps">portal.toolsnap.app/apps</a>.</li>
-      <li>Plain <code class="inline">/mcp</code> is unaffected — it stays anonymous-friendly for the free 35 tools and for x402/crypto agents that can't complete an interactive login.</li>
+      <li>Plain <code class="inline">/mcp</code> is unaffected — it stays anonymous-friendly for the {toolsData.free} free tools and for x402/crypto agents that can't complete an interactive login.</li>
     </ul>
     <p class="text-mute">Building your own client? This server implements OAuth 2.1 with Dynamic Client Registration (RFC 7591) and PKCE — discovery at <code class="inline">/.well-known/oauth-protected-resource</code> (resource server) and <code class="inline">https://portal.toolsnap.app/.well-known/oauth-authorization-server</code> (authorization server). No manual registration needed.</p>
   </DocSection>
