@@ -381,14 +381,15 @@ export const jsonQueryTool: McpTool = {
   inputSchema: {
     type: "object",
     properties: {
-      url: { type: "string" },
-      json: { type: "string" },
+      url: { type: "string", description: "JSON URL (alt. to json)." },
+      json: { type: "string", description: "Raw JSON (alt. to url)." },
       query: { type: "string", description: "e.g. '$.users[*].name'." },
-      limit: { type: "number" },
+      limit: { type: "number", description: "Max results." },
       headers: HEADERS_SCHEMA_PROPERTY,
     },
     required: ["query"],
   },
+  annotations: { readOnlyHint: true },
   run(args) {
     return runJsonQuery(args, {
       toolName: "json_query",
@@ -408,13 +409,14 @@ export const jsonQueryXlTool: McpTool = {
   inputSchema: {
     type: "object",
     properties: {
-      url: { type: "string", description: "URL of the JSON document to fetch (http:// or https://). Required." },
+      url: { type: "string", description: "JSON URL." },
       query: { type: "string", description: "e.g. '$.users[*].name'." },
-      limit: { type: "number" },
+      limit: { type: "number", description: "Max results." },
       headers: HEADERS_SCHEMA_PROPERTY,
     },
     required: ["url", "query"],
   },
+  annotations: { readOnlyHint: true },
   run(args) {
     return runJsonQuery(args, {
       toolName: "json_query_xl",

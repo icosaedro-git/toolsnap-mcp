@@ -107,11 +107,12 @@ export const toolCatalogTool: McpTool = {
   inputSchema: {
     type: "object",
     properties: {
-      family: { type: "string" },
-      tool: { type: "string" },
+      family: { type: "string", description: "Family id → its tools." },
+      tool: { type: "string", description: "Tool name → detail." },
     },
     required: [],
   },
+  annotations: { readOnlyHint: true, openWorldHint: false },
   run() {
     throw new Error(HANDLED_AT_SERVER);
   },

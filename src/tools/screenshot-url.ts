@@ -247,15 +247,16 @@ export const screenshotUrlTool: McpTool = {
   inputSchema: {
     type: "object",
     properties: {
-      url: { type: "string" },
+      url: { type: "string", description: "Page URL." },
       fullPage: { type: "boolean", default: false, description: "true = whole page, not viewport." },
-      width: { type: "number", default: DEFAULT_WIDTH },
-      height: { type: "number", default: DEFAULT_HEIGHT },
-      format: { type: "string", enum: ["png", "jpeg"], default: "png" },
-      quality: { type: "number", minimum: 1, maximum: 100 },
+      width: { type: "number", default: DEFAULT_WIDTH, description: "Viewport px." },
+      height: { type: "number", default: DEFAULT_HEIGHT, description: "Viewport px." },
+      format: { type: "string", enum: ["png", "jpeg"], default: "png", description: "Default png." },
+      quality: { type: "number", minimum: 1, maximum: 100, description: "JPEG only, 1-100." },
     },
     required: ["url"],
   },
+  annotations: { destructiveHint: false },
   run() {
     throw new Error(HANDLED_AT_SERVER);
   },

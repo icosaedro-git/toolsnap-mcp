@@ -199,11 +199,12 @@ export const rssParseTool: McpTool = {
   inputSchema: {
     type: "object",
     properties: {
-      url: { type: "string" },
+      url: { type: "string", description: "Feed URL." },
       maxItems: { type: "number", description: `Max ${MAX_ITEMS}.` },
     },
     required: ["url"],
   },
+  annotations: { readOnlyHint: true },
   async run(args) {
     const url = args.url as string;
     if (!url) throw new Error("`url` is required.");

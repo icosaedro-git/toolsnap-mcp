@@ -457,17 +457,18 @@ export const csvQueryTool: McpTool = {
   inputSchema: {
     type: "object",
     properties: {
-      url: { type: "string" },
-      csv: { type: "string" },
-      select: { type: "string" },
+      url: { type: "string", description: "CSV URL (alt. to csv)." },
+      csv: { type: "string", description: "Raw CSV (alt. to url)." },
+      select: { type: "string", description: "Columns, comma-separated." },
       filter: { type: "string", description: "'col op value'." },
-      sort_by: { type: "string" },
-      sort_dir: { type: "string", enum: ["asc", "desc"] },
-      limit: { type: "number" },
-      format: { type: "string", enum: ["json", "csv"] },
+      sort_by: { type: "string", description: "Sort column." },
+      sort_dir: { type: "string", enum: ["asc", "desc"], description: "Default asc." },
+      limit: { type: "number", description: "Default 500, max 5000." },
+      format: { type: "string", enum: ["json", "csv"], description: "Default json." },
       headers: HEADERS_SCHEMA_PROPERTY,
     },
   },
+  annotations: { readOnlyHint: true },
   run(args) {
     return runCsvQuery(args, {
       toolName: "csv_query",
@@ -489,17 +490,18 @@ export const csvQueryXlTool: McpTool = {
   inputSchema: {
     type: "object",
     properties: {
-      url: { type: "string", description: "URL of the CSV to fetch (http:// or https://). Required." },
-      select: { type: "string" },
+      url: { type: "string", description: "CSV URL." },
+      select: { type: "string", description: "Columns, comma-separated." },
       filter: { type: "string", description: "'col op value'." },
-      sort_by: { type: "string" },
-      sort_dir: { type: "string", enum: ["asc", "desc"] },
+      sort_by: { type: "string", description: "Sort column." },
+      sort_dir: { type: "string", enum: ["asc", "desc"], description: "Default asc." },
       limit: { type: "number", description: `Default ${XL_DEFAULT_LIMIT}, max ${XL_HARD_MAX_LIMIT}.` },
-      format: { type: "string", enum: ["json", "csv"] },
+      format: { type: "string", enum: ["json", "csv"], description: "Default json." },
       headers: HEADERS_SCHEMA_PROPERTY,
     },
     required: ["url"],
   },
+  annotations: { readOnlyHint: true },
   run(args) {
     return runCsvQuery(args, {
       toolName: "csv_query_xl",

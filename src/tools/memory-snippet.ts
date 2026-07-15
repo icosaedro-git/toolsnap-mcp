@@ -29,10 +29,11 @@ export const memorySnippetTool: McpTool = {
   inputSchema: {
     type: "object",
     properties: {
-      harness: { type: "string", enum: [...HARNESSES] },
+      harness: { type: "string", enum: [...HARNESSES], description: "Agent runtime; omit for generic." },
     },
     required: [],
   },
+  annotations: { readOnlyHint: true, openWorldHint: false },
   run(args) {
     const raw = typeof args.harness === "string" ? args.harness.trim().toLowerCase() : "";
     const harness = (HARNESSES as readonly string[]).includes(raw) ? raw : "generic";

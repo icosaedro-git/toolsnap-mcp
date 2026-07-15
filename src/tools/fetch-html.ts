@@ -50,12 +50,13 @@ export const fetchHtmlTool: McpTool = {
   inputSchema: {
     type: "object",
     properties: {
-      url: { type: "string" },
-      maxChars: { type: "number" },
+      url: { type: "string", description: "Page URL." },
+      maxChars: { type: "number", description: `Default ${DEFAULT_MAX_CHARS}, max ${HARD_MAX_CHARS}.` },
       headers: HEADERS_SCHEMA_PROPERTY,
     },
     required: ["url"],
   },
+  annotations: { readOnlyHint: true },
   async run(args) {
     const url = args.url;
     if (typeof url !== "string" || (!url.startsWith("http://") && !url.startsWith("https://"))) {

@@ -92,10 +92,11 @@ export const tools: McpTool[] = [
  * complete for registries/directories that crawl the whole catalog.
  */
 export function listTools(scope: "core" | "full" = "full"): McpToolDefinition[] {
-  const defs = ({ name, description, inputSchema }: McpTool): McpToolDefinition => ({
+  const defs = ({ name, description, inputSchema, annotations }: McpTool): McpToolDefinition => ({
     name,
     description,
     inputSchema,
+    ...(annotations ? { annotations } : {}),
   });
 
   if (scope === "core") {

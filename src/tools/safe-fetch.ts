@@ -54,14 +54,14 @@ export function parseForwardHeaders(raw: unknown): Record<string, string> | unde
 
 /**
  * Shared JSON Schema property for the optional `headers` argument (Fase 29).
- * No description on purpose: this is inlined into every core URL tool's
- * schema, and the curated tools/list has a strict token budget (see
- * catalog.ts) — the field name is self-explanatory enough to exist; full
- * semantics (allowlist, same-origin, no-store) live in tool_catalog's NOTES,
- * one free call away.
+ * Kept to one short line on purpose: this is inlined into every core URL
+ * tool's schema, and the curated tools/list has a strict token budget (see
+ * catalog.ts) — full semantics (allowlist, same-origin, no-store) live in
+ * tool_catalog's NOTES, one free call away.
  */
 export const HEADERS_SCHEMA_PROPERTY = {
   type: "object" as const,
+  description: "Headers to forward (Authorization, Cookie…).",
 };
 
 function isIPv4(host: string): boolean {

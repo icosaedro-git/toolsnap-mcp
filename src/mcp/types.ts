@@ -39,10 +39,20 @@ export interface McpToolInputSchema {
   required?: string[];
 }
 
+// MCP tool annotations — untrusted hints for clients (not security boundaries).
+// See https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations
+export interface McpToolAnnotations {
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
+}
+
 export interface McpTool {
   name: string;
   description: string;
   inputSchema: McpToolInputSchema;
+  annotations?: McpToolAnnotations;
   run(args: Record<string, unknown>): string | Promise<string>;
   /**
    * Optional env-aware execution path. Tools that need bindings/secrets
@@ -57,6 +67,7 @@ export interface McpToolDefinition {
   name: string;
   description: string;
   inputSchema: McpToolInputSchema;
+  annotations?: McpToolAnnotations;
 }
 
 // MCP initialize params
