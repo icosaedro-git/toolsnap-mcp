@@ -11,9 +11,11 @@
 /**
  * Curated core exposed directly in tools/list. Order = listing order.
  * Keep to the plan's budget (≤ ~1.600 tokens instructions + tools/list).
- * Recruitment order if trimming is ever needed again: fetch_structured →
- * rss_parse → json_query → fetch_html (never below 15; never touch the 5
- * meta tools or the 3 paid tools).
+ * Recruitment order if trimming is ever needed again: rss_parse → json_query
+ * → fetch_html (never below 14; never touch the 5 meta tools or the 3 paid
+ * tools). fetch_structured was demoted in Fase 29 to make room for the
+ * `headers` argument added to every core URL tool (still fully callable
+ * directly and discoverable via tool_catalog).
  */
 export const CORE_TOOLS: string[] = [
   // Meta (5) — discovery, execution, recipes, memory, pricing
@@ -22,18 +24,20 @@ export const CORE_TOOLS: string[] = [
   "task_recipes",
   "memory_snippet",
   "pricing",
-  // Free flagships (10)
+  // Free flagships (9)
   "fetch_extract",
   "fetch_html",
   "html_to_markdown",
   "fetch_metadata",
-  "fetch_structured",
   "pdf_text_extract",
   "csv_query",
   "json_query",
   "sitemap_parse",
   "rss_parse",
-  // Paid COGS tools (3)
+  // Paid COGS tools (3) — fetch_rendered (also paid COGS) stays out of the
+  // core tools/list to protect the token budget below; it's still fully
+  // callable directly and discoverable via tool_catalog (same treatment as
+  // page_assets/link_check/upload_file).
   "screenshot_url",
   "keyword_research",
   "remove_background",
@@ -63,6 +67,7 @@ export const FAMILIES: Record<string, Family> = {
       "page_links",
       "link_check",
       "screenshot_url",
+      "fetch_rendered",
     ],
   },
   seo: {
@@ -131,38 +136,48 @@ export const FAMILIES: Record<string, Family> = {
  * tools/list small. Served in tool_catalog layer 2 (per-tool `notes` field).
  * Keys are tool names; not every tool needs an entry.
  */
+/**
+ * Standard note appended (in tool_catalog layer 2) to every URL-fetching tool
+ * that accepts the optional `headers` argument (Fase 29) — auth pass-through
+ * for pages/APIs behind a login.
+ */
+const HEADERS_NOTE =
+  "Accepts optional `headers` (Authorization / Cookie / X-Api-Key) for URLs behind auth — forwarded only to the target host, dropped on cross-origin redirects, never stored or logged.";
+
 export const NOTES: Record<string, string> = {
   fetch_extract:
-    "Benchmark (11 real pages): median 98.1% token reduction (53,820 → 2,001 tokens); saves ~$0.156/call at Sonnet pricing ($3/M tokens) vs loading raw HTML. Break-even at 26 KB pages — virtually all real pages qualify. Deterministic, parallel-safe, zero-setup. If the page is a JS-rendered SPA, fetch_extract detects it and returns an error without charging — use screenshot_url or fetch_html instead.",
+    `Benchmark (11 real pages): median 98.1% token reduction (53,820 → 2,001 tokens); saves ~$0.156/call at Sonnet pricing ($3/M tokens) vs loading raw HTML. Break-even at 26 KB pages — virtually all real pages qualify. Deterministic, parallel-safe, zero-setup. If the page is a JS-rendered SPA, fetch_extract detects it and returns an error without charging — use fetch_rendered instead. ${HEADERS_NOTE}`,
   fetch_html:
-    "Unlike fetch_extract (flattens to text) or html_to_markdown (converts to Markdown), this keeps the DOM skeleton (tags/classes/ids) so an agent can reconstruct the page as static HTML. Ideal for site migration (e.g. WordPress → static).",
+    `Unlike fetch_extract (flattens to text) or html_to_markdown (converts to Markdown), this keeps the DOM skeleton (tags/classes/ids) so an agent can reconstruct the page as static HTML. Ideal for site migration (e.g. WordPress → static). ${HEADERS_NOTE}`,
   html_to_markdown:
-    "Provide exactly one of url or html — not both. Do NOT use for JavaScript-rendered SPAs — use fetch_html or screenshot_url instead.",
+    `Provide exactly one of url or html — not both. Do NOT use for JavaScript-rendered SPAs — use fetch_rendered instead. ${HEADERS_NOTE}`,
   fetch_metadata:
-    "Extracts title, meta description, Open Graph, Twitter Card, canonical URL, robots, author, keywords, JSON-LD, lang/charset. Do NOT use to extract page body text — use fetch_extract or html_to_markdown instead.",
+    `Extracts title, meta description, Open Graph, Twitter Card, canonical URL, robots, author, keywords, JSON-LD, lang/charset. Do NOT use to extract page body text — use fetch_extract or html_to_markdown instead. ${HEADERS_NOTE}`,
   fetch_structured:
-    "Reads JSON-LD, Open Graph, Twitter Cards, and Schema.org microdata — no LLM required, extraction is deterministic. Returns an empty object if the page has no matching semantic markup.",
+    `Reads JSON-LD, Open Graph, Twitter Cards, and Schema.org microdata — no LLM required, extraction is deterministic. Returns an empty object if the page has no matching semantic markup. ${HEADERS_NOTE}`,
   pdf_text_extract:
-    "Handles FlateDecode-compressed streams and RC4-encrypted PDFs that open with an empty password. Works on text-based PDFs (Word, LaTeX, web-generated); does NOT perform OCR on scanned/image-only PDFs.",
+    `Handles FlateDecode-compressed streams and RC4-encrypted PDFs that open with an empty password. Works on text-based PDFs (Word, LaTeX, web-generated); does NOT perform OCR on scanned/image-only PDFs. ${HEADERS_NOTE}`,
   csv_query:
-    "Provide exactly one of url or csv. Supports select/filter/sort_by/sort_dir/limit/format(json|csv). Filter operators: = != > >= < <= contains startswith endswith. Free up to 5 MB; for larger URL-hosted CSVs, see csv_query_xl. Prefer url over csv when the file is already hosted: the fetch and query run server-side and only the result returns, so a large file never passes through your context. Use csv only for data you already hold — the raw text then counts against your context like any other argument.",
+    `Provide exactly one of url or csv. Supports select/filter/sort_by/sort_dir/limit/format(json|csv). Filter operators: = != > >= < <= contains startswith endswith. Free up to 5 MB; for larger URL-hosted CSVs, see csv_query_xl. Prefer url over csv when the file is already hosted: the fetch and query run server-side and only the result returns, so a large file never passes through your context. Use csv only for data you already hold — the raw text then counts against your context like any other argument. ${HEADERS_NOTE}`,
   csv_query_xl:
-    "Paid sibling of csv_query for URL-hosted CSVs from 5 MB up to 100 MB, streamed server-side (never buffered whole, never touches your context). Same query language, URL-only (no inline csv). $0.02/call or $0.01 prepaid; no first-call-free — it's a paid file-size tier, not a marketing freebie. Billed per query, not per row returned.",
+    `Paid sibling of csv_query for URL-hosted CSVs from 5 MB up to 100 MB, streamed server-side (never buffered whole, never touches your context). Same query language, URL-only (no inline csv). $0.02/call or $0.01 prepaid; no first-call-free — it's a paid file-size tier, not a marketing freebie. Billed per query, not per row returned. ${HEADERS_NOTE}`,
   json_query:
-    "JSONPath-lite: property access, [*] wildcard, [-1] negative index, ..key recursive descent, [?(@.price < 10)] filters. Provide exactly one of url or json. Free up to 5 MB; for larger URL-hosted JSON, see json_query_xl.",
+    `JSONPath-lite: property access, [*] wildcard, [-1] negative index, ..key recursive descent, [?(@.price < 10)] filters. Provide exactly one of url or json. Free up to 5 MB; for larger URL-hosted JSON, see json_query_xl. ${HEADERS_NOTE}`,
   json_query_xl:
-    "Paid sibling of json_query for URL-hosted JSON from 5 MB up to 25 MB. Same JSONPath-lite query language, URL-only (no inline json). $0.02/call or $0.01 prepaid; no first-call-free.",
+    `Paid sibling of json_query for URL-hosted JSON from 5 MB up to 25 MB. Same JSONPath-lite query language, URL-only (no inline json). $0.02/call or $0.01 prepaid; no first-call-free. ${HEADERS_NOTE}`,
   sitemap_parse:
     "Handles both urlset and sitemapindex, plus image/news sitemap extensions. Use to enumerate all pages of a site or build a crawl queue.",
   rss_parse: "Handles RSS 2.0 and Atom 1.0. Returns feed metadata plus title/link/pubDate/author/categories/enclosure per item.",
   screenshot_url:
     "Returns JSON with a public image URL (never raw bytes) — the hosted image expires after ~24h, download promptly. No first-call-free: this tool has real per-call COGS (headless render).",
+  fetch_rendered:
+    `Renders the page in a server-side headless browser (JS executed), then returns the same clean text as fetch_extract. Use when fetch_extract detects a client-side rendered SPA, or with \`headers\` for authenticated dashboards. Cheaper and faster than running your own headless browser; unlike screenshot_url you get text, not pixels. Not needed for static pages (fetch_extract is free). No first-call-free (real per-call browser COGS). ${HEADERS_NOTE}`,
   keyword_research:
     "Queries Google Ads data via DataForSEO for 1–20 keywords: monthly search volume, CPC, competition score, 12-month trend, top-5 related suggestions. Default location Spain (2724). No first-call-free (real COGS per batch).",
   remove_background:
     "Uses the U²-Net model via fal.ai. Returns a transparent PNG on a public URL (expires ~24h). To pass a local image, upload it first with upload_file. No first-call-free (real COGS per call).",
   link_check:
-    "Follows redirects manually to build the full hop-by-hop chain (not just the final URL). Max 20 URLs per call, up to 5 redirect hops each. Detects broken links, redirect loops, and network/DNS failures without loading any page content.",
+    "Follows redirects manually to build the full hop-by-hop chain (not just the final URL). Max 20 URLs per call, up to 5 redirect hops each. Detects broken links, redirect loops, and network/DNS failures without loading any page content. Does NOT accept `headers` — it takes up to 20 URLs across potentially different hosts in one call, so a single credential could not be scoped safely to just one of them; use fetch_extract/fetch_html per-URL with `headers` instead if a specific link needs auth.",
   html_table_extract:
     "Provide exactly one of url or html. Handles colspan (repeats the cell across spanned columns) and nested tables (returned as separate entries). Does NOT expand rowspan. Returns all tables by default; use table_index to select one, or format=csv (requires table_index when the page has more than one table).",
 };

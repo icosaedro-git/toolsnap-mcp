@@ -12,6 +12,58 @@
 const BLOCKED_HOSTNAME_SUFFIXES = [".localhost", ".internal", ".local"];
 const MAX_REDIRECTS = 5;
 
+/**
+ * Auth headers a caller may ask us to forward to ITS OWN target URL (Fase 29).
+ * Stateless pass-through: never logged, never persisted. Case-insensitive keys.
+ */
+const FORWARDABLE_HEADERS = new Set(["authorization", "cookie", "x-api-key"]);
+const MAX_FORWARD_HEADER_BYTES = 8_192;
+
+/**
+ * Validates the optional `headers` tool argument: only allowlisted keys,
+ * string values, bounded total size. Throws a caller-facing Error on any
+ * violation so a typo'd key fails loudly instead of being silently dropped.
+ */
+export function parseForwardHeaders(raw: unknown): Record<string, string> | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("`headers` must be an object of header name -> string value.");
+  }
+
+  const allowedList = [...FORWARDABLE_HEADERS].join(", ");
+  const result: Record<string, string> = {};
+  let totalBytes = 0;
+
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const lower = key.toLowerCase();
+    if (!FORWARDABLE_HEADERS.has(lower)) {
+      throw new Error(`\`headers\` key "${key}" is not allowed. Allowed keys: ${allowedList}.`);
+    }
+    if (typeof value !== "string") {
+      throw new Error(`\`headers\` value for "${key}" must be a string.`);
+    }
+    totalBytes += new TextEncoder().encode(value).length;
+    if (totalBytes > MAX_FORWARD_HEADER_BYTES) {
+      throw new Error(`\`headers\` total size exceeds ${MAX_FORWARD_HEADER_BYTES} bytes.`);
+    }
+    result[lower] = value;
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+/**
+ * Shared JSON Schema property for the optional `headers` argument (Fase 29).
+ * No description on purpose: this is inlined into every core URL tool's
+ * schema, and the curated tools/list has a strict token budget (see
+ * catalog.ts) — the field name is self-explanatory enough to exist; full
+ * semantics (allowlist, same-origin, no-store) live in tool_catalog's NOTES,
+ * one free call away.
+ */
+export const HEADERS_SCHEMA_PROPERTY = {
+  type: "object" as const,
+};
+
 function isIPv4(host: string): boolean {
   return /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
 }
@@ -94,17 +146,41 @@ export function assertPublicHttpUrl(raw: string): URL {
   return parsed;
 }
 
+export interface SafeFetchOptions {
+  /**
+   * Caller-supplied auth headers (from parseForwardHeaders) forwarded ONLY
+   * while the current hop's host matches the original request's host. The
+   * moment a redirect crosses to a different host, these are dropped for all
+   * subsequent hops — a 302 must not be able to carry a credential to a
+   * domain the caller never authorised it for.
+   */
+  forwardHeaders?: Record<string, string>;
+}
+
 /**
  * Drop-in replacement for fetch() on caller-supplied URLs: validates the URL
  * (and every redirect hop) against assertPublicHttpUrl before following it.
  * Redirects are followed manually — `redirect: "follow"` would let fetch
  * chase a Location header we never got to inspect.
  */
-export async function safeFetch(rawUrl: string, init: RequestInit = {}): Promise<Response> {
+export async function safeFetch(
+  rawUrl: string,
+  init: RequestInit = {},
+  opts: SafeFetchOptions = {}
+): Promise<Response> {
   let current = assertPublicHttpUrl(rawUrl);
+  const originalHost = current.hostname.toLowerCase();
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    const response = await fetch(current.toString(), { ...init, redirect: "manual" });
+    const sameOrigin = current.hostname.toLowerCase() === originalHost;
+    const headers = new Headers(init.headers);
+    if (sameOrigin && opts.forwardHeaders) {
+      for (const [key, value] of Object.entries(opts.forwardHeaders)) {
+        headers.set(key, value);
+      }
+    }
+
+    const response = await fetch(current.toString(), { ...init, headers, redirect: "manual" });
 
     const isRedirect = response.status >= 300 && response.status < 400;
     const location = isRedirect ? response.headers.get("location") : null;

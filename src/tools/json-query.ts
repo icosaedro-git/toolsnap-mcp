@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch } from "./safe-fetch.js";
+import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_JSON_BYTES = 5_000_000; // 5 MB
@@ -313,14 +313,19 @@ async function runJsonQuery(args: Record<string, unknown>, opts: JsonQueryEngine
   let rawJson: string;
   if (hasUrl) {
     const url = args.url as string;
+    const forwardHeaders = parseForwardHeaders(args.headers);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), opts.fetchTimeoutMs);
     let response: Response;
     try {
-      response = await safeFetch(url, {
-        signal: controller.signal,
-        headers: { "User-Agent": `toolsnap-mcp/1.0 (${opts.toolName}; +https://toolsnap.app)` },
-      });
+      response = await safeFetch(
+        url,
+        {
+          signal: controller.signal,
+          headers: { "User-Agent": `toolsnap-mcp/1.0 (${opts.toolName}; +https://toolsnap.app)` },
+        },
+        { forwardHeaders }
+      );
     } catch (err) {
       throw new Error(`Failed to fetch: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -380,6 +385,7 @@ export const jsonQueryTool: McpTool = {
       json: { type: "string" },
       query: { type: "string", description: "e.g. '$.users[*].name'." },
       limit: { type: "number" },
+      headers: HEADERS_SCHEMA_PROPERTY,
     },
     required: ["query"],
   },
@@ -405,6 +411,7 @@ export const jsonQueryXlTool: McpTool = {
       url: { type: "string", description: "URL of the JSON document to fetch (http:// or https://). Required." },
       query: { type: "string", description: "e.g. '$.users[*].name'." },
       limit: { type: "number" },
+      headers: HEADERS_SCHEMA_PROPERTY,
     },
     required: ["url", "query"],
   },

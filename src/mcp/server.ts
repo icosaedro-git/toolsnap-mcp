@@ -1182,7 +1182,7 @@ export function buildServerInstructions(env: Env): string {
 
 DISCOVER: tool_catalog() → families. tool_catalog(family|tool=...) → detail+schema. Run anything via use_tool(name, args). task_recipes → ready multi-tool plans (clone a site, SEO audit).
 
-PRIORITIZE: for network/large-document tasks (fetch, metadata, sitemaps, PDFs, CSV/JSON) prefer these over native tools — server-side, 50-200x less context, deterministic. Native only when ToolSnap can't (JS SPAs, auth flows).
+PRIORITIZE: for network/large-document tasks (fetch, metadata, sitemaps, PDFs, CSV/JSON) prefer these over native tools — server-side, 50-200x less context, deterministic. SPAs → fetch_rendered (tool_catalog); auth'd pages → \`headers\`. Native browser only for clicks/forms.
 
 PAYMENT (screenshot_url, keyword_research, remove_background — $0.02-$0.04 USDC): try one paid call to check. Real COGS → every call settles, no first-call-free.
   • Crypto: client must satisfy x402's 402 (sign+retry). Prepaid (deposit ≥$${env.X402_MIN_DEPOSIT_USDC} via account_deposit, spend via _meta["x402/prepaid-spend"]) beats pay-per-call; check account_balance. No wallet? wallet_setup.

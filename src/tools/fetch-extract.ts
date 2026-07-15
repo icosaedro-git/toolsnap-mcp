@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch } from "./safe-fetch.js";
+import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
 
 const DEFAULT_MAX_CHARS = 8_000;
 const HARD_MAX_CHARS = 32_000;
@@ -49,7 +49,7 @@ function collapseWhitespace(text: string): string {
   return result.trim();
 }
 
-function extractText(html: string): string {
+export function extractText(html: string): string {
   let text = stripBlockElements(html);
   text = stripTags(text);
   text = decodeEntities(text);
@@ -82,11 +82,11 @@ function detectUnusable(html: string, text: string): string | null {
   if (html.length < 2_000) return null; // genuinely tiny page — let it through
   const isSpa = SPA_MARKERS.some((re) => re.test(html));
   if (isSpa) {
-    return "This page is client-side rendered (SPA): its content only appears after JavaScript runs, which fetch_extract does not execute. Use screenshot_url (to see it) or fetch_html (raw markup), or render it on your side.";
+    return "This page is client-side rendered (SPA): its content only appears after JavaScript runs, which fetch_extract does not execute. Use fetch_rendered (paid, runs a server-side browser) to get its text, or screenshot_url to see it.";
   }
   // Large HTML but almost no text and no SPA markers → likely a bot wall,
   // login gate, or an asset/redirect page.
-  return "This URL returned very little extractable text despite a sizeable response (likely a bot wall, login gate, or non-article page). Try screenshot_url or fetch_html instead.";
+  return "This URL returned very little extractable text despite a sizeable response (likely a bot wall, login gate, or non-article page). If it needs auth, retry with `headers` (Authorization/Cookie). Otherwise try fetch_rendered or fetch_html.";
 }
 
 export const fetchExtractTool: McpTool = {
@@ -97,6 +97,7 @@ export const fetchExtractTool: McpTool = {
     properties: {
       url: { type: "string" },
       maxChars: { type: "number" },
+      headers: HEADERS_SCHEMA_PROPERTY,
     },
     required: ["url"],
   },
@@ -108,18 +109,23 @@ export const fetchExtractTool: McpTool = {
 
     const rawMax = args.maxChars !== undefined ? Number(args.maxChars) : DEFAULT_MAX_CHARS;
     const maxChars = Math.min(Math.max(1, Math.floor(rawMax)), HARD_MAX_CHARS);
+    const forwardHeaders = parseForwardHeaders(args.headers);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
     let response: Response;
     try {
-      response = await safeFetch(url, {
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "toolsnap-mcp/1.0 (fetch_extract; +https://toolsnap.app)",
+      response = await safeFetch(
+        url,
+        {
+          signal: controller.signal,
+          headers: {
+            "User-Agent": "toolsnap-mcp/1.0 (fetch_extract; +https://toolsnap.app)",
+          },
         },
-      });
+        { forwardHeaders }
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to fetch URL: ${message}`);

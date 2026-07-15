@@ -5,9 +5,10 @@
 name: toolsnap-mcp
 displayName: "ToolSnap MCP — Context-Efficient Microtools"
 description: |
-  MCP server for AI agents. 38 tools total, 35 free — web extraction, SEO metadata,
-  documents (PDF/CSV/JSON), feeds/sitemaps, link checking, plus utilities (UUID, hash,
-  Base64, URL encode/decode, HTML→Markdown, diff, regex, token count, and more).
+  MCP server for AI agents. 41 tools total, 35 free — web extraction (incl. JS-rendered
+  pages and pages behind auth), SEO metadata, documents (PDF/CSV/JSON), feeds/sitemaps,
+  link checking, plus utilities (UUID, hash, Base64, URL encode/decode, HTML→Markdown,
+  diff, regex, token count, and more).
   Flagship fetch_extract: median 98.1% token reduction (53 820 → 2 001 tokens, 11 real
   pages). Saves $0.156/call at Sonnet pricing; ROI positive even at DeepSeek pricing with
   $0.01 prepaid (deposit once, debit off-chain, no per-call gas). Pay per call $0.02 USDC

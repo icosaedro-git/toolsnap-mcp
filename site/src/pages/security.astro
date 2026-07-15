@@ -11,6 +11,7 @@ const toc = [
   { id: 'logging', label: 'What we log' },
   { id: 'storage', label: 'What we store' },
   { id: 'byo-storage', label: 'Bring your own storage' },
+  { id: 'auth-headers', label: 'Forwarded auth headers' },
   { id: 'no-ai', label: 'No AI in the middle' },
   { id: 'disclosure', label: 'Responsible disclosure' },
 ];
@@ -65,12 +66,26 @@ const toc = [
     </Callout>
   </DocSection>
 
-  <DocSection title="No AI in the middle" id="no-ai" num="5">
+  <DocSection title="Forwarded auth headers" id="auth-headers" num="5">
+    <p>Every fetch tool (fetch_extract, fetch_html, fetch_rendered, fetch_metadata, fetch_structured, html_to_markdown, pdf_text_extract, csv_query, json_query, page_assets, page_links, and their paid siblings) accepts an optional <code class="inline">headers</code> argument, so your agent can read a page or API that sits behind a login without you ever handing us a persistent credential.</p>
+    <p>Three rules make this safe to use:</p>
+    <table class="sec-table">
+      <thead><tr><th>Rule</th><th>What it means</th></tr></thead>
+      <tbody>
+        <tr><td>Allowlist only</td><td>Only <code class="inline">Authorization</code>, <code class="inline">Cookie</code>, and <code class="inline">X-Api-Key</code> are accepted (max 8&nbsp;KB total). Any other key is rejected outright.</td></tr>
+        <tr><td>Same-origin only</td><td>The header is sent to the exact host in your <code class="inline">url</code>. If that URL redirects to a different host, the header is dropped before the redirect is followed — a 302 cannot carry your credential to a domain you never authorised it for.</td></tr>
+        <tr><td>Never stored, never logged</td><td>Same rule as every other tool argument (see "What we log" above): the header value exists in memory for that one request and is gone once the response is written.</td></tr>
+      </tbody>
+    </table>
+    <p><code class="inline">link_check</code> is the one exception: it takes up to 20 URLs across potentially different hosts in a single call, so a single credential could not be scoped safely to just one of them. Call fetch_extract or fetch_html per-URL with <code class="inline">headers</code> instead if a specific link needs auth.</p>
+  </DocSection>
+
+  <DocSection title="No AI in the middle" id="no-ai" num="6">
     <p>The data tools are deterministic, server-side parsers, not language models. Your CSV or JSON never gets sent to any AI provider. There is no LLM in that pipeline to leak into, hallucinate about, or retain a copy of your data in a training set.</p>
     <p>Two explicit exceptions, both opt-in and both obvious from the tool name: <code class="inline">remove_background</code> sends the image you give it to fal.ai for background removal, and <code class="inline">keyword_research</code> sends the keywords you give it to DataForSEO. Nothing else in the catalog talks to a third-party AI provider.</p>
   </DocSection>
 
-  <DocSection title="Responsible disclosure" id="disclosure" num="6">
+  <DocSection title="Responsible disclosure" id="disclosure" num="7">
     <p>Found a security issue? Email <a href="mailto:security@toolsnap.app">security@toolsnap.app</a>. We'll acknowledge it and work with you on a fix before any public disclosure.</p>
   </DocSection>
 </DocsLayout>

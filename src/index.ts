@@ -67,6 +67,12 @@ export interface Env {
   // Optional — without it screenshot_url falls back to the keyless microlink provider.
   SCREENSHOT_API_KEY?: string;
 
+  // Cloudflare Browser Rendering (Fase 29 — fetch_rendered). Account ID + a
+  // scoped API token (Account > Browser Rendering > Edit permission only).
+  // Set via: wrangler secret put CF_ACCOUNT_ID / BROWSER_RENDERING_API_TOKEN
+  CF_ACCOUNT_ID?: string;
+  BROWSER_RENDERING_API_TOKEN?: string;
+
   // Telegram usage alerts (set via: wrangler secret put TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID).
   // Optional — the scheduled alert handler no-ops when either is missing.
   TELEGRAM_BOT_TOKEN?: string;
@@ -327,7 +333,7 @@ export default {
       return jsonResponse({
         name: "toolsnap-mcp",
         description:
-          "Deterministic microtools for AI agents — no account needed for free tools or crypto payment. Free flagship fetch_extract (98.1% median token reduction vs raw HTML, pure parsing, no LLM in the loop) + fetch_html + a wide free utility catalog. Paid: screenshot_url, keyword_research, remove_background (real-COGS tools) — pay per call via x402 USDC on Base, or buy fiat credits with a card at /checkout (API key).",
+          "Deterministic microtools for AI agents — no account needed for free tools or crypto payment. Free flagship fetch_extract (98.1% median token reduction vs raw HTML, pure parsing, no LLM in the loop) + fetch_html + a wide free utility catalog. Paid: screenshot_url, fetch_rendered, keyword_research, remove_background (real-COGS tools) — pay per call via x402 USDC on Base, or buy fiat credits with a card at /checkout (API key).",
         mcp_endpoint: "/mcp",
         well_known: "/.well-known/mcp.json",
         pricing: "/.well-known/pricing.json",
@@ -344,7 +350,7 @@ export default {
         name: "toolsnap-mcp",
         version: "0.1.0",
         description:
-          `Deterministic, context-efficient microtools for AI agents — free tools and crypto payment need no account. ${tools.length} tools total. Extraction is pure parsing (no LLM in the loop): exact quotes, stable output, zero added inference cost. Free flagships fetch_extract (median 98.1% token reduction, 53,820 → 2,001 tokens, 11 real pages) and fetch_html, plus a wide free utility catalog (CSV/JSON/PDF query, HTML→Markdown, RSS, sitemap, metadata, token count, and more). Paid: screenshot_url, keyword_research, remove_background — real per-call COGS tools, $0.02–$0.04 USDC on Base via x402 (no first-call-free), or fiat credits with a card (API key) at /checkout. Prepaid balances (deposit once, debit off-chain, no per-call gas) work either way.`,
+          `Deterministic, context-efficient microtools for AI agents — free tools and crypto payment need no account. ${tools.length} tools total. Extraction is pure parsing (no LLM in the loop): exact quotes, stable output, zero added inference cost. Free flagships fetch_extract (median 98.1% token reduction, 53,820 → 2,001 tokens, 11 real pages) and fetch_html, plus a wide free utility catalog (CSV/JSON/PDF query, HTML→Markdown, RSS, sitemap, metadata, token count, and more). Paid: screenshot_url, fetch_rendered, keyword_research, remove_background — real per-call COGS tools, $0.02–$0.04 USDC on Base via x402 (no first-call-free), or fiat credits with a card (API key) at /checkout. Prepaid balances (deposit once, debit off-chain, no per-call gas) work either way.`,
         transport: "streamable-http",
         endpoint: "/mcp",
         pricing_endpoint: "/.well-known/pricing.json",
@@ -395,7 +401,7 @@ export default {
         $schema: "https://glama.ai/mcp/schemas/connector.json",
         name: "ToolSnap MCP",
         description:
-          `Deterministic, context-efficient microtools for AI agents — free tools need no account. ${tools.length} tools total. Flagship: fetch_extract converts raw HTML to clean text with a median 98.1% token reduction (53,820 → 2,001 tokens, 11 real pages) via pure parsing, no LLM in the loop — free, like fetch_html and most of the catalog. Paid: screenshot_url, keyword_research, remove_background — real per-call COGS, $0.02–$0.04 USDC on Base via x402, or fiat credits with a card. Prepaid: deposit once ($0.50 min), debit off-chain at a discount.`,
+          `Deterministic, context-efficient microtools for AI agents — free tools need no account. ${tools.length} tools total. Flagship: fetch_extract converts raw HTML to clean text with a median 98.1% token reduction (53,820 → 2,001 tokens, 11 real pages) via pure parsing, no LLM in the loop — free, like fetch_html and most of the catalog. Paid: screenshot_url, fetch_rendered, keyword_research, remove_background — real per-call COGS, $0.02–$0.04 USDC on Base via x402, or fiat credits with a card. Prepaid: deposit once ($0.50 min), debit off-chain at a discount.`,
         categories: ["developer-tools", "web-scraping", "data-extraction", "paid"],
         transport: "streamable-http",
         homepage: "https://mcp.toolsnap.app",
