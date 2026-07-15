@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch } from "./safe-fetch.js";
+import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 15_000;
 const MAX_PDF_BYTES = 20_000_000; // 20 MB
@@ -708,6 +708,7 @@ export const pdfTextExtractTool: McpTool = {
     properties: {
       url: { type: "string" },
       maxChars: { type: "number" },
+      headers: HEADERS_SCHEMA_PROPERTY,
     },
     required: ["url"],
   },
@@ -717,6 +718,7 @@ export const pdfTextExtractTool: McpTool = {
     if (!url.startsWith("http://") && !url.startsWith("https://")) {
       throw new Error("`url` must start with http:// or https://");
     }
+    const forwardHeaders = parseForwardHeaders(args.headers);
 
     const rawMax = args.maxChars !== undefined ? Number(args.maxChars) : DEFAULT_MAX_CHARS;
     const maxChars = Math.min(Math.max(1, Math.floor(rawMax)), HARD_MAX_CHARS);
@@ -725,10 +727,14 @@ export const pdfTextExtractTool: McpTool = {
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     let response: Response;
     try {
-      response = await safeFetch(url, {
-        signal: controller.signal,
-        headers: { "User-Agent": "toolsnap-mcp/1.0 (pdf_text_extract; +https://toolsnap.app)" },
-      });
+      response = await safeFetch(
+        url,
+        {
+          signal: controller.signal,
+          headers: { "User-Agent": "toolsnap-mcp/1.0 (pdf_text_extract; +https://toolsnap.app)" },
+        },
+        { forwardHeaders }
+      );
     } catch (err) {
       throw new Error(`Failed to fetch: ${err instanceof Error ? err.message : String(err)}`);
     } finally {

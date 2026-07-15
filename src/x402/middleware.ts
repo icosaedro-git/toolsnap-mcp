@@ -192,6 +192,7 @@ export interface PaymentConfig {
  */
 const PAID_TOOLS = new Set([
   "screenshot_url",
+  "fetch_rendered",
   "keyword_research",
   "remove_background",
   "csv_query_xl",
@@ -215,6 +216,11 @@ export function requiresPayment(toolName: string): boolean {
  */
 const TOOL_PRICE_OVERRIDES: Record<string, { payPerCall: string; prepaid: string }> = {
   screenshot_url: { payPerCall: "0.04", prepaid: "0.025" },
+  // Cloudflare Browser Rendering COGS: free tier caps at 10 browser-minutes/day;
+  // overage on Workers Paid runs ~$0.0001-0.0002/call (browser seconds), so the
+  // flagship $0.04 price clears with wide margin. Priced same as screenshot_url
+  // (also a real headless-render cost).
+  fetch_rendered: { payPerCall: "0.04", prepaid: "0.025" },
   keyword_research: { payPerCall: "0.04", prepaid: "0.025" },
   remove_background: { payPerCall: "0.03", prepaid: "0.02" },
   // csv_query_xl / json_query_xl: this override matches the global flat rate

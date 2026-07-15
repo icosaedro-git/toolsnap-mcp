@@ -25,6 +25,7 @@ import { pageLinksTool } from "./page-links.js";
 import { linkCheckTool } from "./link-check.js";
 import { htmlTableExtractTool } from "./html-table-extract.js";
 import { screenshotUrlTool } from "./screenshot-url.js";
+import { fetchRenderedTool } from "./fetch-rendered.js";
 import { taskRecipesTool } from "./task-recipes.js";
 import { keywordResearchTool } from "./keyword-research.js";
 import { removeBackgroundTool } from "./remove-background.js";
@@ -50,6 +51,7 @@ export const tools: McpTool[] = [
   pageAssetsTool,
   pageLinksTool,
   screenshotUrlTool,
+  fetchRenderedTool,
   keywordResearchTool,
   removeBackgroundTool,
   uploadFileTool,

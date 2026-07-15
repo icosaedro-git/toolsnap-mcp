@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch } from "./safe-fetch.js";
+import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_CSV_BYTES = 5_000_000; // 5 MB — free tier
@@ -216,6 +216,7 @@ interface CsvQueryArgs {
   sort_dir?: unknown;
   limit?: unknown;
   format?: unknown;
+  headers?: unknown;
 }
 
 interface RowSink {
@@ -383,14 +384,19 @@ async function runCsvQuery(args: CsvQueryArgs & { url?: unknown; csv?: unknown }
     consumeAll(parser.end());
   } else {
     const url = args.url as string;
+    const forwardHeaders = parseForwardHeaders(args.headers);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), opts.fetchTimeoutMs);
     let response: Response;
     try {
-      response = await safeFetch(url, {
-        signal: controller.signal,
-        headers: { "User-Agent": `toolsnap-mcp/1.0 (${opts.toolName}; +https://toolsnap.app)` },
-      });
+      response = await safeFetch(
+        url,
+        {
+          signal: controller.signal,
+          headers: { "User-Agent": `toolsnap-mcp/1.0 (${opts.toolName}; +https://toolsnap.app)` },
+        },
+        { forwardHeaders }
+      );
     } catch (err) {
       clearTimeout(timer);
       throw new Error(`Failed to fetch: ${err instanceof Error ? err.message : String(err)}`);
@@ -459,6 +465,7 @@ export const csvQueryTool: McpTool = {
       sort_dir: { type: "string", enum: ["asc", "desc"] },
       limit: { type: "number" },
       format: { type: "string", enum: ["json", "csv"] },
+      headers: HEADERS_SCHEMA_PROPERTY,
     },
   },
   run(args) {
@@ -489,6 +496,7 @@ export const csvQueryXlTool: McpTool = {
       sort_dir: { type: "string", enum: ["asc", "desc"] },
       limit: { type: "number", description: `Default ${XL_DEFAULT_LIMIT}, max ${XL_HARD_MAX_LIMIT}.` },
       format: { type: "string", enum: ["json", "csv"] },
+      headers: HEADERS_SCHEMA_PROPERTY,
     },
     required: ["url"],
   },

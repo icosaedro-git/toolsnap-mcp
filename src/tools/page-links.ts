@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch } from "./safe-fetch.js";
+import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 12_000;
 const READ_LIMIT = 2 * 1024 * 1024;
@@ -110,6 +110,7 @@ export const pageLinksTool: McpTool = {
         type: "number",
         description: `Max links to return (default ${HARD_MAX_LINKS}, max ${HARD_MAX_LINKS}).`,
       },
+      headers: HEADERS_SCHEMA_PROPERTY,
     },
     required: ["url"],
   },
@@ -120,18 +121,23 @@ export const pageLinksTool: McpTool = {
     }
     const rawMax = args.maxLinks !== undefined ? Number(args.maxLinks) : HARD_MAX_LINKS;
     const maxLinks = Math.min(Math.max(1, Math.floor(rawMax)), HARD_MAX_LINKS);
+    const forwardHeaders = parseForwardHeaders(args.headers);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     let response: Response;
     try {
-      response = await safeFetch(url, {
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "toolsnap-mcp/1.0 (page_links; +https://toolsnap.app)",
-          Accept: "text/html,application/xhtml+xml",
+      response = await safeFetch(
+        url,
+        {
+          signal: controller.signal,
+          headers: {
+            "User-Agent": "toolsnap-mcp/1.0 (page_links; +https://toolsnap.app)",
+            Accept: "text/html,application/xhtml+xml",
+          },
         },
-      });
+        { forwardHeaders }
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to fetch URL: ${msg}`);

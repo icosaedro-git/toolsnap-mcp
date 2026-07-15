@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch } from "./safe-fetch.js";
+import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 12_000;
 const READ_LIMIT = 2 * 1024 * 1024; // 2 MB of HTML is plenty for asset discovery
@@ -153,6 +153,7 @@ export const pageAssetsTool: McpTool = {
         type: "string",
         description: "URL to fetch (http:// or https://).",
       },
+      headers: HEADERS_SCHEMA_PROPERTY,
     },
     required: ["url"],
   },
@@ -161,18 +162,23 @@ export const pageAssetsTool: McpTool = {
     if (!url || (!url.startsWith("http://") && !url.startsWith("https://"))) {
       throw new Error("`url` must start with http:// or https://");
     }
+    const forwardHeaders = parseForwardHeaders(args.headers);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     let response: Response;
     try {
-      response = await safeFetch(url, {
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "toolsnap-mcp/1.0 (page_assets; +https://toolsnap.app)",
-          Accept: "text/html,application/xhtml+xml",
+      response = await safeFetch(
+        url,
+        {
+          signal: controller.signal,
+          headers: {
+            "User-Agent": "toolsnap-mcp/1.0 (page_assets; +https://toolsnap.app)",
+            Accept: "text/html,application/xhtml+xml",
+          },
         },
-      });
+        { forwardHeaders }
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to fetch URL: ${msg}`);

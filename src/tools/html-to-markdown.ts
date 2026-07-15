@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch } from "./safe-fetch.js";
+import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
 
 const DEFAULT_MAX_CHARS = 12_000;
 const HARD_MAX_CHARS = 50_000;
@@ -156,17 +156,21 @@ function convertToMarkdown(html: string): string {
   return md.trim();
 }
 
-async function fetchHtml(url: string): Promise<string> {
+async function fetchHtml(url: string, forwardHeaders: Record<string, string> | undefined): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   let response: Response;
   try {
-    response = await safeFetch(url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "toolsnap-mcp/1.0 (html_to_markdown; +https://toolsnap.app)",
+    response = await safeFetch(
+      url,
+      {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "toolsnap-mcp/1.0 (html_to_markdown; +https://toolsnap.app)",
+        },
       },
-    });
+      { forwardHeaders }
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`Failed to fetch URL: ${msg}`);
@@ -188,6 +192,7 @@ export const htmlToMarkdownTool: McpTool = {
       url: { type: "string" },
       html: { type: "string", description: "Alt. to url." },
       maxChars: { type: "number" },
+      headers: HEADERS_SCHEMA_PROPERTY,
     },
   },
   async run(args) {
@@ -207,7 +212,7 @@ export const htmlToMarkdownTool: McpTool = {
       if (!url.startsWith("http://") && !url.startsWith("https://")) {
         throw new Error("`url` must start with http:// or https://");
       }
-      rawHtml = await fetchHtml(url);
+      rawHtml = await fetchHtml(url, parseForwardHeaders(args.headers));
     } else {
       rawHtml = args.html as string;
     }

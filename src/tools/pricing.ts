@@ -105,6 +105,16 @@ const PRICING_DATA = {
       },
     },
     {
+      name: "fetch_rendered",
+      tier: "paid",
+      price_usdc: 0.04,
+      prepaid_price_usdc: 0.025,
+      first_call_free: false,
+      value: {
+        note: "Renders a JS-executed page (SPA) in a server-side headless browser (Cloudflare Browser Rendering) and returns clean text — same pipeline as the free fetch_extract, but after JavaScript runs. Use when fetch_extract reports a client-side rendered page, or pair with `headers` to read an authenticated dashboard. Priced above the flat rate due to per-call browser render cost. No first-call-free. Costs $0.04 pay-per-call or $0.025 prepaid.",
+      },
+    },
+    {
       name: "keyword_research",
       tier: "paid",
       price_usdc: 0.04,

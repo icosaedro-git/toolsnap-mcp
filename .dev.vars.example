@@ -14,6 +14,15 @@ WHITELISTED_ADDRESSES=0xYourRelayWalletPublicAddressHere
 # Set in production via: wrangler secret put SCREENSHOT_API_KEY
 SCREENSHOT_API_KEY=your-screenshotone-access-key-here
 
+# fetch_rendered (Fase 29): Cloudflare Browser Rendering REST API.
+# Account ID (dashboard, Workers & Pages > Overview) + a scoped API token
+# (My Profile > API Tokens > Custom Token, permission: Account > Browser
+# Rendering > Edit only). Set in production via:
+#   wrangler secret put CF_ACCOUNT_ID
+#   wrangler secret put BROWSER_RENDERING_API_TOKEN
+CF_ACCOUNT_ID=your-cloudflare-account-id-here
+BROWSER_RENDERING_API_TOKEN=your-scoped-browser-rendering-api-token-here
+
 # Fase 22.1 — ToolSnap X Agent (local dev / e2e). In production set via
 # wrangler secret put <NAME> for each — see wrangler.jsonc's secrets comment.
 X_API_KEY=your-x-app-consumer-key

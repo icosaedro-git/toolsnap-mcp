@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch } from "./safe-fetch.js";
+import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 10_000;
 
@@ -309,6 +309,7 @@ export const extractStructuredTool: McpTool = {
     properties: {
       url: { type: "string" },
       schema: { type: "string", description: "JSON Schema string." },
+      headers: HEADERS_SCHEMA_PROPERTY,
     },
     required: ["url", "schema"],
   },
@@ -319,6 +320,7 @@ export const extractStructuredTool: McpTool = {
     if (typeof args.schema !== "string" || !args.schema.trim()) {
       throw new Error("`schema` must be a non-empty JSON string.");
     }
+    const forwardHeaders = parseForwardHeaders(args.headers);
 
     let schemaParsed: Record<string, unknown>;
     try {
@@ -332,12 +334,16 @@ export const extractStructuredTool: McpTool = {
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     let response: Response;
     try {
-      response = await safeFetch(args.url as string, {
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "toolsnap-mcp/1.0 (fetch_structured; +https://toolsnap.app)",
+      response = await safeFetch(
+        args.url as string,
+        {
+          signal: controller.signal,
+          headers: {
+            "User-Agent": "toolsnap-mcp/1.0 (fetch_structured; +https://toolsnap.app)",
+          },
         },
-      });
+        { forwardHeaders }
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to fetch URL: ${msg}`);
