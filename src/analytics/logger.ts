@@ -5,7 +5,7 @@
  * the main request. The table is created by migration 0002_analytics.sql.
  */
 
-import { maybeAlertError } from "../alerts/error-alerts.js";
+import { maybeAlertError, maybeAlertBusinessSignal } from "../alerts/error-alerts.js";
 
 export type PaymentType =
   // Fase 24 — one per successful MCP `initialize` (a new connection/session).
@@ -117,6 +117,18 @@ export function writeEvent(
       detail,
     });
   }
+
+  // Fase 24.7 — positive/actionable business signals (credit purchases,
+  // first paid call, no-balance) run independently of ERROR_PAYMENT_TYPES —
+  // most of these payment_types aren't failures.
+  maybeAlertBusinessSignal(env, ctx, {
+    toolName: event.toolName,
+    paymentType: event.paymentType,
+    payer: event.payer,
+    revenueUsdc: event.revenueUsdc,
+    client: event.client,
+    detail,
+  });
 
   // Must use ctx.waitUntil — otherwise Cloudflare Workers kills the D1 write
   // before the async op completes (fire-and-forget without waitUntil is a no-op).
