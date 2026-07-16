@@ -17,7 +17,8 @@ Some harnesses have their own config format or catalog worth documenting:
 
 - **[Hermes](hermes/README.md)** — Nous Research agent; optional-MCP catalog + a `toolsnap` skill.
 - **[Grok Build](grok-build/README.md)** — SpaceXAI CLI; `~/.grok/config.toml`, fits its 20KB MCP output cap.
-- **[Gemini CLI](gemini-cli/README.md)** — Google's terminal agent; `settings.json` + extensions gallery.
+- **[Gemini CLI](gemini-cli/README.md)** — Google's terminal agent; `settings.json` + extensions gallery. Note: Gemini CLI stopped serving individual/free/Pro/Ultra accounts on 2026-06-18 (enterprise API-key access is unaffected) — see [Antigravity](antigravity/README.md) below for where that traffic moved.
+- **[Antigravity](antigravity/README.md)** — Google's Gemini CLI successor (`agy` CLI, IDE, 2.0); `serverUrl`-based MCP config, distinct from Gemini CLI's `url`/`httpUrl`.
 
 ## Any other MCP client
 

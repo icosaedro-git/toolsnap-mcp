@@ -5,7 +5,7 @@ import CodeBlock from '../components/CodeBlock.astro';
 import toolsData from '../data/tools.json';
 
 const title = 'Docs — connect, pay, build | ToolSnap MCP';
-const description = 'Technical reference: connecting from Claude Code, Claude Desktop, claude.ai, Cursor, Grok Build and Gemini CLI; OAuth sign-in; API keys; x402 payments; prepaid balance; pay-proxy.';
+const description = 'Technical reference: connecting from Claude Code, Claude Desktop, claude.ai, Cursor, Grok Build, Antigravity and Gemini CLI; OAuth sign-in; API keys; x402 payments; prepaid balance; pay-proxy.';
 
 const toc = [
   { id: 'endpoint', label: 'Endpoint' },
@@ -44,9 +44,12 @@ const toc = [
     <p><strong>Grok Build</strong></p>
     <CodeBlock lang="toml" code={`[mcp_servers.toolsnap]\nurl = "https://mcp.toolsnap.app/mcp"`} />
     <p class="text-mute">Goes in <code class="inline">~/.grok/config.toml</code>. Authenticated: add <code class="inline">headers = {'{'} "Authorization" = "Bearer sk_live_…" {'}'}</code>. ToolSnap results sit comfortably under Grok Build's 20KB MCP output cap by design.</p>
+    <p><strong>Antigravity</strong> (Google's Gemini CLI successor — <code class="inline">agy</code> CLI, IDE, 2.0)</p>
+    <CodeBlock lang="json" code={`{ "mcpServers": { "toolsnap": { "serverUrl": "https://mcp.toolsnap.app/mcp" } } }`} />
+    <p class="text-mute">Goes in <code class="inline">~/.gemini/config/mcp_config.json</code> (global) or <code class="inline">.agents/mcp_config.json</code> (workspace). Antigravity uses <code class="inline">serverUrl</code> — the Gemini CLI field names <code class="inline">url</code>/<code class="inline">httpUrl</code> are rejected here. Authenticated: add <code class="inline">"headers": {'{'} "Authorization": "Bearer sk_live_…" {'}'}</code>.</p>
     <p><strong>Gemini CLI</strong></p>
     <CodeBlock lang="json" code={`{ "mcpServers": { "toolsnap": { "httpUrl": "https://mcp.toolsnap.app/mcp" } } }`} />
-    <p class="text-mute">Goes in <code class="inline">~/.gemini/settings.json</code>. Gemini CLI uses <code class="inline">httpUrl</code> for streamable HTTP (<code class="inline">url</code> is SSE). Authenticated: add <code class="inline">"headers": {'{'} "Authorization": "Bearer $TOOLSNAP_KEY" {'}'}</code> — it expands <code class="inline">$VAR</code> from the environment.</p>
+    <p class="text-mute">Goes in <code class="inline">~/.gemini/settings.json</code>, field <code class="inline">httpUrl</code> (<code class="inline">url</code> is SSE). Gemini CLI stopped serving individual/free/Pro/Ultra accounts on 2026-06-18 — this still applies to enterprise Gemini Code Assist licenses and API-key auth; everyone else should use Antigravity above.</p>
     <p class="text-mute">Troubleshooting: if your client is old and can't add a remote streamable-HTTP server directly, wrap it with <a href="https://github.com/geelen/mcp-remote"><code class="inline">mcp-remote</code></a> as a stdio bridge. It's not the recommended path — every current client (Claude Desktop, Claude Code, Cursor, VS Code) supports the direct URL.</p>
   </DocSection>
 
