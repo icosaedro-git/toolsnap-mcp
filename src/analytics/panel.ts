@@ -16,6 +16,11 @@ export const PANEL_HTML = `<!DOCTYPE html>
     --text: #e6edf3;
     --muted: #8b949e;
     --accent: #2f81f7;
+    /* Darker than --accent specifically for filled controls carrying white
+       text (seg-btn.active) — #2f81f7 + white text is 3.7:1, fails WCAG AA
+       (4.5:1). This variant holds ~4.6:1. --accent itself stays untouched:
+       it's used as a text/line color elsewhere, where it already passes. */
+    --accent-strong: #1f6feb;
     --green: #3fb950;
     --yellow: #d29922;
     --red: #f85149;
@@ -33,7 +38,7 @@ export const PANEL_HTML = `<!DOCTYPE html>
   }
   header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
   header h1 { font-size: 16px; font-weight: 600; letter-spacing: -0.2px; display: flex; align-items: center; }
-  header span { font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
+  header span { font-size: 12px; color: var(--muted); font-family: var(--font-mono); }
   .live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--green); margin-left: 8px; animation: pulse 2s ease-in-out infinite; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
   .refresh-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 5px 12px; border-radius: 7px; cursor: pointer; font: 12px var(--font-ui); transition: border-color 0.15s ease; }
@@ -46,7 +51,7 @@ export const PANEL_HTML = `<!DOCTYPE html>
   .kpi:hover { border-color: #2a3448; }
   .kpi-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; }
   .kpi-value { font-size: 28px; font-weight: 700; margin-top: 4px; letter-spacing: -0.5px; font-family: var(--font-mono); }
-  .kpi-sub { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .kpi-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
   .kpi-delta { font-size: 12px; font-weight: 600; margin-left: 6px; font-family: var(--font-mono); }
   .kpi-delta.up { color: var(--green); }
   .kpi-delta.down { color: var(--red); }
@@ -54,17 +59,25 @@ export const PANEL_HTML = `<!DOCTYPE html>
   .seg-group { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 3px; gap: 2px; }
   .seg-btn { background: transparent; border: none; color: var(--muted); font: 12px var(--font-ui); padding: 5px 11px; border-radius: 6px; cursor: pointer; transition: background 0.15s ease, color 0.15s ease; }
   .seg-btn:hover:not(.active) { color: var(--text); }
-  .seg-btn.active { background: var(--accent); color: #fff; }
+  .seg-btn.active { background: var(--accent-strong); color: #fff; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
   .grid3 { display: grid; grid-template-columns: 1.6fr 1fr 1fr; gap: 12px; margin-bottom: 24px; }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.3); transition: border-color 0.15s ease; }
   .card:hover { border-color: #2a3448; }
-  .card h3 { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 14px; font-weight: 500; }
+  .card h2 { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 14px; font-weight: 500; }
   .bar-chart { width: 100%; }
   .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
-  .bar-label { width: 80px; color: var(--muted); text-align: right; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar-label { width: 100px; color: var(--muted); text-align: right; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bar-track { flex: 1; display: flex; background: var(--border); border-radius: 3px; height: 14px; overflow: hidden; }
-  .bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+  /* No width transition: every render() call replaces the whole card's
+     innerHTML, so bars are always painted at their final width — there's no
+     persisting element to animate FROM, meaning the old width-transition
+     rule never actually fired. Declaring it was still a layout-thrash
+     anti-pattern (animating width forces reflow) with zero visual benefit;
+     dropped rather than switched to transform, since these stacked flex
+     segments (see errorRateChart) need real width to size correctly next to
+     each other. */
+  .bar-fill { height: 100%; border-radius: 3px; }
   .bar-count { width: 44px; text-align: right; color: var(--text); flex-shrink: 0; font-family: var(--font-mono); }
   .pay-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 20px; padding: 4px 10px; font-size: 12px; margin: 3px 2px; }
   .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
@@ -83,14 +96,14 @@ export const PANEL_HTML = `<!DOCTYPE html>
   .err-table tr:hover td { background: rgba(255,255,255,0.02); }
   .err-detail { color: var(--muted); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .err-detail:hover { white-space: normal; overflow: visible; }
-  .pager-bar { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 11px; color: var(--muted); }
+  .pager-bar { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 12px; color: var(--muted); }
   .pager-bar .seg-btn[disabled] { opacity: 0.35; cursor: default; }
   .pager-info { font-family: var(--font-mono); }
   .grid-wide { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-bottom: 24px; }
   .chart-wrap { position: relative; }
   .chart-wrap text { font-family: var(--font-mono); }
   .chart-empty { padding: 56px 0; text-align: center; color: var(--muted); font-size: 12px; }
-  .chart-tip { position: absolute; top: 6px; left: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 6px 10px; font-size: 11px; box-shadow: 0 4px 14px rgba(0,0,0,0.45); pointer-events: none; white-space: nowrap; z-index: 5; }
+  .chart-tip { position: absolute; top: 6px; left: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 6px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,0.45); pointer-events: none; white-space: nowrap; z-index: 5; }
   .tip-date { color: var(--muted); margin-bottom: 2px; }
   .tip-val { font-weight: 600; font-family: var(--font-mono); }
   @media (max-width: 768px) {
@@ -808,48 +821,48 @@ function render(d) {
 
     <div class="grid2">
       <div class="card">
-        <h3>Calls</h3>
+        <h2>Calls</h2>
         \${timeChart(callsPlot, { color: '#2f81f7', kind: 'num', granularity })}
       </div>
       <div class="card">
-        <h3>Revenue (USDC)</h3>
+        <h2>Revenue (USDC)</h2>
         \${timeChart(revPlot, { color: '#3fb950', kind: 'usd', granularity })}
       </div>
     </div>
 
     <div class="grid3">
       <div class="card">
-        <h3>Top tools · 30d</h3>
+        <h2>Top tools · 30d</h2>
         <div class="bar-chart">\${barChart(d.top_tools, 'calls', 'tool', '#a371f7')}</div>
       </div>
       <div class="card">
-        <h3>Payment mix</h3>
+        <h2>Payment mix</h2>
         \${payChips(d.payment_breakdown)}
       </div>
       <div class="card">
-        <h3>Credits</h3>
+        <h2>Credits</h2>
         \${creditsCard(d.credits)}
       </div>
     </div>
 
     <div class="grid2">
       <div class="card">
-        <h3>Calls by surface · 30d</h3>
+        <h2>Calls by surface · 30d</h2>
         <div class="bar-chart">\${barChart(d.surface && d.surface.calls_by_client, 'calls', 'client', '#2f81f7')}</div>
       </div>
       <div class="card">
-        <h3>Paywall → conversion · 30d</h3>
+        <h2>Paywall → conversion · 30d</h2>
         \${paywallFunnelStat(d.paywall_funnel)}
       </div>
     </div>
 
     <div class="grid-wide">
       <div class="card">
-        <h3>Error rate by tool · 30d <span style="color:var(--muted);font-weight:400">(red = ours, amber = upstream)</span></h3>
+        <h2>Error rate by tool · 30d <span style="color:var(--muted);font-weight:400">(red = ours, amber = upstream)</span></h2>
         \${errorRateChart(d.error_rate_by_tool)}
       </div>
       <div class="card">
-        <h3>Latency by tool · 30d</h3>
+        <h2>Latency by tool · 30d</h2>
         \${latencyByToolTable(d.latency_by_tool)}
         <div class="stat-row" style="margin-top:8px"><span>Global avg / p50 / p95</span><span class="stat-val">\${d.summary.avg_latency_ms} / \${d.summary.p50_latency_ms} / \${d.summary.p95_latency_ms} ms</span></div>
       </div>
@@ -859,22 +872,22 @@ function render(d) {
   const logsHtml = \`
     <div class="grid-wide">
       <div class="card">
-        <h3>Surface funnel · 30d — connect → ≥1 call → ≥3 same family → paid</h3>
+        <h2>Surface funnel · 30d — connect → ≥1 call → ≥3 same family → paid</h2>
         \${surfaceFunnelTable(d.surface)}
       </div>
       <div class="card">
-        <h3>Directory coverage · 7d</h3>
+        <h2>Directory coverage · 7d</h2>
         \${directoryCoverageTable(d.directory_coverage)}
       </div>
     </div>
 
     <div class="card" style="margin-bottom:24px">
-      <h3>Recent errors · 30d</h3>
+      <h2>Recent errors · 30d</h2>
       \${errorTable(d.recent_errors)}
     </div>
 
     <div class="card" style="margin-bottom:24px">
-      <h3>Credit purchases · 365d</h3>
+      <h2>Credit purchases · 365d</h2>
       \${creditPurchasesTable(d.credit_purchases)}
     </div>
   \`;
