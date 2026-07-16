@@ -152,6 +152,12 @@ export interface Env {
   // doesn't ship a RateLimit type yet, so it's declared inline here.
   FREE_FETCH_RL: { limit(opts: { key: string }): Promise<{ success: boolean }> };
 
+  // Fase 24.5 — throttles analytics *logging* for noisy-but-harmless paths
+  // (repeat `initialize` connects, unpaid x402 attempts). Optional: the
+  // `unsafe.bindings` ratelimit type isn't available in every wrangler dev
+  // setup, so callers must treat a missing binding as "not rate limited".
+  ABUSE_RL?: { limit(opts: { key: string }): Promise<{ success: boolean }> };
+
   // Blog CMS GitHub OAuth (Decap at /admin) — see src/cms-auth.ts. Optional
   // so the Worker keeps running without them; the /admin/auth route fails
   // loudly when missing (set via: wrangler secret put GITHUB_CLIENT_ID /
@@ -165,6 +171,9 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers":
     "Content-Type, Authorization, X-Api-Key, Mcp-Session-Id, Mcp-Protocol-Version, X-Admin-Key, X-ToolSnap-Internal",
+  // The server assigns/echoes Mcp-Session-Id on MCP responses (see POST /mcp
+  // below) — browser-based clients need it exposed to read the header.
+  "Access-Control-Expose-Headers": "Mcp-Session-Id",
 };
 
 function withCors(response: Response): Response {
@@ -218,7 +227,13 @@ export default {
       const isAdmin = Boolean(env.ADMIN_API_KEY && adminKey === env.ADMIN_API_KEY);
       const clientUA = request.headers.get("user-agent") ?? "";
       const clientIp = request.headers.get("cf-connecting-ip") ?? "unknown";
-      const sessionId = request.headers.get("mcp-session-id") ?? "";
+      // Streamable-http assigns the session id server-side on the response
+      // to `initialize`; a compliant client then echoes it back on every
+      // later call. Generate one when the caller didn't send one (first
+      // call of a session, or a one-shot client that never adopts it — that
+      // call just becomes a 1-tool session, which is still correct for the
+      // per-session funnel below).
+      const sessionId = request.headers.get("mcp-session-id") || crypto.randomUUID();
       const internalHeader = request.headers.get("x-toolsnap-internal");
       const isInternal = Boolean(
         env.TOOLSNAP_INTERNAL_TOKEN && internalHeader === env.TOOLSNAP_INTERNAL_TOKEN
@@ -317,13 +332,16 @@ export default {
 
       if (response === null) {
         // Notification — 202 empty body with CORS
-        return new Response(null, { status: 202, headers: CORS_HEADERS });
+        return new Response(null, {
+          status: 202,
+          headers: { ...CORS_HEADERS, "Mcp-Session-Id": sessionId },
+        });
       }
 
       return withCors(
         new Response(response, {
           status,
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "Mcp-Session-Id": sessionId },
         })
       );
     }

@@ -119,3 +119,52 @@ export function maybeAlertError(env: AlertEnv, ctx: ExecutionContext, params: Er
     })()
   );
 }
+
+interface PaywallHitParams {
+  toolName: string;
+  clientIp: string;
+  client?: string | null;
+}
+
+const PAYWALL_ALERT_TTL_SEC = 6 * HOUR_SEC;
+
+/**
+ * Fase 24.5 — signal, not error: an agent hit the x402 paywall with no
+ * payment payload at all (no wallet yet). This is a lost-conversion
+ * opportunity, not a ToolSnap malfunction — maybeAlertError already
+ * suppresses it entirely (see the `no_payment_payload` check above). Sends
+ * a single 🟡 Telegram message per IP per 6h window, carrying a best-effort
+ * hit count from the same window, so a burst reads as one business signal
+ * instead of either silence or per-call noise.
+ */
+export function maybeAlertPaywallHit(env: AlertEnv, ctx: ExecutionContext, params: PaywallHitParams): void {
+  ctx.waitUntil(
+    (async () => {
+      try {
+        const { toolName, clientIp, client } = params;
+        const kv = env.X402_NONCES;
+
+        let count = 1;
+        if (kv) {
+          const countKey = `alert:paywall:count:${clientIp}`;
+          const raw = await kv.get(countKey);
+          count = (raw ? parseInt(raw, 10) || 0 : 0) + 1;
+          await kv.put(countKey, String(count), { expirationTtl: PAYWALL_ALERT_TTL_SEC });
+        }
+
+        if (!(await shouldAlert(kv, `alert:paywall:${clientIp}`, PAYWALL_ALERT_TTL_SEC))) return;
+
+        const lines = [
+          `🟡 agente golpeando el muro de pago sin wallet`,
+          `tool: \`${toolName}\` · intentos (6h): ×${count}`,
+          `ip: ${clientIp}${client ? ` · client: ${client}` : ""}`,
+          `conversión en riesgo — nunca llamó a wallet_setup ni fue al checkout`,
+        ];
+
+        await sendTelegram(env, lines.join("\n"));
+      } catch {
+        // Alerts must never break the caller.
+      }
+    })()
+  );
+}

@@ -394,12 +394,21 @@ export function buildPaymentRequiredResponse(
     extensions: {},
   };
 
+  // Most MCP clients only surface error.message to the calling agent/LLM —
+  // the rich hints above (fiat.how, oauth.hint, extensions.hint) live in
+  // error.data, which many clients drop. Absent a specific verification
+  // failure (`reason`), fold the actionable next steps into the message
+  // itself so an agent doesn't have to parse error.data to find them.
+  const message =
+    reason ??
+    `Payment required: $${config.priceUSDC} USDC on Base per call to ${config.resource}. No x402 wallet? Call the free wallet_setup tool. Prefer a card? Buy credits at https://mcp.toolsnap.app/checkout and send the API key as Authorization: Bearer. Most other tools in this catalog are free.`;
+
   return {
     jsonrpc: "2.0",
     id: requestId,
     error: {
       code: 402,
-      message: reason ?? "Payment required",
+      message,
       data: paymentRequired,
     },
   };
