@@ -589,8 +589,8 @@ function render(d) {
       </div>
       <div class="kpi">
         <div class="kpi-label">Unique agents</div>
-        <div class="kpi-value">\${fmt(d.summary.unique_payers_30d, 0)}</div>
-        <div class="kpi-sub">payer wallets · 30d</div>
+        <div class="kpi-value">\${fmt(d.summary.unique_payers_30d + (d.summary.unique_anon_agents_30d || 0), 0)}</div>
+        <div class="kpi-sub">\${fmt(d.summary.unique_payers_30d, 0)} identified · \${fmt(d.summary.unique_anon_agents_30d || 0, 0)} anon · 30d</div>
       </div>
       <div class="kpi">
         <div class="kpi-label">402→paid conv.</div>

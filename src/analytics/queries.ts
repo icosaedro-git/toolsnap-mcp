@@ -16,6 +16,13 @@ const PROBE_CLIENTS_SQL = Array.from(PROBE_CLIENTS)
   .map((c) => `'${c}'`)
   .join(", ");
 
+/**
+ * SQL fragment excluding directory-probe traffic from demand metrics —
+ * shared by the panel's internalFilter and the weekly digest so the two
+ * report on the same notion of "real demand".
+ */
+const NON_PROBE_SQL = ` AND (client_name IS NULL OR client_name NOT IN (${PROBE_CLIENTS_SQL}))`;
+
 /** tool_name -> family ids, precomputed once from the catalog (a tool can belong to >1 family). */
 const TOOL_FAMILIES: Record<string, string[]> = (() => {
   const map: Record<string, string[]> = {};
@@ -43,6 +50,14 @@ export interface DashboardData {
     calls_30d: number;
     revenue_30d: number;
     unique_payers_30d: number;
+    /**
+     * Fase 24.6 — distinct anonymous agents (payer LIKE 'anon:%', the
+     * salted IP-hash pseudonyms). Disjoint from unique_payers_30d, which
+     * counts identified payers (wallets/accounts) only — before the hash,
+     * all anonymous traffic collapsed into one literal "anon" and this
+     * number was invisible.
+     */
+    unique_anon_agents_30d: number;
     avg_latency_ms: number;
     p50_latency_ms: number;
     p95_latency_ms: number;
@@ -155,10 +170,14 @@ const PAID_CONVERSION_TYPES = ["x402_paid", "x402_free_first", "prepaid", "api_k
 /**
  * Fase 24.6 — how many distinct payers hit the x402 paywall (402_rejected)
  * in the window, and how many of them converted (called wallet_setup, or
- * made a paid-type call) within 7 days of their first hit. `payer` is the
- * correlation key — stable across reconnects for the same caller since the
- * anon-hash pseudonym (Fase 24.6) or a real wallet/account address doesn't
- * change between calls, unlike session_id which resets per connection.
+ * made a paid-type call) within 7 days of a hit. Correlation needs TWO keys
+ * because the payer label CHANGES on conversion: the 402 hit logs the
+ * anon-hash pseudonym, but the successful x402 retry logs the wallet
+ * address (and an API-key/OAuth payment logs acct:...). So a conversion
+ * matches on either (a) same payer — covers wallet_setup and repeat anon
+ * activity — or (b) same session_id — covers the classic 402 → sign →
+ * retry flow, which happens within one MCP session (server-assigned since
+ * Fase 24.5).
  */
 async function paywallConversionFunnel(
   db: D1Database,
@@ -169,21 +188,20 @@ async function paywallConversionFunnel(
   const row = await db
     .prepare(
       `WITH hits AS (
-         SELECT payer, MIN(ts) AS first_hit_ts
+         SELECT payer, session_id, ts
          FROM analytics_events
          WHERE ts >= ? AND payment_type = '402_rejected'${internalFilter}
-         GROUP BY payer
        ),
        converted AS (
          SELECT DISTINCT h.payer
          FROM hits h
          JOIN analytics_events e
-           ON e.payer = h.payer
-          AND e.ts > h.first_hit_ts
-          AND e.ts <= h.first_hit_ts + ${MS_7D}
+           ON (e.payer = h.payer OR (h.session_id IS NOT NULL AND e.session_id = h.session_id))
+          AND e.ts > h.ts
+          AND e.ts <= h.ts + ${MS_7D}
           AND (e.tool_name = 'wallet_setup' OR e.payment_type IN (${paidPlaceholders}))
        )
-       SELECT (SELECT count(*) FROM hits) AS hit_payers,
+       SELECT (SELECT count(DISTINCT payer) FROM hits) AS hit_payers,
               (SELECT count(*) FROM converted) AS converted_payers`
     )
     .bind(since, ...PAID_CONVERSION_TYPES)
@@ -206,7 +224,7 @@ export async function getDashboardData(
   // string, never user input.
   const internalFilter = includeInternal
     ? ""
-    : ` AND internal = 0 AND (client_name IS NULL OR client_name NOT IN (${PROBE_CLIENTS_SQL}))`;
+    : ` AND internal = 0${NON_PROBE_SQL}`;
 
   const [
     summary,
@@ -233,6 +251,7 @@ export async function getDashboardData(
           `SELECT count(*) AS calls,
                   COALESCE(sum(revenue_usdc), 0) AS revenue,
                   count(DISTINCT CASE WHEN payer NOT LIKE 'anon%' THEN payer END) AS payers,
+                  count(DISTINCT CASE WHEN payer LIKE 'anon:%' THEN payer END) AS anon_agents,
                   COALESCE(avg(latency_ms), 0) AS avg_latency
            FROM analytics_events
            WHERE ts >= ? AND payment_type != 'connect'${internalFilter}`
@@ -242,6 +261,7 @@ export async function getDashboardData(
           calls: number;
           revenue: number;
           payers: number;
+          anon_agents: number;
           avg_latency: number;
         }>(),
 
@@ -448,7 +468,7 @@ export async function getDashboardData(
       paywallConversionFunnel(db, since30, internalFilter),
     ]);
 
-  const s = summary ?? { calls: 0, revenue: 0, payers: 0, avg_latency: 0 };
+  const s = summary ?? { calls: 0, revenue: 0, payers: 0, anon_agents: 0, avg_latency: 0 };
   const dep = deposits ?? { cnt: 0, total: 0 };
 
   // Fase 24 — per-session funnel: connect -> >=1 call -> >=3 calls in one
@@ -541,6 +561,7 @@ export async function getDashboardData(
       calls_30d: s.calls,
       revenue_30d: s.revenue,
       unique_payers_30d: s.payers,
+      unique_anon_agents_30d: s.anon_agents,
       avg_latency_ms: Math.round(s.avg_latency),
       p50_latency_ms: p50,
       p95_latency_ms: p95,
@@ -596,12 +617,17 @@ export async function getWeeklySurfaceDigest(db: D1Database, now = Date.now()): 
   const PAID_TYPES = ["x402_paid", "x402_free_first", "prepaid", "api_key"];
   const paidPlaceholders = PAID_TYPES.map(() => "?").join(",");
 
+  // Same "real external demand" notion as the panel: no internal traffic,
+  // no directory-probe scrapers (Fase 24.6) — otherwise the digest's
+  // connects/calls tables stay dominated by glimind-probe & friends.
+  const digestFilter = ` AND internal = 0${NON_PROBE_SQL}`;
+
   const [connectsThis, connectsLast, callsThis, revThis, topTools, paidThis] = await Promise.all([
     db
       .prepare(
         `SELECT COALESCE(client_name, 'unknown') AS client, count(*) AS connects
          FROM analytics_events
-         WHERE ts >= ? AND payment_type = 'connect' AND internal = 0
+         WHERE ts >= ? AND payment_type = 'connect'${digestFilter}
          GROUP BY COALESCE(client_name, 'unknown')
          ORDER BY connects DESC`
       )
@@ -612,7 +638,7 @@ export async function getWeeklySurfaceDigest(db: D1Database, now = Date.now()): 
       .prepare(
         `SELECT COALESCE(client_name, 'unknown') AS client, count(*) AS connects
          FROM analytics_events
-         WHERE ts >= ? AND ts < ? AND payment_type = 'connect' AND internal = 0
+         WHERE ts >= ? AND ts < ? AND payment_type = 'connect'${digestFilter}
          GROUP BY COALESCE(client_name, 'unknown')
          ORDER BY connects DESC`
       )
@@ -623,7 +649,7 @@ export async function getWeeklySurfaceDigest(db: D1Database, now = Date.now()): 
       .prepare(
         `SELECT COALESCE(client_name, 'unknown') AS client, count(*) AS calls
          FROM analytics_events
-         WHERE ts >= ? AND payment_type != 'connect' AND internal = 0
+         WHERE ts >= ? AND payment_type != 'connect'${digestFilter}
          GROUP BY COALESCE(client_name, 'unknown')
          ORDER BY calls DESC`
       )
@@ -634,7 +660,7 @@ export async function getWeeklySurfaceDigest(db: D1Database, now = Date.now()): 
       .prepare(
         `SELECT count(*) AS calls_this, COALESCE(sum(revenue_usdc), 0) AS revenue
          FROM analytics_events
-         WHERE ts >= ? AND payment_type != 'connect' AND internal = 0`
+         WHERE ts >= ? AND payment_type != 'connect'${digestFilter}`
       )
       .bind(startThisWeek)
       .first<{ calls_this: number; revenue: number }>(),
@@ -643,7 +669,7 @@ export async function getWeeklySurfaceDigest(db: D1Database, now = Date.now()): 
       .prepare(
         `SELECT tool_name AS tool, count(*) AS calls
          FROM analytics_events
-         WHERE ts >= ? AND payment_type != 'connect' AND internal = 0
+         WHERE ts >= ? AND payment_type != 'connect'${digestFilter}
          GROUP BY tool_name
          ORDER BY calls DESC
          LIMIT 5`
@@ -654,7 +680,7 @@ export async function getWeeklySurfaceDigest(db: D1Database, now = Date.now()): 
     db
       .prepare(
         `SELECT count(*) AS n FROM analytics_events
-         WHERE ts >= ? AND internal = 0 AND payment_type IN (${paidPlaceholders})`
+         WHERE ts >= ?${digestFilter} AND payment_type IN (${paidPlaceholders})`
       )
       .bind(startThisWeek, ...PAID_TYPES)
       .first<{ n: number }>(),
@@ -664,11 +690,11 @@ export async function getWeeklySurfaceDigest(db: D1Database, now = Date.now()): 
     db
       .prepare(
         `SELECT count(*) AS n FROM analytics_events
-         WHERE ts >= ? AND ts < ? AND payment_type != 'connect' AND internal = 0`
+         WHERE ts >= ? AND ts < ? AND payment_type != 'connect'${digestFilter}`
       )
       .bind(startLastWeek, startThisWeek)
       .first<{ n: number }>(),
-    paywallConversionFunnel(db, startThisWeek, " AND internal = 0"),
+    paywallConversionFunnel(db, startThisWeek, digestFilter),
   ]);
 
   return {
