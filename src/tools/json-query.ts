@@ -331,7 +331,7 @@ async function runJsonQuery(args: Record<string, unknown>, opts: JsonQueryEngine
     } finally {
       clearTimeout(timer);
     }
-    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    if (!response.ok) throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
     const buf = await response.arrayBuffer();
     if (buf.byteLength > opts.maxBytes) {
       throw new Error(`JSON too large for ${opts.toolName}: ${buf.byteLength} bytes (max ${opts.maxBytes}). ${opts.tooLargeHint}`);

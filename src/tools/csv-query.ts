@@ -403,7 +403,7 @@ async function runCsvQuery(args: CsvQueryArgs & { url?: unknown; csv?: unknown }
     }
     if (!response.ok) {
       clearTimeout(timer);
-      throw new Error(`HTTP ${response.status} ${response.statusText}`);
+      throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
     }
     if (!response.body) {
       clearTimeout(timer);
