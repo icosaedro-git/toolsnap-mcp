@@ -78,3 +78,53 @@ export function classifySurface(ua: string, persisted?: PersistedClientInfo | nu
   if (lower.includes("curl")) return { name: "curl", version: null };
   return { name: "unknown", version: null };
 }
+
+/**
+ * Fase 24.6 — MCP directory/registry scrapers that connect and read the
+ * catalog (`initialize` + `tools/list`/`tool_catalog`) but represent listing
+ * discovery, not real agent demand. Identified by client_name from the
+ * clientInfo they send at `initialize` (see 2026-07-16 analytics review).
+ * Used to exclude this traffic from demand metrics and to report on it
+ * separately as a "directory coverage" signal — it's a positive indicator
+ * of listing health, not noise to discard.
+ */
+export const PROBE_CLIENTS: ReadonlySet<string> = new Set([
+  "glimind-probe",
+  "smithery-probe",
+  "glama",
+  "agent-tools.cloud",
+  "MCPScoringEngine",
+  "MCPExplorerBot",
+  "verifymcp-probe",
+  "aisec-registry-probe",
+  "ps-mcp-tools-probe",
+  "ci-smoke",
+  "ci-smoke-oauth",
+]);
+
+const ANON_HASH_PREFIX = "anon:";
+const ANON_HASH_HEX_LEN = 12;
+
+/**
+ * Fase 24.6 — every anonymous caller (no wallet/API key/OAuth) previously
+ * logged as the literal string "anon", collapsing every distinct agent into
+ * one payer for `unique_payers_30d` and any per-agent metric. Returns a
+ * stable pseudonym `anon:<12 hex>` derived from a salted hash of the
+ * caller's IP — enough to distinguish agents and measure retention without
+ * storing the IP itself. Degrades to the plain "anon" literal when the salt
+ * secret isn't configured, so logging never breaks on a missing optional
+ * secret (same defensive pattern as ABUSE_RL/shouldAlert).
+ */
+export async function anonPayerId(salt: string | undefined, clientIp: string): Promise<string> {
+  if (!salt || !clientIp || clientIp === "unknown") return "anon";
+  try {
+    const data = new TextEncoder().encode(`${clientIp}:${salt}`);
+    const digest = await crypto.subtle.digest("SHA-256", data);
+    const hex = Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    return `${ANON_HASH_PREFIX}${hex.slice(0, ANON_HASH_HEX_LEN)}`;
+  } catch {
+    return "anon";
+  }
+}

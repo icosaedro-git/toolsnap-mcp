@@ -31,7 +31,7 @@ import {
   creditDeposit,
 } from "../x402/prepaid.js";
 import { writeEvent, type AnalyticsEvent } from "../analytics/logger.js";
-import { classifySurface, persistSessionClient, readSessionClient } from "../analytics/surface.js";
+import { classifySurface, persistSessionClient, readSessionClient, anonPayerId } from "../analytics/surface.js";
 import { maybeAlertPaywallHit } from "../alerts/error-alerts.js";
 import { verifyApiKey, touchKey, accountAddress, accountExists, type VerifiedKey } from "../fiat/keys.js";
 import type { VerifiedOAuthToken } from "../oauth/tokens.js";
@@ -422,6 +422,11 @@ export async function dispatch(
     ? await readSessionClient(env.X402_NONCES, sessionId)
     : null;
   const surface = classifySurface(clientUA, persistedClient);
+  // Fase 24.6 — every unauthenticated call below used to log payer: "anon"
+  // verbatim, collapsing every distinct anonymous agent into a single payer
+  // for unique_payers_30d and any per-agent metric. This resolves a stable
+  // salted-hash pseudonym once per request instead (see anonPayerId).
+  const anonPayer = await anonPayerId(env.ANALYTICS_HASH_SALT, clientIp);
   const log = (event: Omit<AnalyticsEvent, "clientName" | "clientVersion" | "sessionId">) =>
     writeEvent(
       env,
@@ -458,7 +463,7 @@ export async function dispatch(
           {
             toolName: "initialize",
             paymentType: "connect",
-            payer: "anon",
+            payer: anonPayer,
             revenueUsdc: 0,
             latencyMs: 0,
             client: clientUA,
@@ -594,7 +599,7 @@ export async function dispatch(
         log({
           toolName,
           paymentType: "api_key_rejected",
-          payer: "anon",
+          payer: anonPayer,
           revenueUsdc: 0,
           latencyMs: 0,
           detail: "invalid_or_revoked_key",
@@ -836,7 +841,7 @@ export async function dispatch(
             log({
               toolName,
               paymentType: "prepaid_rejected",
-              payer: "anon",
+              payer: anonPayer,
               revenueUsdc: 0,
               latencyMs: Date.now() - t0,
               detail: v.reason,
@@ -984,7 +989,7 @@ export async function dispatch(
             log({
               toolName,
               paymentType: "402_rejected",
-              payer: "anon",
+              payer: anonPayer,
               revenueUsdc: 0,
               latencyMs: Date.now() - t0,
               detail: "no_payment_payload",
@@ -1013,7 +1018,7 @@ export async function dispatch(
           log({
             toolName,
             paymentType: "402_rejected",
-            payer: "anon",
+            payer: anonPayer,
             revenueUsdc: 0,
             latencyMs: Date.now() - t0,
             detail: verifyResult.reason,
@@ -1158,7 +1163,7 @@ export async function dispatch(
             log({
               toolName,
               paymentType: "tool_error",
-              payer: "anon",
+              payer: anonPayer,
               revenueUsdc: 0,
               latencyMs: Date.now() - t0,
               detail: "rate_limited",
@@ -1182,7 +1187,7 @@ export async function dispatch(
           log({
             toolName,
             paymentType: "free_tool",
-            payer: "anon",
+            payer: anonPayer,
             revenueUsdc: 0,
             latencyMs: Date.now() - t0,
             client: clientUA,
@@ -1196,7 +1201,7 @@ export async function dispatch(
           log({
             toolName,
             paymentType: "tool_error",
-            payer: "anon",
+            payer: anonPayer,
             revenueUsdc: 0,
             latencyMs: Date.now() - t0,
             detail: message,

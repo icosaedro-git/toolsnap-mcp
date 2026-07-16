@@ -52,6 +52,9 @@ export async function checkSurfaceDigest(env: Env, now: Date = new Date()): Prom
   const conversionPct =
     d.total_calls_this_week > 0 ? Math.round((d.paid_calls_this_week / d.total_calls_this_week) * 100) : 0;
 
+  const pf = d.paywall_funnel_this_week;
+  const paywallPct = pf.hit_payers > 0 ? Math.round((pf.converted_payers / pf.hit_payers) * 100) : 0;
+
   const msg = [
     `📊 *ToolSnap — resumen semanal de superficie* (${month}, semana ${weekOfMonth(now)})`,
     ``,
@@ -64,6 +67,7 @@ export async function checkSurfaceDigest(env: Env, now: Date = new Date()): Prom
     `Llamadas totales: *${d.total_calls_this_week}* ${pctDelta(d.total_calls_this_week, d.total_calls_last_week)} vs semana anterior (${d.total_calls_last_week})`,
     `Revenue: *$${d.total_revenue_this_week.toFixed(4)}*`,
     `Conversión free→paid: *${conversionPct}%* (${d.paid_calls_this_week}/${d.total_calls_this_week})`,
+    `Muro de pago → conversión: *${paywallPct}%* (${pf.converted_payers}/${pf.hit_payers} agentes que vieron el 402)`,
     `Top tools: ${topTools}`,
   ].join("\n");
 

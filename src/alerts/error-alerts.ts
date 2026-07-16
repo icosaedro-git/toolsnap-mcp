@@ -1,4 +1,5 @@
 import { sendTelegram, type TelegramEnv } from "./telegram.js";
+import { isUpstreamError } from "./error-classification.js";
 
 /**
  * Real-time Telegram alerts for failed/rejected analytics events, called from
@@ -73,16 +74,15 @@ export function maybeAlertError(env: AlertEnv, ctx: ExecutionContext, params: Er
         if (paymentType === "tool_error" && payer === "admin") return;
 
         // Upstream target-site failures: the tool worked, the destination URL
-        // refused (429/403/404/5xx) or is a JS-rendered SPA (expected, uncharged
-        // error path). Still logged and visible in the panel, but not a ToolSnap
+        // refused (429/403/404/5xx), is a JS-rendered SPA, or the caller hit
+        // our own free-tier rate limit (expected, uncharged error paths).
+        // Still logged and visible in the panel, but not a ToolSnap
         // malfunction — paging Telegram for these buries real errors once
         // traffic grows. Provider (COGS) errors keep alerting: they carry a
-        // provider prefix, not "Fetch failed: HTTP".
-        if (
-          paymentType === "tool_error" &&
-          detail &&
-          (/^Fetch failed: HTTP \d/.test(detail) || detail.includes("client-side rendered (SPA)"))
-        ) {
+        // provider prefix, not "Fetch failed: HTTP". Shared with the panel's
+        // error-rate-by-tool split (queries.ts) so the two never diverge
+        // again — see error-classification.ts.
+        if (paymentType === "tool_error" && isUpstreamError(detail)) {
           return;
         }
 
