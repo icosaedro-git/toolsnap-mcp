@@ -34,20 +34,34 @@ const TOOL_FAMILIES: Record<string, string[]> = (() => {
   return map;
 })();
 
-/** payment_type values that represent a failure — used for error-rate and recent-errors queries. */
+/**
+ * payment_type values that represent a failure — used for error-rate and
+ * recent-errors queries. Fase 24.7 — added fiat_deposit_failed (the exact
+ * failure mode of the 9-day-uncredited-webhook incident, previously
+ * invisible in this table) and the api_key/oauth rejection/insufficient
+ * types, for the same reason prepaid_* were already here.
+ */
 const ERROR_TYPES = [
   "402_rejected",
   "prepaid_insufficient",
   "prepaid_rejected",
   "deposit_failed",
+  "fiat_deposit_failed",
+  "api_key_rejected",
+  "api_key_insufficient",
+  "oauth_insufficient",
   "settle_failed",
   "tool_error",
 ] as const;
 const ERROR_TYPES_SQL = ERROR_TYPES.map((t) => `'${t}'`).join(", ");
 
+/** Fase 24.7 — payment_types that represent cash entering the system (deposits/purchases), not usage revenue. */
+const DEPOSIT_TYPES_SQL = `'deposit_success', 'fiat_deposit_success'`;
+
 export interface DashboardData {
   summary: {
     calls_30d: number;
+    /** Fase 24.7 — usage revenue only (x402/prepaid/api_key/oauth debits). Excludes deposit/purchase cash-in — see `credits`. */
     revenue_30d: number;
     unique_payers_30d: number;
     /**
@@ -58,15 +72,35 @@ export interface DashboardData {
      * number was invisible.
      */
     unique_anon_agents_30d: number;
+    /** Fase 24.7 — distinct payers (payer != 'anon', includes anon:% hashes) seen both this week and the previous — a retention signal. */
+    returning_agents_7d: number;
     avg_latency_ms: number;
     p50_latency_ms: number;
     p95_latency_ms: number;
   };
   calls_by_day: Array<{ day: string; calls: number }>;
   revenue_by_day: Array<{ day: string; revenue: number }>;
+  /** Fase 24.7 — 30-minute buckets, last 7 days, for the intraday chart views (excludes connect + deposits, same as calls_by_day/revenue_by_day). */
+  calls_by_halfhour: Array<{ ts: number; calls: number }>;
+  revenue_by_halfhour: Array<{ ts: number; revenue: number }>;
   top_tools: Array<{ tool: string; calls: number }>;
   payment_breakdown: Array<{ type: string; calls: number }>;
-  deposits: { count: number; total_usdc: number };
+  /**
+   * Fase 24.7 — cash entering the system via either rail (crypto x402 deposit
+   * or fiat Polar purchase), replacing the crypto-only `deposits` field.
+   * `outstanding_usdc`/`lifetime_purchased_usdc`/`lifetime_consumed_usdc`/
+   * `accounts` come straight from the `balances` table (source of truth for
+   * money, see migrations/0001_prepaid.sql) — not derived from events.
+   */
+  credits: {
+    purchased_30d: { crypto: { count: number; total_usdc: number }; fiat: { count: number; total_usdc: number } };
+    outstanding_usdc: number;
+    lifetime_purchased_usdc: number;
+    lifetime_consumed_usdc: number;
+    accounts: number;
+  };
+  /** Fase 24.7 — log of individual credit purchases (both rails), last 365d, newest first. */
+  credit_purchases: Array<{ ts: number; type: string; payer: string; amount: number; detail: string | null }>;
   recent_errors: Array<{
     ts: number;
     tool: string;
@@ -230,9 +264,14 @@ export async function getDashboardData(
     summary,
     topTools,
     payBreakdown,
-    deposits,
+    creditPurchasesSummary,
+    creditPurchases,
+    creditLiability,
     callsSeries,
     revSeries,
+    callsHalfhour,
+    revenueHalfhour,
+    returningAgents,
     recentErrors,
     totalByTool,
     errorRows,
@@ -249,7 +288,7 @@ export async function getDashboardData(
       db
         .prepare(
           `SELECT count(*) AS calls,
-                  COALESCE(sum(revenue_usdc), 0) AS revenue,
+                  COALESCE(sum(CASE WHEN payment_type NOT IN (${DEPOSIT_TYPES_SQL}) THEN revenue_usdc ELSE 0 END), 0) AS revenue,
                   count(DISTINCT CASE WHEN payer NOT LIKE 'anon%' THEN payer END) AS payers,
                   count(DISTINCT CASE WHEN payer LIKE 'anon:%' THEN payer END) AS anon_agents,
                   COALESCE(avg(latency_ms), 0) AS avg_latency
@@ -301,17 +340,48 @@ export async function getDashboardData(
         .bind(since30)
         .all<{ type: string; calls: number }>(),
 
+      // Fase 24.7 — cash purchases split by rail. Replays (Polar webhook
+      // redelivery, guarded by polar_orders PK — see index.ts) log
+      // revenue_usdc = 0 with detail starting "replay", excluded here so a
+      // retried delivery doesn't inflate the purchase count.
       db
         .prepare(
-          `SELECT count(*) AS cnt,
+          `SELECT CASE WHEN payment_type = 'fiat_deposit_success' THEN 'fiat' ELSE 'crypto' END AS rail,
+                  count(*) AS cnt,
                   COALESCE(sum(revenue_usdc), 0) AS total
            FROM analytics_events
-           WHERE tool_name = 'account_deposit'
-             AND payment_type = 'deposit_success'
-             AND ts >= ?${internalFilter}`
+           WHERE payment_type IN (${DEPOSIT_TYPES_SQL})
+             AND ts >= ? AND (detail IS NULL OR detail NOT LIKE 'replay%')${internalFilter}
+           GROUP BY rail`
         )
         .bind(since30)
-        .first<{ cnt: number; total: number }>(),
+        .all<{ rail: "crypto" | "fiat"; cnt: number; total: number }>(),
+
+      // Fase 24.7 — individual purchase log, both rails, wider window (cash
+      // events are rare and valuable — 30d would hide most of them).
+      db
+        .prepare(
+          `SELECT ts, payment_type AS type, payer, revenue_usdc AS amount, detail
+           FROM analytics_events
+           WHERE payment_type IN (${DEPOSIT_TYPES_SQL}) AND ts >= ?${internalFilter}
+           ORDER BY ts DESC
+           LIMIT 100`
+        )
+        .bind(since365)
+        .all<{ ts: number; type: string; payer: string; amount: number; detail: string | null }>(),
+
+      // Fase 24.7 — credit liability straight from the source-of-truth
+      // balances table (see migrations/0001_prepaid.sql), not derived from
+      // events: outstanding = money already charged but not yet consumed.
+      db
+        .prepare(
+          `SELECT COALESCE(sum(balance_micro), 0) / 1e6 AS outstanding,
+                  COALESCE(sum(total_deposited_micro), 0) / 1e6 AS lifetime_purchased,
+                  COALESCE(sum(total_spent_micro), 0) / 1e6 AS lifetime_consumed,
+                  count(*) AS accounts
+           FROM balances`
+        )
+        .first<{ outstanding: number; lifetime_purchased: number; lifetime_consumed: number; accounts: number }>(),
 
       // Calls per day — aggregate in JS from raw ts+count bucketed rows.
       // Up to 365 days of daily granularity; the panel re-buckets client-side
@@ -327,16 +397,58 @@ export async function getDashboardData(
         .bind(since365)
         .all<{ ts: number; calls: number }>(),
 
+      // Fase 24.7 — usage revenue only; deposit/purchase cash-in is reported
+      // separately via `credits` (see summary.revenue_30d comment above).
       db
         .prepare(
           `SELECT ts, COALESCE(sum(revenue_usdc), 0) AS revenue
            FROM analytics_events
-           WHERE ts >= ? AND payment_type != 'connect'${internalFilter}
+           WHERE ts >= ? AND payment_type != 'connect' AND payment_type NOT IN (${DEPOSIT_TYPES_SQL})${internalFilter}
            GROUP BY (ts / 86400000)
            ORDER BY ts ASC`
         )
         .bind(since365)
         .all<{ ts: number; revenue: number }>(),
+
+      // Fase 24.7 — 30-minute buckets over 7 days for the intraday chart
+      // views (TradingView-style 30m/1h/4h); the panel re-buckets client-side
+      // from this one fetch, same pattern as the daily series above.
+      db
+        .prepare(
+          `SELECT (ts / 1800000) * 1800000 AS bucket, count(*) AS calls
+           FROM analytics_events
+           WHERE ts >= ? AND payment_type != 'connect'${internalFilter}
+           GROUP BY (ts / 1800000)
+           ORDER BY bucket ASC`
+        )
+        .bind(since7)
+        .all<{ bucket: number; calls: number }>(),
+
+      db
+        .prepare(
+          `SELECT (ts / 1800000) * 1800000 AS bucket, COALESCE(sum(revenue_usdc), 0) AS revenue
+           FROM analytics_events
+           WHERE ts >= ? AND payment_type != 'connect' AND payment_type NOT IN (${DEPOSIT_TYPES_SQL})${internalFilter}
+           GROUP BY (ts / 1800000)
+           ORDER BY bucket ASC`
+        )
+        .bind(since7)
+        .all<{ bucket: number; revenue: number }>(),
+
+      // Fase 24.7 — retention: distinct payers (excluding the legacy 'anon'
+      // literal; anon:<hash> pseudonyms count) seen both this week and last.
+      db
+        .prepare(
+          `SELECT count(*) AS n FROM (
+             SELECT payer FROM analytics_events
+             WHERE ts >= ? AND payment_type != 'connect' AND payer != 'anon'${internalFilter}
+             INTERSECT
+             SELECT payer FROM analytics_events
+             WHERE ts >= ? AND ts < ? AND payment_type != 'connect' AND payer != 'anon'${internalFilter}
+           )`
+        )
+        .bind(since7, now - 2 * MS_7D, since7)
+        .first<{ n: number }>(),
 
       db
         .prepare(
@@ -344,7 +456,7 @@ export async function getDashboardData(
            FROM analytics_events
            WHERE ts >= ? AND payment_type IN (${ERROR_TYPES_SQL})${internalFilter}
            ORDER BY ts DESC
-           LIMIT 15`
+           LIMIT 200`
         )
         .bind(since30)
         .all<{
@@ -469,7 +581,14 @@ export async function getDashboardData(
     ]);
 
   const s = summary ?? { calls: 0, revenue: 0, payers: 0, anon_agents: 0, avg_latency: 0 };
-  const dep = deposits ?? { cnt: 0, total: 0 };
+  const liability = creditLiability ?? { outstanding: 0, lifetime_purchased: 0, lifetime_consumed: 0, accounts: 0 };
+
+  // Fase 24.7 — purchases-by-rail rolls up as { crypto, fiat }, defaulting a
+  // missing rail to zero (e.g. no fiat purchases in the window at all).
+  const purchasedByRail = { crypto: { count: 0, total_usdc: 0 }, fiat: { count: 0, total_usdc: 0 } };
+  for (const row of creditPurchasesSummary.results ?? []) {
+    purchasedByRail[row.rail] = { count: row.cnt, total_usdc: row.total };
+  }
 
   // Fase 24 — per-session funnel: connect -> >=1 call -> >=3 calls in one
   // family -> paid. Grouped by session_id first (a session belongs to one
@@ -562,6 +681,7 @@ export async function getDashboardData(
       revenue_30d: s.revenue,
       unique_payers_30d: s.payers,
       unique_anon_agents_30d: s.anon_agents,
+      returning_agents_7d: returningAgents?.n ?? 0,
       avg_latency_ms: Math.round(s.avg_latency),
       p50_latency_ms: p50,
       p95_latency_ms: p95,
@@ -574,9 +694,18 @@ export async function getDashboardData(
       day: dayLabel(r.ts),
       revenue: r.revenue,
     })),
+    calls_by_halfhour: (callsHalfhour.results ?? []).map((r) => ({ ts: r.bucket, calls: r.calls })),
+    revenue_by_halfhour: (revenueHalfhour.results ?? []).map((r) => ({ ts: r.bucket, revenue: r.revenue })),
     top_tools: topTools.results ?? [],
     payment_breakdown: payBreakdown.results ?? [],
-    deposits: { count: dep.cnt, total_usdc: dep.total },
+    credits: {
+      purchased_30d: purchasedByRail,
+      outstanding_usdc: liability.outstanding,
+      lifetime_purchased_usdc: liability.lifetime_purchased,
+      lifetime_consumed_usdc: liability.lifetime_consumed,
+      accounts: liability.accounts,
+    },
+    credit_purchases: creditPurchases.results ?? [],
     recent_errors: recentErrors.results ?? [],
     error_rate_by_tool: errorRateByToolOut,
     latency_by_tool: latencyByToolOut,

@@ -83,6 +83,9 @@ export const PANEL_HTML = `<!DOCTYPE html>
   .err-table tr:hover td { background: rgba(255,255,255,0.02); }
   .err-detail { color: var(--muted); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .err-detail:hover { white-space: normal; overflow: visible; }
+  .pager-bar { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 11px; color: var(--muted); }
+  .pager-bar .seg-btn[disabled] { opacity: 0.35; cursor: default; }
+  .pager-info { font-family: var(--font-mono); }
   .grid-wide { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-bottom: 24px; }
   .chart-wrap { position: relative; }
   .chart-wrap text { font-family: var(--font-mono); }
@@ -114,23 +117,51 @@ const PAY_COLORS = {
   x402_paid: '#3fb950',
   x402_free_first: '#2f81f7',
   prepaid: '#a371f7',
+  api_key: '#58a6ff',
+  oauth: '#a371f7',
   '402_no_wallet': '#7d8590',
   '402_pay_failed': '#f85149',
   prepaid_insufficient: '#d29922',
   prepaid_rejected: '#e3b341',
+  api_key_rejected: '#e3b341',
+  api_key_insufficient: '#d29922',
+  oauth_insufficient: '#d29922',
   deposit_success: '#58a6ff',
   deposit_failed: '#f85149',
+  fiat_deposit_success: '#3fb950',
+  fiat_deposit_failed: '#f85149',
+  fiat_webhook_ignored: '#7d8590',
   settle_failed: '#f85149',
   tool_error: '#f85149',
 };
 
+const PAGE_SIZES = [10, 15, 25, 50];
 const LS_KEY = 'ts_panel';
-const state = { days: 30, view: 'line', internal: false };
+const state = {
+  days: 30,
+  view: 'line',
+  internal: false,
+  tab: 'overview',
+  granularity: '1h', // intraday chart granularity, only used when days === 1
+  pagers: {
+    funnel: { page: 0, size: 15 },
+    errors: { page: 0, size: 15 },
+    purchases: { page: 0, size: 15 },
+  },
+};
 try {
   const saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
-  if ([7, 30, 90, 365].includes(saved.days)) state.days = saved.days;
+  if ([1, 7, 30, 90, 365].includes(saved.days)) state.days = saved.days;
   if (saved.view === 'line' || saved.view === 'bar') state.view = saved.view;
   if (saved.internal === true) state.internal = true;
+  if (saved.tab === 'overview' || saved.tab === 'logs') state.tab = saved.tab;
+  if (['30m', '1h', '4h'].includes(saved.granularity)) state.granularity = saved.granularity;
+  if (saved.pagers) {
+    for (const key of Object.keys(state.pagers)) {
+      const size = saved.pagers[key] && saved.pagers[key].size;
+      if (PAGE_SIZES.includes(size)) state.pagers[key].size = size;
+    }
+  }
 } catch (e) {}
 let lastData = null;
 
@@ -139,6 +170,11 @@ function saveState() {
 }
 function setTimeframe(days) {
   state.days = days;
+  saveState();
+  if (lastData) render(lastData);
+}
+function setGranularity(g) {
+  state.granularity = g;
   saveState();
   if (lastData) render(lastData);
 }
@@ -152,6 +188,20 @@ function setInternal(on) {
   state.internal = on;
   saveState();
   load(); // server-side filter — must refetch
+}
+function setTab(tab) {
+  state.tab = tab;
+  saveState();
+  if (lastData) render(lastData);
+}
+function setPage(key, delta) {
+  state.pagers[key].page = Math.max(0, state.pagers[key].page + delta);
+  if (lastData) render(lastData);
+}
+function setPageSize(key, size) {
+  state.pagers[key] = { page: 0, size };
+  saveState();
+  if (lastData) render(lastData);
 }
 
 function fmt(n, decimals = 2) {
@@ -203,9 +253,41 @@ function timeLabel(ts) {
   return new Date(ts).toISOString().slice(11, 19) + ' UTC · ' + new Date(ts).toISOString().slice(5, 10);
 }
 
+// Fase 24.7 — blockchain-explorer-style pagination: slice 'items' by the
+// pager state keyed by 'key', return { pageItems, total }. pagerBar() renders
+// the prev/next + page-size controls; both operate purely client-side since
+// /analytics/data already returns the full bounded set in one GET.
+function paginate(items, key) {
+  const list = items || [];
+  const pager = state.pagers[key];
+  const total = list.length;
+  const maxPage = Math.max(0, Math.ceil(total / pager.size) - 1);
+  if (pager.page > maxPage) pager.page = maxPage;
+  const start = pager.page * pager.size;
+  return { pageItems: list.slice(start, start + pager.size), total, start };
+}
+
+function pagerBar(key, total) {
+  const pager = state.pagers[key];
+  if (total === 0) return '';
+  const start = pager.page * pager.size + 1;
+  const end = Math.min(total, start + pager.size - 1);
+  const maxPage = Math.max(0, Math.ceil(total / pager.size) - 1);
+  const sizeChips = PAGE_SIZES.map(n =>
+    \`<button class="seg-btn \${pager.size === n ? 'active' : ''}" onclick="setPageSize('\${key}',\${n})">\${n}</button>\`
+  ).join('');
+  return \`<div class="pager-bar">
+    <button class="seg-btn" \${pager.page === 0 ? 'disabled' : ''} onclick="setPage('\${key}',-1)">‹ prev</button>
+    <span class="pager-info">\${start}–\${end} of \${total}</span>
+    <button class="seg-btn" \${pager.page >= maxPage ? 'disabled' : ''} onclick="setPage('\${key}',1)">next ›</button>
+    <span class="seg-group" style="margin-left:auto">\${sizeChips}</span>
+  </div>\`;
+}
+
 function errorTable(items) {
   if (!items || items.length === 0) return '<div style="color:var(--muted);font-size:12px">no errors 🎉</div>';
-  const rows = items.map(e => \`<tr>
+  const { pageItems, total } = paginate(items, 'errors');
+  const rows = pageItems.map(e => \`<tr>
     <td>\${timeLabel(e.ts)}</td>
     <td>\${esc(e.tool)}</td>
     <td><span class="dot" style="background:\${PAY_COLORS[e.type] ?? '#555'};display:inline-block;margin-right:5px"></span>\${esc(e.type)}</td>
@@ -215,7 +297,40 @@ function errorTable(items) {
   return \`<table class="err-table">
     <thead><tr><th>Time</th><th>Tool</th><th>Type</th><th>Client</th><th>Detail</th></tr></thead>
     <tbody>\${rows}</tbody>
-  </table>\`;
+  </table>\${pagerBar('errors', total)}\`;
+}
+
+// Fase 24.7 — truncate a long payer id (wallet address or acct:<uuid>) the
+// same way error-alerts.ts truncatePayer does, for the credit purchases log.
+function truncatePayer(payer) {
+  const s = String(payer ?? '');
+  if (s.length > 16) return s.slice(0, 10) + '…' + s.slice(-4);
+  return s;
+}
+
+// Fase 24.7 — individual credit purchases, both rails (crypto x402 deposit,
+// fiat Polar checkout). Replays (revenue 0, detail starting "replay") are
+// still shown here (unlike the summary card) so a redelivered webhook is
+// auditable, just visually muted.
+function creditPurchasesTable(items) {
+  if (!items || items.length === 0) return '<div style="color:var(--muted);font-size:12px">no credit purchases yet</div>';
+  const { pageItems, total } = paginate(items, 'purchases');
+  const rows = pageItems.map(p => {
+    const rail = p.type === 'fiat_deposit_success' ? 'fiat' : 'crypto';
+    const railColor = rail === 'fiat' ? '#3fb950' : '#58a6ff';
+    const isReplay = (p.detail || '').startsWith('replay');
+    return \`<tr style="\${isReplay ? 'opacity:0.5' : ''}">
+      <td>\${timeLabel(p.ts)}</td>
+      <td><span class="dot" style="background:\${railColor};display:inline-block;margin-right:5px"></span>\${rail}</td>
+      <td title="\${esc(p.payer)}">\${esc(truncatePayer(p.payer))}</td>
+      <td>\${fmtUsd(p.amount)}</td>
+      <td class="err-detail" title="\${esc(p.detail)}">\${esc(p.detail) || '—'}</td>
+    </tr>\`;
+  }).join('');
+  return \`<table class="err-table">
+    <thead><tr><th>Time</th><th>Rail</th><th>Account</th><th>Amount</th><th>Note</th></tr></thead>
+    <tbody>\${rows}</tbody>
+  </table>\${pagerBar('purchases', total)}\`;
 }
 
 // Fase 24.6 — split our_errors (real ToolSnap bugs) from upstream_errors
@@ -291,8 +406,13 @@ function surfaceFunnelTable(surface) {
   if (funnel.length === 0 && connects.size === 0) {
     return '<div style="color:var(--muted);font-size:12px">no connections yet</div>';
   }
-  const clients = new Set([...connects.keys(), ...funnel.map(f => f.client)]);
-  const rows = Array.from(clients).map(client => {
+  // Sorted by connects desc for a stable, meaningful default order — the
+  // Set iteration order it used to rely on is otherwise insertion order,
+  // which flips arbitrarily once this table is paginated.
+  const clientsSorted = Array.from(new Set([...connects.keys(), ...funnel.map(f => f.client)]))
+    .sort((a, b) => (connects.get(b) ?? 0) - (connects.get(a) ?? 0));
+  const { pageItems, total } = paginate(clientsSorted, 'funnel');
+  const rows = pageItems.map(client => {
     const f = funnel.find(x => x.client === client) || { sessions: 0, sessions_with_call: 0, sessions_family_complete: 0, sessions_paid: 0 };
     const pct = (num, den) => den > 0 ? Math.round((num / den) * 100) + '%' : '—';
     return \`<tr>
@@ -307,7 +427,7 @@ function surfaceFunnelTable(surface) {
   return \`<table class="err-table">
     <thead><tr><th>Surface</th><th>Connects</th><th>≥1 call</th><th>≥3 same family</th><th>Paid</th><th>Revenue</th></tr></thead>
     <tbody>\${rows}</tbody>
-  </table>\`;
+  </table>\${pagerBar('funnel', total)}\`;
 }
 
 function conversion(breakdown) {
@@ -351,6 +471,35 @@ function bucketWeekly(daily) {
   return weeks;
 }
 
+// Fase 24.7 — TradingView-style intraday views. The server returns 30-minute
+// buckets over the last 7 days (ts = bucket start, ms epoch); zero-fill to
+// a fixed-length series ending "now", then re-aggregate client-side into
+// coarser granularities — same fetch-once-rebucket-client-side pattern as
+// zeroFillDaily/bucketWeekly, just at a finer grain.
+function zeroFillIntraday(raw, valueKey, hours, bucketMs) {
+  const map = new Map((raw || []).map(r => [r.ts, r[valueKey]]));
+  const nowBucket = Math.floor(Date.now() / bucketMs) * bucketMs;
+  const count = Math.floor((hours * 3600000) / bucketMs);
+  const out = [];
+  for (let i = count - 1; i >= 0; i--) {
+    const t = nowBucket - i * bucketMs;
+    out.push({ day: new Date(t).toISOString(), value: map.get(t) ?? 0 });
+  }
+  return out;
+}
+
+function bucketIntraday(series, factor) {
+  if (factor <= 1) return series;
+  const out = [];
+  for (let i = 0; i < series.length; i += factor) {
+    const chunk = series.slice(i, i + factor);
+    out.push({ day: chunk[0].day, value: chunk.reduce((s, c) => s + c.value, 0) });
+  }
+  return out;
+}
+
+const GRANULARITY_MS = { '30m': 1800000, '1h': 3600000, '4h': 14400000 };
+
 function sumSeries(arr) {
   return arr.reduce((s, x) => s + x.value, 0);
 }
@@ -376,7 +525,7 @@ function deltaBadge(delta) {
 }
 
 function tfLabel(days) {
-  return { 7: '7d', 30: '30d', 90: '90d', 365: '1y' }[days] || (days + 'd');
+  return { 1: '24h', 7: '7d', 30: '30d', 90: '90d', 365: '1y' }[days] || (days + 'd');
 }
 
 // ---------------------------------------------------------------------------
@@ -398,13 +547,25 @@ function niceMax(max) {
   return nice * base;
 }
 
+// Fase 24.7 — intraday series carry a full ISO datetime in 'day' (not a
+// date-only string) so the label/tooltip can show HH:MM.
 function formatXLabel(dayStr, gran) {
+  if (gran === 'intraday') {
+    const dt = new Date(dayStr);
+    return String(dt.getUTCHours()).padStart(2, '0') + ':' + String(dt.getUTCMinutes()).padStart(2, '0');
+  }
   const dt = new Date(dayStr + 'T00:00:00Z');
   const d = dt.getUTCDate(), m = MONTHS[dt.getUTCMonth()];
   return gran === 'week' ? m : (d + ' ' + m);
 }
 
 function formatFullDate(dayStr, gran) {
+  if (gran === 'intraday') {
+    const dt = new Date(dayStr);
+    const d = dt.getUTCDate(), m = MONTHS[dt.getUTCMonth()];
+    const hh = String(dt.getUTCHours()).padStart(2, '0'), mm = String(dt.getUTCMinutes()).padStart(2, '0');
+    return d + ' ' + m + ' ' + hh + ':' + mm + ' UTC';
+  }
   const dt = new Date(dayStr + 'T00:00:00Z');
   const d = dt.getUTCDate(), m = MONTHS[dt.getUTCMonth()], y = dt.getUTCFullYear();
   return gran === 'week' ? ('week of ' + d + ' ' + m + ' ' + y) : (d + ' ' + m + ' ' + y);
@@ -538,9 +699,15 @@ function chartLeave(svgEl) {
 }
 
 function controlsBar() {
-  const frames = [[7, '7d'], [30, '30d'], [90, '90d'], [365, '1y']];
+  const frames = [[1, '24h'], [7, '7d'], [30, '30d'], [90, '90d'], [365, '1y']];
   const chips = frames.map(([days, label]) =>
     \`<button class="seg-btn \${state.days === days ? 'active' : ''}" aria-pressed="\${state.days === days}" onclick="setTimeframe(\${days})">\${label}</button>\`
+  ).join('');
+  // Fase 24.7 — TradingView-style intraday granularity, only meaningful (and
+  // only shown) when the 24h timeframe is active; daily timeframes bucket by
+  // calendar day/week instead.
+  const granChips = ['30m', '1h', '4h'].map(g =>
+    \`<button class="seg-btn \${state.granularity === g ? 'active' : ''}" aria-pressed="\${state.granularity === g}" onclick="setGranularity('\${g}')">\${g}</button>\`
   ).join('');
   const views = [['line', '⟋ line'], ['bar', '▥ bars']];
   const viewChips = views.map(([v, label]) =>
@@ -552,30 +719,68 @@ function controlsBar() {
   ).join('');
   return \`<div class="controls-bar">
     <div class="seg-group">\${chips}</div>
+    \${state.days === 1 ? \`<div class="seg-group">\${granChips}</div>\` : ''}
     <div class="seg-group">\${viewChips}</div>
     <div class="seg-group" title="external = real demand only; + internal also counts our own dev/testing traffic">\${sourceChips}</div>
   </div>\`;
+}
+
+// Fase 24.7 — Credits card replaces the old crypto-only "Deposits" card:
+// cash-in split by rail (crypto x402 deposit / fiat Polar checkout) for the
+// window, plus the lifetime liability straight from the balances table
+// (source of truth for money, not derived from events).
+function creditsCard(credits) {
+  const c = credits || { purchased_30d: { crypto: { count: 0, total_usdc: 0 }, fiat: { count: 0, total_usdc: 0 } }, outstanding_usdc: 0, lifetime_purchased_usdc: 0, lifetime_consumed_usdc: 0, accounts: 0 };
+  return \`
+    <div class="stat-row"><span>Purchased 30d (crypto)</span><span class="stat-val accent">\${fmtUsd(c.purchased_30d.crypto.total_usdc)} <span style="color:var(--muted)">(\${c.purchased_30d.crypto.count})</span></span></div>
+    <div class="stat-row"><span>Purchased 30d (fiat)</span><span class="stat-val accent">\${fmtUsd(c.purchased_30d.fiat.total_usdc)} <span style="color:var(--muted)">(\${c.purchased_30d.fiat.count})</span></span></div>
+    <div class="stat-row"><span>Lifetime purchased / consumed</span><span class="stat-val">\${fmtUsd(c.lifetime_purchased_usdc)} / \${fmtUsd(c.lifetime_consumed_usdc)}</span></div>
+    <div class="stat-row"><span>Outstanding (liability)</span><span class="stat-val yellow">\${fmtUsd(c.outstanding_usdc)} <span style="color:var(--muted)">in \${c.accounts} accounts</span></span></div>
+  \`;
+}
+
+function tabsBar() {
+  const tabs = [['overview', 'Overview'], ['logs', 'Registros']];
+  const chips = tabs.map(([t, label]) =>
+    \`<button class="seg-btn \${state.tab === t ? 'active' : ''}" aria-pressed="\${state.tab === t}" onclick="setTab('\${t}')">\${label}</button>\`
+  ).join('');
+  return \`<div class="seg-group">\${chips}</div>\`;
 }
 
 function render(d) {
   lastData = d;
   const cv = conversion(d.payment_breakdown);
 
-  const callsDaily = zeroFillDaily(d.calls_by_day, 'calls', 365);
-  const revDaily = zeroFillDaily(d.revenue_by_day, 'revenue', 365);
+  let callsPlot, revPlot, granularity, callsSum, revSum, callsDelta, revDelta;
+  if (state.days === 1) {
+    // Fase 24.7 — intraday: rebucket the 30' server series to the selected
+    // granularity, entirely client-side (data already covers 7d in one GET).
+    const bucketMs = GRANULARITY_MS[state.granularity] || GRANULARITY_MS['1h'];
+    const factor = bucketMs / 1800000;
+    const callsRaw = zeroFillIntraday(d.calls_by_halfhour, 'calls', 24, 1800000);
+    const revRaw = zeroFillIntraday(d.revenue_by_halfhour, 'revenue', 24, 1800000);
+    callsPlot = bucketIntraday(callsRaw, factor);
+    revPlot = bucketIntraday(revRaw, factor);
+    granularity = 'intraday';
+    callsSum = sumSeries(callsRaw);
+    revSum = sumSeries(revRaw);
+    callsDelta = null;
+    revDelta = null;
+  } else {
+    const callsDaily = zeroFillDaily(d.calls_by_day, 'calls', 365);
+    const revDaily = zeroFillDaily(d.revenue_by_day, 'revenue', 365);
+    const callsWindow = callsDaily.slice(365 - state.days);
+    const revWindow = revDaily.slice(365 - state.days);
+    callsPlot = state.days === 365 ? bucketWeekly(callsWindow) : callsWindow;
+    revPlot = state.days === 365 ? bucketWeekly(revWindow) : revWindow;
+    granularity = state.days === 365 ? 'week' : 'day';
+    callsSum = sumSeries(callsWindow);
+    revSum = sumSeries(revWindow);
+    callsDelta = windowDelta(callsDaily, state.days);
+    revDelta = windowDelta(revDaily, state.days);
+  }
 
-  const callsWindow = callsDaily.slice(365 - state.days);
-  const revWindow = revDaily.slice(365 - state.days);
-  const callsPlot = state.days === 365 ? bucketWeekly(callsWindow) : callsWindow;
-  const revPlot = state.days === 365 ? bucketWeekly(revWindow) : revWindow;
-  const granularity = state.days === 365 ? 'week' : 'day';
-
-  const callsSum = sumSeries(callsWindow);
-  const revSum = sumSeries(revWindow);
-  const callsDelta = windowDelta(callsDaily, state.days);
-  const revDelta = windowDelta(revDaily, state.days);
-
-  const html = \`
+  const overviewHtml = \`
     <div class="kpis">
       <div class="kpi">
         <div class="kpi-label">Calls · \${tfLabel(state.days)}</div>
@@ -585,12 +790,12 @@ function render(d) {
       <div class="kpi">
         <div class="kpi-label">Revenue · \${tfLabel(state.days)}</div>
         <div class="kpi-value green">\${fmtUsd(revSum)}\${deltaBadge(revDelta)}</div>
-        <div class="kpi-sub">USDC on Base</div>
+        <div class="kpi-sub">usage · USDC (excl. credit purchases)</div>
       </div>
       <div class="kpi">
         <div class="kpi-label">Unique agents</div>
         <div class="kpi-value">\${fmt(d.summary.unique_payers_30d + (d.summary.unique_anon_agents_30d || 0), 0)}</div>
-        <div class="kpi-sub">\${fmt(d.summary.unique_payers_30d, 0)} identified · \${fmt(d.summary.unique_anon_agents_30d || 0, 0)} anon · 30d</div>
+        <div class="kpi-sub">\${fmt(d.summary.unique_payers_30d, 0)} identified · \${fmt(d.summary.unique_anon_agents_30d || 0, 0)} anon · \${fmt(d.summary.returning_agents_7d || 0, 0)} returning · 7d</div>
       </div>
       <div class="kpi">
         <div class="kpi-label">402→paid conv.</div>
@@ -622,10 +827,8 @@ function render(d) {
         \${payChips(d.payment_breakdown)}
       </div>
       <div class="card">
-        <h3>Deposits · 30d</h3>
-        <div class="stat-row"><span>Count</span><span class="stat-val accent">\${d.deposits.count}</span></div>
-        <div class="stat-row"><span>Total deposited</span><span class="stat-val green">$\${fmt(d.deposits.total_usdc, 4)}</span></div>
-        <div class="stat-row"><span>Avg / p50 / p95 latency</span><span class="stat-val">\${d.summary.avg_latency_ms} / \${d.summary.p50_latency_ms} / \${d.summary.p95_latency_ms} ms</span></div>
+        <h3>Credits</h3>
+        \${creditsCard(d.credits)}
       </div>
     </div>
 
@@ -635,36 +838,50 @@ function render(d) {
         <div class="bar-chart">\${barChart(d.surface && d.surface.calls_by_client, 'calls', 'client', '#2f81f7')}</div>
       </div>
       <div class="card">
-        <h3>Surface funnel · 30d — connect → ≥1 call → ≥3 same family → paid</h3>
-        \${surfaceFunnelTable(d.surface)}
+        <h3>Paywall → conversion · 30d</h3>
+        \${paywallFunnelStat(d.paywall_funnel)}
       </div>
     </div>
 
     <div class="grid-wide">
       <div class="card">
-        <h3>Recent errors · 30d</h3>
-        \${errorTable(d.recent_errors)}
-      </div>
-      <div class="card">
         <h3>Error rate by tool · 30d <span style="color:var(--muted);font-weight:400">(red = ours, amber = upstream)</span></h3>
         \${errorRateChart(d.error_rate_by_tool)}
       </div>
-    </div>
-
-    <div class="grid3">
       <div class="card">
         <h3>Latency by tool · 30d</h3>
         \${latencyByToolTable(d.latency_by_tool)}
+        <div class="stat-row" style="margin-top:8px"><span>Global avg / p50 / p95</span><span class="stat-val">\${d.summary.avg_latency_ms} / \${d.summary.p50_latency_ms} / \${d.summary.p95_latency_ms} ms</span></div>
+      </div>
+    </div>
+  \`;
+
+  const logsHtml = \`
+    <div class="grid-wide">
+      <div class="card">
+        <h3>Surface funnel · 30d — connect → ≥1 call → ≥3 same family → paid</h3>
+        \${surfaceFunnelTable(d.surface)}
       </div>
       <div class="card">
         <h3>Directory coverage · 7d</h3>
         \${directoryCoverageTable(d.directory_coverage)}
       </div>
-      <div class="card">
-        <h3>Paywall → conversion · 30d</h3>
-        \${paywallFunnelStat(d.paywall_funnel)}
-      </div>
     </div>
+
+    <div class="card" style="margin-bottom:24px">
+      <h3>Recent errors · 30d</h3>
+      \${errorTable(d.recent_errors)}
+    </div>
+
+    <div class="card" style="margin-bottom:24px">
+      <h3>Credit purchases · 365d</h3>
+      \${creditPurchasesTable(d.credit_purchases)}
+    </div>
+  \`;
+
+  const html = \`
+    <div style="margin-bottom:16px">\${tabsBar()}</div>
+    \${state.tab === 'overview' ? overviewHtml : logsHtml}
   \`;
   document.getElementById('root').innerHTML = html;
 }

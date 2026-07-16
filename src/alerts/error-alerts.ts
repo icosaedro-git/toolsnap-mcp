@@ -57,12 +57,18 @@ export function maybeAlertError(env: AlertEnv, ctx: ExecutionContext, params: Er
       try {
         const { toolName, paymentType, payer, client, detail } = params;
 
-        // User-side rejections already surfaced to the caller and visible in the panel.
+        // User-side rejections already surfaced to the caller and visible in
+        // the panel — not a red alert. oauth_insufficient/oauth_rejected
+        // (Fase 24.7) are the OAuth-rail equivalent of prepaid/api_key
+        // insufficient/rejected, same reasoning. Insufficient-balance events
+        // still get a 🟠 business-signal alert — see maybeAlertBusinessSignal.
         if (
           paymentType === "prepaid_rejected" ||
           paymentType === "prepaid_insufficient" ||
           paymentType === "api_key_rejected" ||
-          paymentType === "api_key_insufficient"
+          paymentType === "api_key_insufficient" ||
+          paymentType === "oauth_rejected" ||
+          paymentType === "oauth_insufficient"
         ) {
           return;
         }
@@ -154,6 +160,90 @@ export function maybeAlertPaywallHit(env: AlertEnv, ctx: ExecutionContext, param
         ];
 
         await sendTelegram(env, lines.join("\n"));
+      } catch {
+        // Alerts must never break the caller.
+      }
+    })()
+  );
+}
+
+interface BusinessSignalParams {
+  toolName: string;
+  paymentType: string;
+  payer: string;
+  revenueUsdc: number;
+  client?: string | null;
+  detail?: string | null;
+}
+
+const PAID_TYPES = new Set(["x402_paid", "x402_free_first", "prepaid", "api_key", "oauth"]);
+const NO_BALANCE_TYPES = new Set(["prepaid_insufficient", "api_key_insufficient", "oauth_insufficient"]);
+const FIRST_PAID_TTL_SEC = 7 * 24 * HOUR_SEC;
+const NO_BALANCE_ALERT_TTL_SEC = 6 * HOUR_SEC;
+
+/**
+ * Fase 24.7 — positive/actionable business signals that maybeAlertError
+ * never surfaces (it only fires for failures): money coming in, a payer
+ * converting for the first time, and a payer running dry mid-session. Called
+ * from writeEvent() alongside maybeAlertError, for every event (not gated by
+ * the error-type set) since these payment_types aren't failures.
+ */
+export function maybeAlertBusinessSignal(env: AlertEnv, ctx: ExecutionContext, params: BusinessSignalParams): void {
+  ctx.waitUntil(
+    (async () => {
+      try {
+        const { toolName, paymentType, payer, revenueUsdc, client, detail } = params;
+
+        // 💰 Credit purchase (either rail). Replayed Polar webhook deliveries
+        // (see index.ts /webhooks/polar) log revenue 0 with detail starting
+        // "replay" — already credited once, not a new sale.
+        if (
+          (paymentType === "deposit_success" || paymentType === "fiat_deposit_success") &&
+          revenueUsdc > 0 &&
+          !(detail ?? "").startsWith("replay")
+        ) {
+          const rail = paymentType === "fiat_deposit_success" ? "fiat" : "crypto";
+          await sendTelegram(
+            env,
+            [
+              `💰 compra de créditos (${rail})`,
+              `importe: $${revenueUsdc.toFixed(4)}`,
+              `payer: ${truncatePayer(payer)}`,
+            ].join("\n")
+          );
+          return;
+        }
+
+        // 🟢 First paid call from this payer — the conversion the 🟡 paywall
+        // alert (maybeAlertPaywallHit) is watching for. At most once/week per
+        // payer so a payer's Nth call that week doesn't re-alert.
+        if (PAID_TYPES.has(paymentType) && payer && payer !== "anon") {
+          if (!(await shouldAlert(env.X402_NONCES, `alert:firstpaid:${payer}`, FIRST_PAID_TTL_SEC))) return;
+          await sendTelegram(
+            env,
+            [
+              `🟢 primera llamada pagada de este agente`,
+              `tool: \`${toolName}\` · rail: ${paymentType}`,
+              `payer: ${truncatePayer(payer)}${client ? ` · client: ${client}` : ""}`,
+            ].join("\n")
+          );
+          return;
+        }
+
+        // 🟠 Identified payer ran out of balance mid-session — churn risk or
+        // a recharge opportunity, not a ToolSnap malfunction (maybeAlertError
+        // deliberately skips these, see the early-return above).
+        if (NO_BALANCE_TYPES.has(paymentType)) {
+          if (!(await shouldAlert(env.X402_NONCES, `alert:nobalance:${payer}`, NO_BALANCE_ALERT_TTL_SEC))) return;
+          await sendTelegram(
+            env,
+            [
+              `🟠 cliente sin saldo`,
+              `tool: \`${toolName}\` · rail: ${paymentType}`,
+              `payer: ${truncatePayer(payer)}${client ? ` · client: ${client}` : ""}`,
+            ].join("\n")
+          );
+        }
       } catch {
         // Alerts must never break the caller.
       }
