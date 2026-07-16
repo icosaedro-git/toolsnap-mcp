@@ -133,32 +133,24 @@ const PAYWALL_ALERT_TTL_SEC = 6 * HOUR_SEC;
  * payment payload at all (no wallet yet). This is a lost-conversion
  * opportunity, not a ToolSnap malfunction — maybeAlertError already
  * suppresses it entirely (see the `no_payment_payload` check above). Sends
- * a single 🟡 Telegram message per IP per 6h window, carrying a best-effort
- * hit count from the same window, so a burst reads as one business signal
- * instead of either silence or per-call noise.
+ * a single 🟡 Telegram message per IP per 6h window: it fires on the FIRST
+ * hit and shouldAlert dedupes the rest, so a burst reads as one business
+ * signal instead of either silence or per-call noise. Repeat volume is
+ * visible in the panel's 402_no_wallet breakdown, not here.
  */
 export function maybeAlertPaywallHit(env: AlertEnv, ctx: ExecutionContext, params: PaywallHitParams): void {
   ctx.waitUntil(
     (async () => {
       try {
         const { toolName, clientIp, client } = params;
-        const kv = env.X402_NONCES;
 
-        let count = 1;
-        if (kv) {
-          const countKey = `alert:paywall:count:${clientIp}`;
-          const raw = await kv.get(countKey);
-          count = (raw ? parseInt(raw, 10) || 0 : 0) + 1;
-          await kv.put(countKey, String(count), { expirationTtl: PAYWALL_ALERT_TTL_SEC });
-        }
-
-        if (!(await shouldAlert(kv, `alert:paywall:${clientIp}`, PAYWALL_ALERT_TTL_SEC))) return;
+        if (!(await shouldAlert(env.X402_NONCES, `alert:paywall:${clientIp}`, PAYWALL_ALERT_TTL_SEC))) return;
 
         const lines = [
           `🟡 agente golpeando el muro de pago sin wallet`,
-          `tool: \`${toolName}\` · intentos (6h): ×${count}`,
+          `tool: \`${toolName}\``,
           `ip: ${clientIp}${client ? ` · client: ${client}` : ""}`,
-          `conversión en riesgo — nunca llamó a wallet_setup ni fue al checkout`,
+          `conversión en riesgo — aún no ha llamado a wallet_setup ni ido al checkout`,
         ];
 
         await sendTelegram(env, lines.join("\n"));

@@ -163,11 +163,12 @@
   // analytics *logging* for two noisy-but-harmless paths, not to block
   // requests: (1) `initialize` connect events from clients that reconnect
   // before every tool call (inflates D1 with duplicate "connect" rows), and
-  // (2) unpaid x402 attempts on paid tools before they reach verifyPayment's
-  // on-chain balance check. Both paths still respond 200/402 normally past
-  // the limit — only the D1 write (and, for the 402 path, the RPC call) is
-  // skipped. See RATE_LIMITED_FETCH_TOOLS' FREE_FETCH_RL above for the
-  // separate (unrelated) binding that actually rejects requests.
+  // (2) x402 attempts on paid tools that carry NO payment payload at all.
+  // Both paths still respond 200/402 normally past the limit — only the D1
+  // write is skipped. Requests that DO carry a payment payload never touch
+  // this budget: the verified-payment path must never be throttled. See
+  // RATE_LIMITED_FETCH_TOOLS' FREE_FETCH_RL above for the separate
+  // (unrelated) binding that actually rejects requests.
   "unsafe": {
     "bindings": [
       {

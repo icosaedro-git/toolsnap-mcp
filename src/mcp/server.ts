@@ -376,11 +376,11 @@ const RATE_LIMITED_FETCH_TOOLS = new Set([
 /**
  * Fase 24.5 — shared throttle for analytics-logging-only rate limits
  * (ABUSE_RL, 30/min per key). Unlike FREE_FETCH_RL, this never rejects the
- * request itself — callers use the result to decide whether to skip a D1
- * write (and, on the 402 path, the on-chain verifyPayment RPC). Returns
- * true ("within budget, go ahead and log") when the binding is missing —
- * some wrangler dev setups don't support the `unsafe.bindings` ratelimit
- * type, and logging must never break on a missing optional binding.
+ * request itself — callers use the result only to decide whether to skip a
+ * D1 write. Returns true ("within budget, go ahead and log") when the
+ * binding is missing — some wrangler dev setups don't support the
+ * `unsafe.bindings` ratelimit type, and logging must never break on a
+ * missing optional binding.
  */
 async function checkAbuseRateLimit(env: Env, key: string): Promise<boolean> {
   if (!env.ABUSE_RL) return true;
@@ -968,18 +968,19 @@ export async function dispatch(
         // Step 1: read _meta["x402/payment"]
         const paymentPayload = (params._meta ?? {})[MCP_PAYMENT_META_KEY] ?? null;
 
-        // Fase 24.5 — one throttle check covers both branches below: a
-        // client hammering the unpaid path (no payload at all, or a bad
-        // payload) never needs more than 30 attempts/min logged, and this
-        // also protects verifyPayment's on-chain balance RPC (step 2) from
-        // being flooded with forged payloads. The 402 response itself is
-        // still returned every time past the limit — idempotent, no
-        // information lost to the caller — only the D1 write (and the RPC)
-        // are skipped.
-        const withinPaymentBudget = await checkAbuseRateLimit(env, `402:${clientIp}`);
-
         if (paymentPayload === null || paymentPayload === undefined) {
-          if (withinPaymentBudget) {
+          // Fase 24.5 — throttle the LOGGING of the no-wallet handshake
+          // (30/min/IP): an agent retrying blind never needs more than 30
+          // identical rows/min in D1 (a real one retried 171x in 10 minutes
+          // on 2026-07-16). The 402 response itself is returned every time —
+          // idempotent, nothing lost to the caller. Deliberately consumed
+          // ONLY on this no-payload branch: a request that carries a payment
+          // payload must NEVER be blocked or skipped by this budget, even
+          // past the limit — blocking the verified-payment path to save an
+          // RPC call would trade real revenue for a hypothetical flood
+          // (forging payloads that reach the balanceOf RPC requires valid
+          // EIP-712 signatures anyway).
+          if (await checkAbuseRateLimit(env, `402:${clientIp}`)) {
             log({
               toolName,
               paymentType: "402_rejected",
@@ -1004,10 +1005,6 @@ export async function dispatch(
             hint: "No payment payload detected. Three ways forward: (1) call wallet_setup to create a wallet your agent controls (ToolSnap never sees the key), then fund it with USDC on Base; (2) if your human prefers a card, they can buy credits and either sign in via /mcp/oauth or paste an API key — see error.data.oauth/fiat below; (3) the free tools (most of the catalog) still work with no payment at all.",
           };
           return base402;
-        }
-
-        if (!withinPaymentBudget) {
-          return buildPaymentRequiredResponse(config, id) as JsonRpcResponse;
         }
 
         // Step 2: off-chain verification (require at least the per-tool price)
