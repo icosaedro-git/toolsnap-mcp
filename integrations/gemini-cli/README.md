@@ -50,9 +50,9 @@ The official ToolSnap extension bundles this MCP config plus a usage context
 file:
 
 ```bash
-gemini extensions install https://github.com/icosaedro-git/toolsnap-gemini-extension
+gemini extensions install https://github.com/ToolSnap-app/toolsnap-gemini-extension
 ```
 
-Source: <https://github.com/icosaedro-git/toolsnap-gemini-extension> — also
+Source: <https://github.com/ToolSnap-app/toolsnap-gemini-extension> — also
 listed in the [Gemini CLI extension gallery](https://geminicli.com/extensions/browse/)
 (auto-discovered via the `gemini-cli-extension` topic).

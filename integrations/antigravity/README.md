@@ -46,11 +46,11 @@ of `serverUrl`.
 The official ToolSnap plugin bundles the same config as a one-step install:
 
 ```bash
-git clone https://github.com/icosaedro-git/toolsnap-antigravity-plugin ~/.gemini/antigravity-cli/plugins/toolsnap
+git clone https://github.com/ToolSnap-app/toolsnap-antigravity-plugin ~/.gemini/antigravity-cli/plugins/toolsnap
 agy plugin install ~/.gemini/antigravity-cli/plugins/toolsnap
 ```
 
-Source: <https://github.com/icosaedro-git/toolsnap-antigravity-plugin>.
+Source: <https://github.com/ToolSnap-app/toolsnap-antigravity-plugin>.
 
 ## Migrating from Gemini CLI
 

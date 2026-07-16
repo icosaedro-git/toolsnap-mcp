@@ -63,11 +63,11 @@ can't satisfy a `402 Payment Required` on their own. Use the pay-proxy below.
 claude mcp add --transport http toolsnap https://mcp.toolsnap.app/mcp
 ```
 
-Or install the [Claude Code plugin](https://github.com/icosaedro-git/toolsnap-claude-plugin)
+Or install the [Claude Code plugin](https://github.com/ToolSnap-app/toolsnap-claude-plugin)
 (MCP connection + the `toolsnap` skill, bundled):
 
 ```
-/plugin marketplace add icosaedro-git/toolsnap-claude-plugin
+/plugin marketplace add ToolSnap-app/toolsnap-claude-plugin
 /plugin install toolsnap
 ```
 
