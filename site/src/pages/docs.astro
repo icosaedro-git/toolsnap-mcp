@@ -5,7 +5,7 @@ import CodeBlock from '../components/CodeBlock.astro';
 import toolsData from '../data/tools.json';
 
 const title = 'Docs — connect, pay, build | ToolSnap MCP';
-const description = 'Technical reference: connecting from Claude Code, Claude Desktop, claude.ai and Cursor; OAuth sign-in; API keys; x402 payments; prepaid balance; pay-proxy.';
+const description = 'Technical reference: connecting from Claude Code, Claude Desktop, claude.ai, Cursor and Grok Build; OAuth sign-in; API keys; x402 payments; prepaid balance; pay-proxy.';
 
 const toc = [
   { id: 'endpoint', label: 'Endpoint' },
@@ -41,6 +41,9 @@ const toc = [
     <p><strong>Claude Desktop / claude.ai</strong> — Settings &rarr; Connectors &rarr; Add custom connector &rarr; URL: <code class="inline">https://mcp.toolsnap.app/mcp</code> (free tools, no sign-in). Want the paid tools? Use <code class="inline">https://mcp.toolsnap.app/mcp/oauth</code> instead — see <a href="#oauth">Sign in with OAuth</a> below.</p>
     <p><strong>Cursor / generic JSON</strong></p>
     <CodeBlock lang="json" code={`{ "mcpServers": { "toolsnap": { "url": "https://mcp.toolsnap.app/mcp", "headers": { "Authorization": "Bearer sk_live_…" } } } }`} />
+    <p><strong>Grok Build</strong></p>
+    <CodeBlock lang="toml" code={`[mcp_servers.toolsnap]\nurl = "https://mcp.toolsnap.app/mcp"`} />
+    <p class="text-mute">Goes in <code class="inline">~/.grok/config.toml</code>. Authenticated: add <code class="inline">headers = {'{'} "Authorization" = "Bearer sk_live_…" {'}'}</code>. ToolSnap results sit comfortably under Grok Build's 20KB MCP output cap by design.</p>
     <p class="text-mute">Troubleshooting: if your client is old and can't add a remote streamable-HTTP server directly, wrap it with <a href="https://github.com/geelen/mcp-remote"><code class="inline">mcp-remote</code></a> as a stdio bridge. It's not the recommended path — every current client (Claude Desktop, Claude Code, Cursor, VS Code) supports the direct URL.</p>
   </DocSection>
 

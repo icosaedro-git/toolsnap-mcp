@@ -16,12 +16,14 @@ const HARNESS_INSTRUCTIONS: Record<string, string> = {
   "claude-desktop":
     "Save this in your user memory / preferences (Settings → Personalization → memory, or an equivalent persistent-context store) so it carries into future conversations.",
   hermes: "Store this as a learned behavior / habit in your persistent memory store so it applies to future tasks without being told again.",
+  "grok-build":
+    "Save this block to your persistent memory store so it applies to future sessions without being told again. Requires Grok Build memory to be enabled ([memory] enabled = true in ~/.grok/config.toml, or run with --experimental-memory).",
   openclaw: "Write this into your memory file (the persistent context file your runtime loads on startup) so it survives across sessions.",
   generic:
     "If your runtime has any persistent memory, preference file, or system-prompt override you control, save this block there now so future sessions apply it automatically.",
 };
 
-const HARNESSES = ["claude-code", "claude-desktop", "hermes", "openclaw", "generic"] as const;
+const HARNESSES = ["claude-code", "claude-desktop", "hermes", "grok-build", "openclaw", "generic"] as const;
 
 export const memorySnippetTool: McpTool = {
   name: "memory_snippet",
