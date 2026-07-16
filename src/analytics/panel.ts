@@ -63,7 +63,7 @@ export const PANEL_HTML = `<!DOCTYPE html>
   .bar-chart { width: 100%; }
   .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
   .bar-label { width: 80px; color: var(--muted); text-align: right; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bar-track { flex: 1; background: var(--border); border-radius: 3px; height: 14px; overflow: hidden; }
+  .bar-track { flex: 1; display: flex; background: var(--border); border-radius: 3px; height: 14px; overflow: hidden; }
   .bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
   .bar-count { width: 44px; text-align: right; color: var(--text); flex-shrink: 0; font-family: var(--font-mono); }
   .pay-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 20px; padding: 4px 10px; font-size: 12px; margin: 3px 2px; }
@@ -218,13 +218,69 @@ function errorTable(items) {
   </table>\`;
 }
 
+// Fase 24.6 — split our_errors (real ToolSnap bugs) from upstream_errors
+// (destination site 4xx/5xx, SPA, our own rate limit — not our fault).
+// our_errors renders in red, upstream_errors in a muted amber — the red
+// segment is what actually needs fixing.
 function errorRateChart(items) {
   if (!items || items.length === 0) return '<div style="color:var(--muted);font-size:12px">no errors yet</div>';
-  return items.map(item => \`<div class="bar-row">
+  return items.map(item => {
+    const ourPct = item.total > 0 ? Math.round((item.our_errors / item.total) * 100) : 0;
+    const upstreamPct = item.total > 0 ? Math.round((item.upstream_errors / item.total) * 100) : 0;
+    return \`<div class="bar-row">
     <div class="bar-label" title="\${esc(item.tool)}">\${esc(item.tool)}</div>
-    <div class="bar-track"><div class="bar-fill" style="width:\${item.error_pct}%;background:#f85149"></div></div>
-    <div class="bar-count">\${item.errors}/\${item.total}</div>
-  </div>\`).join('');
+    <div class="bar-track">
+      <div class="bar-fill" style="width:\${ourPct}%;background:#f85149" title="our_errors: \${item.our_errors}"></div>
+      <div class="bar-fill" style="width:\${upstreamPct}%;background:#d29922" title="upstream_errors: \${item.upstream_errors}"></div>
+    </div>
+    <div class="bar-count" title="our: \${item.our_errors} · upstream: \${item.upstream_errors}">\${item.errors}/\${item.total}</div>
+  </div>\`;
+  }).join('');
+}
+
+// Fase 24.6 — directory/registry scraper coverage, last 7 days.
+function directoryCoverageTable(items) {
+  if (!items || items.length === 0) return '<div style="color:var(--muted);font-size:12px">no probe traffic in 7d</div>';
+  const rows = items.map(r => \`<tr>
+    <td>\${esc(r.client)}</td>
+    <td>\${fmt(r.hits, 0)}</td>
+    <td>\${timeLabel(r.last_seen)}</td>
+  </tr>\`).join('');
+  return \`<table class="err-table">
+    <thead><tr><th>Directory</th><th>Hits · 7d</th><th>Last seen</th></tr></thead>
+    <tbody>\${rows}</tbody>
+  </table>\`;
+}
+
+// Fase 24.6 — agents that hit the x402 paywall vs. converted within 7 days.
+// Direct signal for whether the actionable 402 error.message (Fase 24.5)
+// recovers the conversion an agent loses when it only sees a bare
+// "Payment required" and never finds wallet_setup or /checkout.
+function paywallFunnelStat(pf) {
+  if (!pf || pf.hit_payers === 0) {
+    return '<div style="color:var(--muted);font-size:12px">no paywall hits in 30d</div>';
+  }
+  const pct = Math.round((pf.converted_payers / pf.hit_payers) * 100);
+  return \`
+    <div class="stat-row"><span>Agents hit the paywall</span><span class="stat-val accent">\${fmt(pf.hit_payers, 0)}</span></div>
+    <div class="stat-row"><span>Converted within 7d</span><span class="stat-val green">\${fmt(pf.converted_payers, 0)}</span></div>
+    <div class="stat-row"><span>Conversion rate</span><span class="stat-val yellow">\${pct}%</span></div>
+  \`;
+}
+
+// Fase 24.6 — per-tool p50/p95 latency, top 10 by volume.
+function latencyByToolTable(items) {
+  if (!items || items.length === 0) return '<div style="color:var(--muted);font-size:12px">no latency data</div>';
+  const rows = items.map(r => \`<tr>
+    <td>\${esc(r.tool)}</td>
+    <td>\${fmt(r.calls, 0)}</td>
+    <td>\${r.p50_latency_ms} ms</td>
+    <td>\${r.p95_latency_ms} ms</td>
+  </tr>\`).join('');
+  return \`<table class="err-table">
+    <thead><tr><th>Tool</th><th>Calls</th><th>p50</th><th>p95</th></tr></thead>
+    <tbody>\${rows}</tbody>
+  </table>\`;
 }
 
 // Fase 24 — per-surface funnel table (connect -> call -> family-complete -> paid).
@@ -590,8 +646,23 @@ function render(d) {
         \${errorTable(d.recent_errors)}
       </div>
       <div class="card">
-        <h3>Error rate by tool · 30d</h3>
+        <h3>Error rate by tool · 30d <span style="color:var(--muted);font-weight:400">(red = ours, amber = upstream)</span></h3>
         \${errorRateChart(d.error_rate_by_tool)}
+      </div>
+    </div>
+
+    <div class="grid3">
+      <div class="card">
+        <h3>Latency by tool · 30d</h3>
+        \${latencyByToolTable(d.latency_by_tool)}
+      </div>
+      <div class="card">
+        <h3>Directory coverage · 7d</h3>
+        \${directoryCoverageTable(d.directory_coverage)}
+      </div>
+      <div class="card">
+        <h3>Paywall → conversion · 30d</h3>
+        \${paywallFunnelStat(d.paywall_funnel)}
       </div>
     </div>
   \`;

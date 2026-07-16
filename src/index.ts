@@ -45,6 +45,13 @@ export interface Env {
   // for free). Set via: wrangler secret put ANALYTICS_READ_TOKEN
   ANALYTICS_READ_TOKEN?: string;
 
+  // Fase 24.6 — salt for hashing anonymous-caller IPs into stable pseudonyms
+  // (analytics/surface.ts anonPayerId), so unique anonymous agents can be
+  // counted without storing IPs. Optional — without it, anonymous calls log
+  // as the plain "anon" literal (pre-existing behavior). Set via:
+  // wrangler secret put ANALYTICS_HASH_SALT
+  ANALYTICS_HASH_SALT?: string;
+
   // Comma-separated EVM addresses whitelisted for free tool access via wallet signature
   WHITELISTED_ADDRESSES?: string;
 

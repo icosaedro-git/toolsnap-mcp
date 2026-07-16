@@ -4,9 +4,17 @@
  */
 
 import { FAMILIES } from "../tools/catalog.js";
+import { PROBE_CLIENTS } from "./surface.js";
+import { isUpstreamError } from "../alerts/error-classification.js";
 
+const MS_7D = 7 * 24 * 60 * 60 * 1000;
 const MS_30D = 30 * 24 * 60 * 60 * 1000;
 const MS_365D = 365 * 24 * 60 * 60 * 1000;
+
+/** MCP directory/registry scrapers (see surface.ts PROBE_CLIENTS) — a fixed constant list, never user input. */
+const PROBE_CLIENTS_SQL = Array.from(PROBE_CLIENTS)
+  .map((c) => `'${c}'`)
+  .join(", ");
 
 /** tool_name -> family ids, precomputed once from the catalog (a tool can belong to >1 family). */
 const TOOL_FAMILIES: Record<string, string[]> = (() => {
@@ -52,7 +60,38 @@ export interface DashboardData {
     client: string | null;
     detail: string | null;
   }>;
-  error_rate_by_tool: Array<{ tool: string; total: number; errors: number; error_pct: number }>;
+  /**
+   * Fase 24.6 — errors split into upstream (destination site 4xx/5xx, SPA,
+   * our own rate limit — not a ToolSnap malfunction) vs ours, using the same
+   * classification error-alerts.ts uses to decide what pages Telegram (see
+   * error-classification.ts). `errors` stays the combined total for
+   * backwards compat with existing consumers of this field.
+   */
+  error_rate_by_tool: Array<{
+    tool: string;
+    total: number;
+    errors: number;
+    our_errors: number;
+    upstream_errors: number;
+    error_pct: number;
+  }>;
+  /** Fase 24.6 — p50/p95 latency per tool (top 10 by call volume), catches a slow provider hidden by the global average. */
+  latency_by_tool: Array<{ tool: string; calls: number; p50_latency_ms: number; p95_latency_ms: number }>;
+  /**
+   * Fase 24.6 — MCP directory/registry scrapers that connect and read the
+   * catalog but aren't real agent demand (see surface.ts PROBE_CLIENTS).
+   * Excluded from every other metric above; reported here on its own as a
+   * listing-health signal, not discarded as noise.
+   */
+  directory_coverage: Array<{ client: string; hits: number; last_seen: number }>;
+  /**
+   * Fase 24.6 — how many distinct payers hit the x402 paywall (402_rejected)
+   * and, within 7 days after their first hit, converted (called
+   * wallet_setup, or a payment_type of x402_paid/x402_free_first/prepaid/
+   * api_key/oauth). Direct signal for whether the actionable 402
+   * error.message (Fase 24.5) recovers lost conversion.
+   */
+  paywall_funnel: { hit_payers: number; converted_payers: number };
   /** Fase 24 — which MCP client/surface is connecting, calling, paying. */
   surface: {
     connects_by_client: Array<{ client: string; connects: number }>;
@@ -104,6 +143,54 @@ function dayLabel(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10);
 }
 
+/** Percentile of an in-memory array — used for the per-tool latency breakdown (bounded row fetch, see below). */
+function percentileOf(sortedAsc: number[], fraction: number): number {
+  if (sortedAsc.length === 0) return 0;
+  const idx = Math.min(sortedAsc.length - 1, Math.floor(sortedAsc.length * fraction));
+  return sortedAsc[idx];
+}
+
+const PAID_CONVERSION_TYPES = ["x402_paid", "x402_free_first", "prepaid", "api_key", "oauth"];
+
+/**
+ * Fase 24.6 — how many distinct payers hit the x402 paywall (402_rejected)
+ * in the window, and how many of them converted (called wallet_setup, or
+ * made a paid-type call) within 7 days of their first hit. `payer` is the
+ * correlation key — stable across reconnects for the same caller since the
+ * anon-hash pseudonym (Fase 24.6) or a real wallet/account address doesn't
+ * change between calls, unlike session_id which resets per connection.
+ */
+async function paywallConversionFunnel(
+  db: D1Database,
+  since: number,
+  internalFilter: string
+): Promise<{ hit_payers: number; converted_payers: number }> {
+  const paidPlaceholders = PAID_CONVERSION_TYPES.map(() => "?").join(", ");
+  const row = await db
+    .prepare(
+      `WITH hits AS (
+         SELECT payer, MIN(ts) AS first_hit_ts
+         FROM analytics_events
+         WHERE ts >= ? AND payment_type = '402_rejected'${internalFilter}
+         GROUP BY payer
+       ),
+       converted AS (
+         SELECT DISTINCT h.payer
+         FROM hits h
+         JOIN analytics_events e
+           ON e.payer = h.payer
+          AND e.ts > h.first_hit_ts
+          AND e.ts <= h.first_hit_ts + ${MS_7D}
+          AND (e.tool_name = 'wallet_setup' OR e.payment_type IN (${paidPlaceholders}))
+       )
+       SELECT (SELECT count(*) FROM hits) AS hit_payers,
+              (SELECT count(*) FROM converted) AS converted_payers`
+    )
+    .bind(since, ...PAID_CONVERSION_TYPES)
+    .first<{ hit_payers: number; converted_payers: number }>();
+  return { hit_payers: row?.hit_payers ?? 0, converted_payers: row?.converted_payers ?? 0 };
+}
+
 export async function getDashboardData(
   db: D1Database,
   includeInternal = false
@@ -111,9 +198,15 @@ export async function getDashboardData(
   const now = Date.now();
   const since30 = now - MS_30D;
   const since365 = now - MS_365D;
+  const since7 = now - MS_7D;
   // Own dev/testing traffic (internal = 1) is excluded by default — the panel
-  // measures real external demand. Constant string, never user input.
-  const internalFilter = includeInternal ? "" : " AND internal = 0";
+  // measures real external demand. Directory/registry probes (Fase 24.6) are
+  // bundled into the same toggle: real signal is what ?include_internal=1
+  // is for, and a probe scraping the catalog isn't demand either. Constant
+  // string, never user input.
+  const internalFilter = includeInternal
+    ? ""
+    : ` AND internal = 0 AND (client_name IS NULL OR client_name NOT IN (${PROBE_CLIENTS_SQL}))`;
 
   const [
     summary,
@@ -123,19 +216,23 @@ export async function getDashboardData(
     callsSeries,
     revSeries,
     recentErrors,
-    errorRateByTool,
+    totalByTool,
+    errorRows,
+    latencyRows,
     p50,
     p95,
     connectsByClient,
     callsByClient,
     revenueByClient,
     sessionRows,
+    directoryCoverage,
+    paywallFunnel,
   ] = await Promise.all([
       db
         .prepare(
           `SELECT count(*) AS calls,
                   COALESCE(sum(revenue_usdc), 0) AS revenue,
-                  count(DISTINCT CASE WHEN payer != 'anon' THEN payer END) AS payers,
+                  count(DISTINCT CASE WHEN payer NOT LIKE 'anon%' THEN payer END) AS payers,
                   COALESCE(avg(latency_ms), 0) AS avg_latency
            FROM analytics_events
            WHERE ts >= ? AND payment_type != 'connect'${internalFilter}`
@@ -239,20 +336,45 @@ export async function getDashboardData(
           detail: string | null;
         }>(),
 
+      // total calls per tool (error-rate denominator) — kept as a separate
+      // lightweight query so errorRows below only has to fetch error rows,
+      // not a full table scan.
       db
         .prepare(
-          `SELECT tool_name AS tool,
-                  count(*) AS total,
-                  sum(CASE WHEN payment_type IN (${ERROR_TYPES_SQL}) THEN 1 ELSE 0 END) AS errors
+          `SELECT tool_name AS tool, count(*) AS total
            FROM analytics_events
            WHERE ts >= ?${internalFilter}
-           GROUP BY tool_name
-           HAVING errors > 0
-           ORDER BY errors DESC
-           LIMIT 10`
+           GROUP BY tool_name`
         )
         .bind(since30)
-        .all<{ tool: string; total: number; errors: number }>(),
+        .all<{ tool: string; total: number }>(),
+
+      // Fase 24.6 — raw error rows (tool + detail only) so isUpstreamError
+      // (shared with error-alerts.ts) can classify each one in JS instead of
+      // duplicating that regex/string logic as SQL LIKE patterns.
+      db
+        .prepare(
+          `SELECT tool_name AS tool, detail
+           FROM analytics_events
+           WHERE ts >= ? AND payment_type IN (${ERROR_TYPES_SQL})${internalFilter}
+           LIMIT 20000`
+        )
+        .bind(since30)
+        .all<{ tool: string; detail: string | null }>(),
+
+      // Fase 24.6 — raw per-call latency rows for the per-tool p50/p95
+      // breakdown below (computed in JS, same bounded-fetch pattern as the
+      // session funnel). The global p50/p95 (latencyPercentile calls below)
+      // stays SQL-side since it doesn't need per-tool grouping.
+      db
+        .prepare(
+          `SELECT tool_name AS tool, latency_ms
+           FROM analytics_events
+           WHERE ts >= ? AND payment_type != 'connect' AND latency_ms > 0${internalFilter}
+           LIMIT 20000`
+        )
+        .bind(since30)
+        .all<{ tool: string; latency_ms: number }>(),
 
       latencyPercentile(db, since30, 0.5, internalFilter),
       latencyPercentile(db, since30, 0.95, internalFilter),
@@ -307,6 +429,23 @@ export async function getDashboardData(
         )
         .bind(since30)
         .all<{ session_id: string; client: string; tool: string; type: string; revenue: number }>(),
+
+      // Fase 24.6 — directory coverage: the inverse of internalFilter's probe
+      // exclusion above. Which known MCP directories/scrapers hit us in the
+      // last 7 days, and when last — a listing-health signal, reported on
+      // its own rather than folded into (or discarded from) demand metrics.
+      db
+        .prepare(
+          `SELECT COALESCE(client_name, 'unknown') AS client, count(*) AS hits, MAX(ts) AS last_seen
+           FROM analytics_events
+           WHERE ts >= ? AND internal = 0 AND client_name IN (${PROBE_CLIENTS_SQL})
+           GROUP BY COALESCE(client_name, 'unknown')
+           ORDER BY last_seen DESC`
+        )
+        .bind(since7)
+        .all<{ client: string; hits: number; last_seen: number }>(),
+
+      paywallConversionFunnel(db, since30, internalFilter),
     ]);
 
   const s = summary ?? { calls: 0, revenue: 0, payers: 0, avg_latency: 0 };
@@ -351,6 +490,52 @@ export async function getDashboardData(
     funnelByClient.set(agg.client, bucket);
   }
 
+  // Fase 24.6 — classify each raw error row via the shared isUpstreamError
+  // (error-classification.ts) and roll up per tool, joined against the
+  // separately-fetched total-calls-per-tool denominator.
+  const totalByToolMap = new Map((totalByTool.results ?? []).map((r) => [r.tool, r.total]));
+  const errorAgg = new Map<string, { errors: number; upstream: number }>();
+  for (const row of errorRows.results ?? []) {
+    const agg = errorAgg.get(row.tool) ?? { errors: 0, upstream: 0 };
+    agg.errors += 1;
+    if (isUpstreamError(row.detail)) agg.upstream += 1;
+    errorAgg.set(row.tool, agg);
+  }
+  const errorRateByToolOut = Array.from(errorAgg.entries())
+    .map(([tool, agg]) => {
+      const total = totalByToolMap.get(tool) ?? agg.errors;
+      return {
+        tool,
+        total,
+        errors: agg.errors,
+        our_errors: agg.errors - agg.upstream,
+        upstream_errors: agg.upstream,
+        error_pct: total > 0 ? Math.round((agg.errors / total) * 100) : 0,
+      };
+    })
+    .sort((a, b) => b.errors - a.errors)
+    .slice(0, 10);
+
+  // Fase 24.6 — per-tool p50/p95 from the raw latency rows, top 10 by volume.
+  const latencyByTool = new Map<string, number[]>();
+  for (const row of latencyRows.results ?? []) {
+    const arr = latencyByTool.get(row.tool);
+    if (arr) arr.push(row.latency_ms);
+    else latencyByTool.set(row.tool, [row.latency_ms]);
+  }
+  const latencyByToolOut = Array.from(latencyByTool.entries())
+    .map(([tool, values]) => {
+      const sorted = [...values].sort((a, b) => a - b);
+      return {
+        tool,
+        calls: sorted.length,
+        p50_latency_ms: percentileOf(sorted, 0.5),
+        p95_latency_ms: percentileOf(sorted, 0.95),
+      };
+    })
+    .sort((a, b) => b.calls - a.calls)
+    .slice(0, 10);
+
   return {
     summary: {
       calls_30d: s.calls,
@@ -372,12 +557,10 @@ export async function getDashboardData(
     payment_breakdown: payBreakdown.results ?? [],
     deposits: { count: dep.cnt, total_usdc: dep.total },
     recent_errors: recentErrors.results ?? [],
-    error_rate_by_tool: (errorRateByTool.results ?? []).map((r) => ({
-      tool: r.tool,
-      total: r.total,
-      errors: r.errors,
-      error_pct: r.total > 0 ? Math.round((r.errors / r.total) * 100) : 0,
-    })),
+    error_rate_by_tool: errorRateByToolOut,
+    latency_by_tool: latencyByToolOut,
+    directory_coverage: directoryCoverage.results ?? [],
+    paywall_funnel: paywallFunnel,
     surface: {
       connects_by_client: connectsByClient.results ?? [],
       calls_by_client: callsByClient.results ?? [],
@@ -386,8 +569,6 @@ export async function getDashboardData(
     },
   };
 }
-
-const MS_7D = 7 * 24 * 60 * 60 * 1000;
 
 export interface WeeklySurfaceDigest {
   connects_this_week: Array<{ client: string; connects: number }>;
@@ -399,6 +580,8 @@ export interface WeeklySurfaceDigest {
   top_tools_this_week: Array<{ tool: string; calls: number }>;
   /** free-tier tool calls that converted into a paid call, this week (x402/prepaid/api_key, excluding rejections). */
   paid_calls_this_week: number;
+  /** Fase 24.6 — paywall-hit-to-conversion signal, this week (see getDashboardData's paywall_funnel). */
+  paywall_funnel_this_week: { hit_payers: number; converted_payers: number };
 }
 
 /**
@@ -477,13 +660,16 @@ export async function getWeeklySurfaceDigest(db: D1Database, now = Date.now()): 
       .first<{ n: number }>(),
   ]);
 
-  const lastWeekTotal = await db
-    .prepare(
-      `SELECT count(*) AS n FROM analytics_events
-       WHERE ts >= ? AND ts < ? AND payment_type != 'connect' AND internal = 0`
-    )
-    .bind(startLastWeek, startThisWeek)
-    .first<{ n: number }>();
+  const [lastWeekTotal, paywallFunnelThisWeek] = await Promise.all([
+    db
+      .prepare(
+        `SELECT count(*) AS n FROM analytics_events
+         WHERE ts >= ? AND ts < ? AND payment_type != 'connect' AND internal = 0`
+      )
+      .bind(startLastWeek, startThisWeek)
+      .first<{ n: number }>(),
+    paywallConversionFunnel(db, startThisWeek, " AND internal = 0"),
+  ]);
 
   return {
     connects_this_week: connectsThis.results ?? [],
@@ -494,5 +680,6 @@ export async function getWeeklySurfaceDigest(db: D1Database, now = Date.now()): 
     total_revenue_this_week: revThis?.revenue ?? 0,
     top_tools_this_week: topTools.results ?? [],
     paid_calls_this_week: paidThis?.n ?? 0,
+    paywall_funnel_this_week: paywallFunnelThisWeek,
   };
 }
