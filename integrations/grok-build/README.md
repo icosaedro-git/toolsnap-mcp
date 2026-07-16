@@ -29,7 +29,7 @@ spilled or truncated.
 `screenshot_url`, `keyword_research`, `remove_background` and `fetch_rendered`
 settle per call ($0.02-$0.04). Two options:
 
-- **Fiat credits**: buy at <https://toolsnap.app/checkout>, then add the key:
+- **Fiat credits**: buy at <https://mcp.toolsnap.app/checkout>, then add the key:
 
   ```toml
   [mcp_servers.toolsnap]
