@@ -37,7 +37,7 @@ const toc = [
   <DocSection num="02" title="Connect by client" id="connect">
     <p><strong>Claude Code</strong></p>
     <CodeBlock lang="bash" code={`claude mcp add --transport http toolsnap https://mcp.toolsnap.app/mcp\n# with an API key (paid tools):\nclaude mcp add --transport http toolsnap https://mcp.toolsnap.app/mcp --header "Authorization: Bearer sk_live_…"`} />
-    <p class="text-mute">Power users: install the <a href="https://github.com/icosaedro-git/toolsnap-claude-plugin">Claude Code plugin</a> instead — bundles the MCP connection with the <code class="inline">toolsnap</code> skill in one step (<code class="inline">/plugin marketplace add icosaedro-git/toolsnap-claude-plugin</code> then <code class="inline">/plugin install toolsnap</code>).</p>
+    <p class="text-mute">Power users: install the <a href="https://github.com/ToolSnap-app/toolsnap-claude-plugin">Claude Code plugin</a> instead — bundles the MCP connection with the <code class="inline">toolsnap</code> skill in one step (<code class="inline">/plugin marketplace add ToolSnap-app/toolsnap-claude-plugin</code> then <code class="inline">/plugin install toolsnap</code>).</p>
     <p><strong>Claude Desktop / claude.ai</strong> — Settings &rarr; Connectors &rarr; Add custom connector &rarr; URL: <code class="inline">https://mcp.toolsnap.app/mcp</code> (free tools, no sign-in). Want the paid tools? Use <code class="inline">https://mcp.toolsnap.app/mcp/oauth</code> instead — see <a href="#oauth">Sign in with OAuth</a> below.</p>
     <p><strong>Cursor / generic JSON</strong></p>
     <CodeBlock lang="json" code={`{ "mcpServers": { "toolsnap": { "url": "https://mcp.toolsnap.app/mcp", "headers": { "Authorization": "Bearer sk_live_…" } } } }`} />
