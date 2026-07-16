@@ -743,7 +743,7 @@ export const pdfTextExtractTool: McpTool = {
     }
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status} ${response.statusText}`);
+      throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
     }
 
     const buf = await response.arrayBuffer();
