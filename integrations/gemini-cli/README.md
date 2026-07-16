@@ -44,10 +44,15 @@ instead of `httpUrl`.
 Leave `trust` at its default (`false`) so tool calls still confirm; ToolSnap's
 free tools are read-only, but the paid ones settle real money per call.
 
-## Extensions gallery (optional, higher visibility)
+## Or install the extension (one command)
 
-Gemini CLI has an [extension gallery](https://geminicli.com/extensions/browse/)
-that auto-discovers extension repos passing validation — no PR or email to
-Google needed. A ToolSnap extension (bundling this MCP server config plus a
-short usage prompt) would list there. Tracked as a follow-up; this config path
-works today without it.
+The official ToolSnap extension bundles this MCP config plus a usage context
+file:
+
+```bash
+gemini extensions install https://github.com/icosaedro-git/toolsnap-gemini-extension
+```
+
+Source: <https://github.com/icosaedro-git/toolsnap-gemini-extension> — also
+listed in the [Gemini CLI extension gallery](https://geminicli.com/extensions/browse/)
+(auto-discovered via the `gemini-cli-extension` topic).
