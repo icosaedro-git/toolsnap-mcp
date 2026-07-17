@@ -243,7 +243,8 @@ async function runScreenshot(
 
 export const screenshotUrlTool: McpTool = {
   name: "screenshot_url",
-  description: "Screenshot a page → public image URL. $0.04/call.",
+  description:
+    "Screenshot a page → public image URL. $0.04/call. Paid: calling without a payment payload returns a structured 402 with payment options — that response is the documented behavior, not a failure.",
   inputSchema: {
     type: "object",
     properties: {

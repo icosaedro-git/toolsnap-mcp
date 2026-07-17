@@ -76,6 +76,22 @@ export function classifySurface(ua: string, persisted?: PersistedClientInfo | nu
   if (lower.includes("python-httpx") || lower.includes("python-requests")) return { name: "python-script", version: null };
   if (lower.includes("node")) return { name: "node-client", version: null };
   if (lower.includes("curl")) return { name: "curl", version: null };
+
+  // Fase 25.1 — last-resort fallback: extract a product/version token straight
+  // from the raw UA (e.g. "Chiark/0.1 (agent quality index; chiark.ai)" ->
+  // "Chiark/0.1") instead of giving up as "unknown". Runs on the *original*
+  // (non-lowercased) UA so casing is preserved. Skips generic HTTP-library
+  // prefixes already handled above or with no attribution value.
+  const productMatch = /^([A-Za-z0-9][\w.-]{1,39})\/([\w.-]+)/.exec(ua);
+  if (productMatch) {
+    const token = productMatch[1];
+    const tokenLower = token.toLowerCase();
+    const genericPrefixes = ["mozilla", "python-httpx", "python-requests", "node", "curl", "undici", "ktor-client"];
+    if (!genericPrefixes.includes(tokenLower)) {
+      return { name: token, version: productMatch[2] };
+    }
+  }
+
   return { name: "unknown", version: null };
 }
 
@@ -87,6 +103,11 @@ export function classifySurface(ua: string, persisted?: PersistedClientInfo | nu
  * Used to exclude this traffic from demand metrics and to report on it
  * separately as a "directory coverage" signal — it's a positive indicator
  * of listing health, not noise to discard.
+ *
+ * Refreshed 2026-07-18 (Fase 25.1) with ~14 additional scanners identified in
+ * the 07-17 analytics review. Deliberately NOT added: "test", "python-script",
+ * "mcp", "agent-lab" — those are generic SDK/library labels also used by real
+ * human-driven clients, not scanner identities.
  */
 export const PROBE_CLIENTS: ReadonlySet<string> = new Set([
   "glimind-probe",
@@ -100,6 +121,20 @@ export const PROBE_CLIENTS: ReadonlySet<string> = new Set([
   "ps-mcp-tools-probe",
   "ci-smoke",
   "ci-smoke-oauth",
+  "Kai 9000",
+  "mcpscan",
+  "mcp-ledger-probe",
+  "mcphq-probe",
+  "prsm-mcp-graph",
+  "mcp-rugpull-research",
+  "otter",
+  "acton-probe",
+  "acton-skill-extractor",
+  "tiza-search-prober",
+  "agentage-mcp-catalog-health",
+  "mcplookup.com-probe",
+  "chiark-prober",
+  "glama-mcp-inspector",
 ]);
 
 const ANON_HASH_PREFIX = "anon:";

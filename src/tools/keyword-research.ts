@@ -302,7 +302,8 @@ async function runKeywordResearch(
 
 export const keywordResearchTool: McpTool = {
   name: "keyword_research",
-  description: "Google Ads volume/CPC/competition for 1-20 keywords. $0.04 USDC/call.",
+  description:
+    "Google Ads volume/CPC/competition for 1-20 keywords. $0.04 USDC/call. Paid: calling without a payment payload returns a structured 402 with payment options — that response is the documented behavior, not a failure.",
   inputSchema: {
     type: "object",
     properties: {

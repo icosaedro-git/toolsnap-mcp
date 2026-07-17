@@ -13,6 +13,9 @@ description: |
   pages). Saves $0.156/call at Sonnet pricing; ROI positive even at DeepSeek pricing with
   $0.01 prepaid (deposit once, debit off-chain, no per-call gas). Pay per call $0.02 USDC
   on Base via x402, first call free per wallet.
+  The catalog mixes free tools and 3 paid ones (screenshot_url, keyword_research,
+  remove_background); calling a paid tool without a payment payload returns a structured
+  402 with payment options — that is documented, expected behavior, not a broken tool.
 
 homepage: https://mcp.toolsnap.app
 repository: https://github.com/icosaedro-git/toolsnap-mcp

@@ -70,9 +70,30 @@ export interface DashboardData {
      * counts identified payers (wallets/accounts) only — before the hash,
      * all anonymous traffic collapsed into one literal "anon" and this
      * number was invisible.
+     *
+     * Fase 25.1 — canonicalized by session_id (COALESCE'd to the raw payer
+     * when absent), taking MIN(payer) per session as the agent's identity
+     * before counting distinct agents. Anthropic's egress rotates client IPs
+     * *within a single MCP session*, so without this a single Claude agent
+     * could log several anon:<hash> payers and inflate this number (verified
+     * case: session 477838cd-ba21-4b77-a845-73adf6bd2d52 on 2026-07-17, one
+     * agent logged as 4 distinct anon payers).
      */
     unique_anon_agents_30d: number;
-    /** Fase 24.7 — distinct payers (payer != 'anon', includes anon:% hashes) seen both this week and the previous — a retention signal. */
+    /**
+     * Fase 24.7 — distinct payers (payer != 'anon', includes anon:% hashes)
+     * seen both this week and the previous — a retention signal.
+     *
+     * Fase 25.1 — same session-canonicalization as unique_anon_agents_30d
+     * applied to both sides of the INTERSECT, for the same IP-rotation
+     * reason: without it, an agent whose IP hash changed mid-session would
+     * show up as a different payer each side and never count as "returning"
+     * — undercounting retention for exactly the organic anonymous traffic
+     * this metric is meant to track. Not a full fix: if an agent's anchor IP
+     * hash changes *between* the two weekly windows, it still won't match
+     * (sessions don't span that long, so cross-window canonicalization isn't
+     * possible without a stronger identity than IP).
+     */
     returning_agents_7d: number;
     avg_latency_ms: number;
     p50_latency_ms: number;
@@ -271,6 +292,7 @@ export async function getDashboardData(
     revSeries,
     callsHalfhour,
     revenueHalfhour,
+    anonAgents,
     returningAgents,
     recentErrors,
     totalByTool,
@@ -290,7 +312,6 @@ export async function getDashboardData(
           `SELECT count(*) AS calls,
                   COALESCE(sum(CASE WHEN payment_type NOT IN (${DEPOSIT_TYPES_SQL}) THEN revenue_usdc ELSE 0 END), 0) AS revenue,
                   count(DISTINCT CASE WHEN payer NOT LIKE 'anon%' THEN payer END) AS payers,
-                  count(DISTINCT CASE WHEN payer LIKE 'anon:%' THEN payer END) AS anon_agents,
                   COALESCE(avg(latency_ms), 0) AS avg_latency
            FROM analytics_events
            WHERE ts >= ? AND payment_type != 'connect'${internalFilter}`
@@ -300,7 +321,6 @@ export async function getDashboardData(
           calls: number;
           revenue: number;
           payers: number;
-          anon_agents: number;
           avg_latency: number;
         }>(),
 
@@ -435,16 +455,47 @@ export async function getDashboardData(
         .bind(since7)
         .all<{ bucket: number; revenue: number }>(),
 
+      // Fase 25.1 — distinct anonymous agents, canonicalized by session
+      // instead of raw payer. The Anthropic egress rotates IPs *within one
+      // MCP session*, so the same agent can log several anon:<hash> payers
+      // (verified case: session 477838cd-ba21-4b77-a845-73adf6bd2d52,
+      // 2026-07-17, one Claude agent logged as 4 distinct anon payers). Group
+      // by session_id (falling back to the raw payer when session_id is
+      // empty/absent) and take MIN(payer) as that agent's canonical identity
+      // before counting distinct agents. Not perfect across sessions (see
+      // returningAgents below), but eliminates the intra-session inflation.
+      db
+        .prepare(
+          `SELECT count(*) AS anon_agents FROM (
+             SELECT MIN(payer)
+             FROM analytics_events
+             WHERE ts >= ? AND payment_type != 'connect' AND payer LIKE 'anon:%'${internalFilter}
+             GROUP BY COALESCE(NULLIF(session_id, ''), payer)
+           )`
+        )
+        .bind(since30)
+        .first<{ anon_agents: number }>(),
+
       // Fase 24.7 — retention: distinct payers (excluding the legacy 'anon'
       // literal; anon:<hash> pseudonyms count) seen both this week and last.
+      // Fase 25.1 — canonicalized by session (same rationale as anonAgents
+      // above): group by session_id and take MIN(payer) as the agent's
+      // identity on each side of the INTERSECT, so an agent whose IP rotated
+      // mid-session isn't split into several non-matching payers. Not a full
+      // fix — if an agent's anchor IP hash changes *between* the two weekly
+      // windows (sessions don't span that long), it still won't match — but
+      // it removes the intra-session inflation that previously undercounted
+      // retention for exactly the organic traffic this metric cares about.
       db
         .prepare(
           `SELECT count(*) AS n FROM (
-             SELECT payer FROM analytics_events
+             SELECT MIN(payer) AS agent FROM analytics_events
              WHERE ts >= ? AND payment_type != 'connect' AND payer != 'anon'${internalFilter}
+             GROUP BY COALESCE(NULLIF(session_id, ''), payer)
              INTERSECT
-             SELECT payer FROM analytics_events
+             SELECT MIN(payer) AS agent FROM analytics_events
              WHERE ts >= ? AND ts < ? AND payment_type != 'connect' AND payer != 'anon'${internalFilter}
+             GROUP BY COALESCE(NULLIF(session_id, ''), payer)
            )`
         )
         .bind(since7, now - 2 * MS_7D, since7)
@@ -580,7 +631,7 @@ export async function getDashboardData(
       paywallConversionFunnel(db, since30, internalFilter),
     ]);
 
-  const s = summary ?? { calls: 0, revenue: 0, payers: 0, anon_agents: 0, avg_latency: 0 };
+  const s = summary ?? { calls: 0, revenue: 0, payers: 0, avg_latency: 0 };
   const liability = creditLiability ?? { outstanding: 0, lifetime_purchased: 0, lifetime_consumed: 0, accounts: 0 };
 
   // Fase 24.7 — purchases-by-rail rolls up as { crypto, fiat }, defaulting a
@@ -680,7 +731,7 @@ export async function getDashboardData(
       calls_30d: s.calls,
       revenue_30d: s.revenue,
       unique_payers_30d: s.payers,
-      unique_anon_agents_30d: s.anon_agents,
+      unique_anon_agents_30d: anonAgents?.anon_agents ?? 0,
       returning_agents_7d: returningAgents?.n ?? 0,
       avg_latency_ms: Math.round(s.avg_latency),
       p50_latency_ms: p50,

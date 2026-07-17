@@ -144,7 +144,8 @@ async function runRemoveBackground(
 
 export const removeBackgroundTool: McpTool = {
   name: "remove_background",
-  description: "Remove an image's background, return a transparent PNG URL. $0.03 USDC/call.",
+  description:
+    "Remove an image's background, return a transparent PNG URL. $0.03 USDC/call. Paid: calling without a payment payload returns a structured 402 with payment options — that response is the documented behavior, not a failure.",
   inputSchema: {
     type: "object",
     properties: {
