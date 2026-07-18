@@ -71,28 +71,28 @@ export interface DashboardData {
      * all anonymous traffic collapsed into one literal "anon" and this
      * number was invisible.
      *
-     * Fase 25.1 — canonicalized by session_id (COALESCE'd to the raw payer
-     * when absent), taking MIN(payer) per session as the agent's identity
-     * before counting distinct agents. Anthropic's egress rotates client IPs
-     * *within a single MCP session*, so without this a single Claude agent
-     * could log several anon:<hash> payers and inflate this number (verified
-     * case: session 477838cd-ba21-4b77-a845-73adf6bd2d52 on 2026-07-17, one
-     * agent logged as 4 distinct anon payers).
+     * Fase 25.1 (fixed 2026-07-18) — two-step canonicalization: each session
+     * gets an anchor (MIN(payer) within it), each payer canonicalizes to its
+     * smallest anchor across sessions, then distinct canonical agents are
+     * counted. This collapses IP rotation *within* a session (Anthropic's
+     * egress rotates IPs mid-session; session 477838cd… on 2026-07-17 logged
+     * one Claude agent as 4 anon payers) WITHOUT splitting one agent's many
+     * sessions into many agents (the first 25.1 attempt grouped by session
+     * and reported 1.4k agents where there were 5).
      */
     unique_anon_agents_30d: number;
     /**
      * Fase 24.7 — distinct payers (payer != 'anon', includes anon:% hashes)
      * seen both this week and the previous — a retention signal.
      *
-     * Fase 25.1 — same session-canonicalization as unique_anon_agents_30d
-     * applied to both sides of the INTERSECT, for the same IP-rotation
-     * reason: without it, an agent whose IP hash changed mid-session would
-     * show up as a different payer each side and never count as "returning"
-     * — undercounting retention for exactly the organic anonymous traffic
-     * this metric is meant to track. Not a full fix: if an agent's anchor IP
-     * hash changes *between* the two weekly windows, it still won't match
-     * (sessions don't span that long, so cross-window canonicalization isn't
-     * possible without a stronger identity than IP).
+     * Fase 25.1 (fixed 2026-07-18) — the same two-step canonicalization as
+     * unique_anon_agents_30d, computed over the FULL 14-day window so both
+     * weeks share one identity map, then the per-week canonical-agent sets
+     * are intersected. (The first 25.1 attempt grouped by session on each
+     * side, which made identities session-local and never comparable across
+     * weeks — returning dropped to 0.) Not a full fix: an agent whose anchor
+     * IP hash changes between weeks with no shared session still won't match
+     * — acceptable residual for a pseudonymous metric.
      */
     returning_agents_7d: number;
     avg_latency_ms: number;
@@ -455,50 +455,72 @@ export async function getDashboardData(
         .bind(since7)
         .all<{ bucket: number; revenue: number }>(),
 
-      // Fase 25.1 — distinct anonymous agents, canonicalized by session
-      // instead of raw payer. The Anthropic egress rotates IPs *within one
-      // MCP session*, so the same agent can log several anon:<hash> payers
-      // (verified case: session 477838cd-ba21-4b77-a845-73adf6bd2d52,
-      // 2026-07-17, one Claude agent logged as 4 distinct anon payers). Group
-      // by session_id (falling back to the raw payer when session_id is
-      // empty/absent) and take MIN(payer) as that agent's canonical identity
-      // before counting distinct agents. Not perfect across sessions (see
-      // returningAgents below), but eliminates the intra-session inflation.
+      // Fase 25.1 (fixed 2026-07-18) — distinct anonymous agents. Two
+      // opposing distortions to correct at once: (a) the Anthropic egress
+      // rotates IPs *within one MCP session*, so one agent logs several
+      // anon:<hash> payers (session 477838cd…, 2026-07-17: one Claude agent,
+      // 4 payers); (b) one agent opens MANY sessions (a scanner opened ~40
+      // in a minute), so grouping by session — the first 25.1 attempt —
+      // counted sessions, not agents, and reported 1.4k where there were 5.
+      // Fix: two-step canonicalization. Each session gets an anchor
+      // (MIN(payer) within it); each payer canonicalizes to the smallest
+      // anchor across its sessions. A payer with N sessions stays 1 agent;
+      // payers sharing a session collapse into 1. Sessionless rows fall back
+      // to the raw payer.
       db
         .prepare(
-          `SELECT count(*) AS anon_agents FROM (
-             SELECT MIN(payer)
+          `WITH ev AS (
+             SELECT payer, NULLIF(session_id, '') AS sid
              FROM analytics_events
              WHERE ts >= ? AND payment_type != 'connect' AND payer LIKE 'anon:%'${internalFilter}
-             GROUP BY COALESCE(NULLIF(session_id, ''), payer)
-           )`
+           ),
+           anchors AS (
+             SELECT sid, MIN(payer) AS anchor FROM ev WHERE sid IS NOT NULL GROUP BY sid
+           ),
+           canon AS (
+             SELECT p.payer, COALESCE(MIN(a.anchor), p.payer) AS canon
+             FROM (SELECT DISTINCT payer, sid FROM ev) p
+             LEFT JOIN anchors a ON p.sid = a.sid
+             GROUP BY p.payer
+           )
+           SELECT count(DISTINCT canon) AS anon_agents FROM canon`
         )
         .bind(since30)
         .first<{ anon_agents: number }>(),
 
       // Fase 24.7 — retention: distinct payers (excluding the legacy 'anon'
       // literal; anon:<hash> pseudonyms count) seen both this week and last.
-      // Fase 25.1 — canonicalized by session (same rationale as anonAgents
-      // above): group by session_id and take MIN(payer) as the agent's
-      // identity on each side of the INTERSECT, so an agent whose IP rotated
-      // mid-session isn't split into several non-matching payers. Not a full
-      // fix — if an agent's anchor IP hash changes *between* the two weekly
-      // windows (sessions don't span that long), it still won't match — but
-      // it removes the intra-session inflation that previously undercounted
-      // retention for exactly the organic traffic this metric cares about.
+      // Fase 25.1 (fixed 2026-07-18) — the first 25.1 attempt grouped by
+      // session on each side of the INTERSECT, which made agent identities
+      // session-local and never comparable across weeks (returning dropped
+      // to 0). Fix: compute the same two-step canonicalization as anonAgents
+      // over the FULL 14-day window (so both weeks share one identity map),
+      // then intersect the per-week canonical-agent sets. Still not perfect:
+      // an agent whose anchor IP hash changes between weeks with no shared
+      // session won't match — acceptable residual for a pseudonymous metric.
       db
         .prepare(
-          `SELECT count(*) AS n FROM (
-             SELECT MIN(payer) AS agent FROM analytics_events
+          `WITH ev AS (
+             SELECT payer, NULLIF(session_id, '') AS sid, ts
+             FROM analytics_events
              WHERE ts >= ? AND payment_type != 'connect' AND payer != 'anon'${internalFilter}
-             GROUP BY COALESCE(NULLIF(session_id, ''), payer)
+           ),
+           anchors AS (
+             SELECT sid, MIN(payer) AS anchor FROM ev WHERE sid IS NOT NULL GROUP BY sid
+           ),
+           canon AS (
+             SELECT p.payer, COALESCE(MIN(a.anchor), p.payer) AS canon
+             FROM (SELECT DISTINCT payer, sid FROM ev) p
+             LEFT JOIN anchors a ON p.sid = a.sid
+             GROUP BY p.payer
+           )
+           SELECT count(*) AS n FROM (
+             SELECT DISTINCT c.canon FROM ev JOIN canon c ON ev.payer = c.payer WHERE ev.ts >= ?
              INTERSECT
-             SELECT MIN(payer) AS agent FROM analytics_events
-             WHERE ts >= ? AND ts < ? AND payment_type != 'connect' AND payer != 'anon'${internalFilter}
-             GROUP BY COALESCE(NULLIF(session_id, ''), payer)
+             SELECT DISTINCT c.canon FROM ev JOIN canon c ON ev.payer = c.payer WHERE ev.ts < ?
            )`
         )
-        .bind(since7, now - 2 * MS_7D, since7)
+        .bind(now - 2 * MS_7D, since7, since7)
         .first<{ n: number }>(),
 
       db
