@@ -135,7 +135,25 @@ export const PROBE_CLIENTS: ReadonlySet<string> = new Set([
   "mcplookup.com-probe",
   "chiark-prober",
   "glama-mcp-inspector",
+  "DeltaForsch",
 ]);
+
+/**
+ * Fase 25.2 (2026-07-20) — new scanners keep appearing weekly (DeltaForsch,
+ * canopii-scanner, sasame-audit all showed up within 48h of the last list
+ * refresh), so chasing exact names doesn't scale. These SQL LIKE patterns
+ * (case-insensitive in SQLite for ASCII) catch the naming conventions
+ * scanners overwhelmingly follow, alongside the exact-name list above.
+ * Kept deliberately specific — no bare '%scan%' or '%bot%' — to avoid
+ * misclassifying a real agent whose name merely contains those substrings.
+ */
+export const PROBE_NAME_PATTERNS: readonly string[] = [
+  "%probe%",
+  "%scanner%",
+  "%crawler%",
+  "%-audit",
+  "%spider%",
+];
 
 const ANON_HASH_PREFIX = "anon:";
 const ANON_HASH_HEX_LEN = 12;
