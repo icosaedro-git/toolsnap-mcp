@@ -164,6 +164,39 @@ console.log("=== Fase 13.1 fal.ai pricing + budget breaker tests ===\n");
 }
 
 // ---------------------------------------------------------------------------
+// video_generate (Fase 13.1b)
+// ---------------------------------------------------------------------------
+{
+  // ltx-fast: flat $0.04 COGS → payPerCall = max(0.08, 0.02) = $0.08.
+  const p1 = getToolPrice("video_generate", {}, { model: "ltx-fast" });
+  assertEq("video_generate ltx-fast payPerCall", p1.payPerCallStr, "0.080000");
+
+  // kling-pro duration=5: COGS = 5 * 0.07 = $0.35 → payPerCall = max(0.70, 0.02) = $0.70.
+  const p2 = getToolPrice("video_generate", {}, { model: "kling-pro", duration: "5" });
+  assertEq("video_generate kling-pro 5s payPerCall", p2.payPerCallStr, "0.700000");
+
+  // kling-pro duration=10: COGS = 10 * 0.07 = $0.70 → payPerCall = $1.40.
+  const p3 = getToolPrice("video_generate", {}, { model: "kling-pro", duration: "10" });
+  assertEq("video_generate kling-pro 10s payPerCall", p3.payPerCallStr, "1.400000");
+
+  let threw = false;
+  try {
+    getToolPrice("video_generate", {}, { model: "kling-pro", duration: "7" });
+  } catch {
+    threw = true;
+  }
+  assert("video_generate invalid kling-pro duration throws", threw, "expected a throw for duration=7");
+
+  let threwModel = false;
+  try {
+    getToolPrice("video_generate", {}, { model: "veo-nonexistent" });
+  } catch {
+    threwModel = true;
+  }
+  assert("video_generate unknown model throws", threwModel, "expected a throw for an unrecognized model");
+}
+
+// ---------------------------------------------------------------------------
 // firstCallFreeEligible must exclude every dynamically-priced tool
 // ---------------------------------------------------------------------------
 {
