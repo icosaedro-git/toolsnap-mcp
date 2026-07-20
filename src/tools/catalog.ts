@@ -101,6 +101,12 @@ export const FAMILIES: Record<string, Family> = {
     oneLiner: "Screenshot a page, remove an image background, or upload an image for other tools to use.",
     tools: ["screenshot_url", "remove_background", "upload_file"],
   },
+  media: {
+    label: "Media generation (fal.ai)",
+    oneLiner:
+      "Generate images and video, upscale, transcribe audio, synthesize speech — pay-per-call, priced per job.",
+    tools: ["image_generate", "image_upscale", "audio_transcribe", "text_to_speech", "remove_background"],
+  },
   utils: {
     label: "ID & encoding utilities",
     oneLiner: "Generate UUIDs/hashes, encode/decode Base64 and URLs, convert timestamps.",
@@ -176,6 +182,14 @@ export const NOTES: Record<string, string> = {
     "Queries Google Ads data via DataForSEO for 1–20 keywords: monthly search volume, CPC, competition score, 12-month trend, top-5 related suggestions. Default location Spain (2724). No first-call-free (real COGS per batch).",
   remove_background:
     "Uses the U²-Net model via fal.ai. Returns a transparent PNG on a public URL (expires ~24h). To pass a local image, upload it first with upload_file. No first-call-free (real COGS per call).",
+  image_generate:
+    "Text-to-image via fal.ai FLUX (flux-schnell default/cheap or flux-dev/higher quality). Priced dynamically from model + image_size + num_images — call pricing or tool_catalog(tool=\"image_generate\") for the exact formula. Returns public R2 URLs. No first-call-free (real COGS).",
+  image_upscale:
+    "2x/4x super-resolution via fal.ai ESRGAN (RealESRGAN_x4plus). Flat price per scale factor (ESRGAN bills fal by compute-second, not output size, so this is a conservative estimate, not a metered exact cost). Source image capped at 6 MB. No first-call-free (real COGS).",
+  audio_transcribe:
+    "Speech-to-text via fal.ai Wizper (Whisper v3). Requires `duration_seconds` (your best estimate) to quote the call upfront; verified against the real audio duration after transcription — if you were off by more than 10% the call is rejected and any debit refunded. Returns text or SRT. Max 60 minutes/call. No first-call-free (real COGS).",
+  text_to_speech:
+    "Text-to-speech via fal.ai Kokoro (20 English voices). Priced dynamically from text length. Returns a public R2 WAV URL. Max 5,000 characters/call. No first-call-free (real COGS).",
   link_check:
     "Follows redirects manually to build the full hop-by-hop chain (not just the final URL). Max 20 URLs per call, up to 5 redirect hops each. Detects broken links, redirect loops, and network/DNS failures without loading any page content. Does NOT accept `headers` — it takes up to 20 URLs across potentially different hosts in one call, so a single credential could not be scoped safely to just one of them; use fetch_extract/fetch_html per-URL with `headers` instead if a specific link needs auth.",
   html_table_extract:

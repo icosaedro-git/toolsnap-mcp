@@ -22,6 +22,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
 import { usdcToMicro } from "./prepaid.js";
+import { FAL_DYNAMIC_PRICERS } from "../fal/pricing.js";
 
 // ---------------------------------------------------------------------------
 // Constants – Base mainnet
@@ -197,6 +198,14 @@ const PAID_TOOLS = new Set([
   "remove_background",
   "csv_query_xl",
   "json_query_xl",
+  // Fase 13.1 — fal.ai media resale, priced dynamically per call (see
+  // DYNAMIC_PRICERS below). media_job (the free polling tool) is
+  // deliberately NOT in this set.
+  "image_generate",
+  "image_upscale",
+  "audio_transcribe",
+  "text_to_speech",
+  "video_generate",
 ]);
 
 /** Returns true if the tool requires a payment. */
@@ -242,23 +251,66 @@ export interface ToolPrice {
 }
 
 /**
+ * Registry of per-tool dynamic pricing functions (Fase 13.1) — computes a
+ * ToolPrice from the tool's OWN call args instead of a fixed override. Takes
+ * priority over TOOL_PRICE_OVERRIDES/the flat rate. Populated by the fal.ai
+ * media tools (src/fal/pricing.ts); merge additional entries there, not here.
+ *
+ * Contract: called with `args: undefined` must return a representative quote
+ * (never throw — used by discovery endpoints with no real call to price).
+ * Called with a real args object (even {}) from the payment gate, it MUST
+ * throw a clear Error if the args don't carry enough to price the call
+ * safely — the gate catches that and returns an error WITHOUT charging.
+ */
+export const DYNAMIC_PRICERS: Record<string, (args?: Record<string, unknown>) => ToolPrice> = {
+  ...FAL_DYNAMIC_PRICERS,
+};
+
+/**
  * Whether a tool is eligible for the per-wallet first-call-free hook.
  *
  * Zero-COGS tools (fetch_extract, fetch_html…) ARE eligible: a free first call
  * is pure marketing, costs us nothing. COGS tools (those with a price override,
- * e.g. screenshot_url) are NOT: a free call is a direct loss AND an abuse vector
- * (mint throwaway wallets → drain the provider's free quota). Such tools always
- * settle from the first call.
+ * e.g. screenshot_url, or a dynamic per-call pricer, e.g. image_generate) are
+ * NOT: a free call is a direct loss AND an abuse vector (mint throwaway
+ * wallets → drain the provider's free quota). Such tools always settle from
+ * the first call.
  */
 export function firstCallFreeEligible(toolName: string): boolean {
-  return !(toolName in TOOL_PRICE_OVERRIDES);
+  return !(toolName in TOOL_PRICE_OVERRIDES) && !(toolName in DYNAMIC_PRICERS);
 }
 
-/** Resolve the effective price for a tool (override or global flat default). */
+/**
+ * Best-effort estimated COGS (USD) for a dynamically-priced tool call, for
+ * analytics/margin auditing only (never used to charge). Approximated as
+ * payPerCall / 2 — exact per the pricing formula (payPerCall = max(2×COGS,
+ * floor)) except when the $0.02 floor overrode a smaller real COGS, in which
+ * case this slightly OVERSTATES cogsUsdc (bounded by the floor/2) — the safe
+ * direction for a margin audit. Returns undefined for flat-priced tools.
+ */
+export function estimateCogsUsdc(toolName: string, price: ToolPrice): number | undefined {
+  if (!(toolName in DYNAMIC_PRICERS)) return undefined;
+  return Number(price.payPerCallMicro) / 2 / 1_000_000;
+}
+
+/**
+ * Resolve the effective price for a tool.
+ *
+ * Priority: dynamic pricer (per-call args) > static override > global flat
+ * default. `args` should be the real tools/call arguments when pricing an
+ * actual call (even {} if none were given) so a dynamic pricer can validate
+ * them; omit it (or pass undefined) for a representative/default quote (e.g.
+ * discovery endpoints listing every tool's price with no call to price).
+ */
 export function getToolPrice(
   toolName: string,
-  env: { X402_PRICE_USDC?: string; X402_PREPAID_PRICE_USDC?: string }
+  env: { X402_PRICE_USDC?: string; X402_PREPAID_PRICE_USDC?: string },
+  args?: Record<string, unknown>
 ): ToolPrice {
+  const dynamicPricer = DYNAMIC_PRICERS[toolName];
+  if (dynamicPricer) {
+    return dynamicPricer(args);
+  }
   const o = TOOL_PRICE_OVERRIDES[toolName];
   const payPerCallStr = o?.payPerCall ?? env.X402_PRICE_USDC ?? "0.02";
   const prepaidStr = o?.prepaid ?? env.X402_PREPAID_PRICE_USDC ?? "0.01";

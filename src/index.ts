@@ -97,8 +97,12 @@ export interface Env {
   DATAFORSEO_LOGIN?: string;
   DATAFORSEO_PASSWORD?: string;
 
-  // fal.ai API key for remove_background and future generative tools (set via: wrangler secret put FAL_API_KEY).
+  // fal.ai API key for remove_background and the Fase 13.1 media tools (set via: wrangler secret put FAL_API_KEY).
   FAL_API_KEY?: string;
+
+  // Fase 13.1 — daily spend circuit breaker for fal.ai media tools (src/fal/budget.ts).
+  // Plain var (not a secret); defaults to "5" ($5/day) if unset.
+  FAL_DAILY_BUDGET_USD?: string;
 
   // Marks our own dev/testing traffic in analytics (Fase 19).
   // Clients send X-ToolSnap-Internal: <token>; set via: wrangler secret put TOOLSNAP_INTERNAL_TOKEN.
@@ -383,7 +387,7 @@ export default {
         name: "toolsnap-mcp",
         version: "0.1.0",
         description:
-          `Deterministic, context-efficient microtools for AI agents — free tools and crypto payment need no account. ${tools.length} tools total. Extraction is pure parsing (no LLM in the loop): exact quotes, stable output, zero added inference cost. Free flagships fetch_extract (median 98.1% token reduction, 53,820 → 2,001 tokens, 11 real pages) and fetch_html, plus a wide free utility catalog (CSV/JSON/PDF query, HTML→Markdown, RSS, sitemap, metadata, token count, and more). Paid: screenshot_url, fetch_rendered, keyword_research, remove_background — real per-call COGS tools, $0.02–$0.04 USDC on Base via x402 (no first-call-free), or fiat credits with a card (API key) at /checkout. Prepaid balances (deposit once, debit off-chain, no per-call gas) work either way.`,
+          `Deterministic, context-efficient microtools for AI agents — free tools and crypto payment need no account. ${tools.length} tools total. Extraction is pure parsing (no LLM in the loop): exact quotes, stable output, zero added inference cost. Free flagships fetch_extract (median 98.1% token reduction, 53,820 → 2,001 tokens, 11 real pages) and fetch_html, plus a wide free utility catalog (CSV/JSON/PDF query, HTML→Markdown, RSS, sitemap, metadata, token count, and more). Paid: screenshot_url, fetch_rendered, keyword_research, remove_background, plus fal.ai media tools (image_generate, image_upscale, audio_transcribe, text_to_speech — priced dynamically per call from your own args) — real per-call COGS tools, USDC on Base via x402 (no first-call-free), or fiat credits with a card (API key) at /checkout. Prepaid balances (deposit once, debit off-chain, no per-call gas) work either way.`,
         transport: "streamable-http",
         endpoint: "/mcp",
         pricing_endpoint: "/.well-known/pricing.json",

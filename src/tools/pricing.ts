@@ -1,4 +1,11 @@
 import type { McpTool } from "../mcp/types.js";
+import { getToolPrice } from "../x402/middleware.js";
+
+/** Representative (default-args) quote for a dynamically-priced fal.ai tool. */
+function dynamicQuote(name: string): { price_usdc: number; prepaid_price_usdc: number } {
+  const p = getToolPrice(name, {});
+  return { price_usdc: Number(p.payPerCallStr), prepaid_price_usdc: Number(p.prepaidStr) };
+}
 
 const FREE_TOOLS = [
   "pricing",
@@ -132,6 +139,42 @@ const PRICING_DATA = {
       first_call_free: false,
       value: {
         note: "Removes the background from any public image URL (JPEG/PNG/WEBP) using the U²-Net model. Returns a transparent PNG hosted on a public URL (expires ~24h) — never raw bytes. Priced above the flat rate due to generative AI inference COGS. No first-call-free. Costs $0.03 pay-per-call or $0.02 prepaid.",
+      },
+    },
+    {
+      name: "image_generate",
+      tier: "paid",
+      ...dynamicQuote("image_generate"),
+      first_call_free: false,
+      value: {
+        note: "Text-to-image via fal.ai FLUX (flux-schnell default, flux-dev for higher quality). Priced dynamically per call from model + image_size + num_images — the price_usdc/prepaid_price_usdc shown here are a representative quote (flux-schnell, 1 image, default size); the real 402/charge reflects your actual args. Returns public R2 URLs, never raw bytes. No first-call-free (real COGS).",
+      },
+    },
+    {
+      name: "image_upscale",
+      tier: "paid",
+      ...dynamicQuote("image_upscale"),
+      first_call_free: false,
+      value: {
+        note: "2x/4x super-resolution via fal.ai ESRGAN. Flat price per scale factor shown here (scale=2); scale=4 costs more — see tool_catalog(tool=\"image_upscale\"). Source image capped at 6 MB. No first-call-free (real COGS).",
+      },
+    },
+    {
+      name: "audio_transcribe",
+      tier: "paid",
+      ...dynamicQuote("audio_transcribe"),
+      first_call_free: false,
+      value: {
+        note: "Speech-to-text via fal.ai Wizper. Priced dynamically from your declared duration_seconds — the price shown here is a representative 1-minute quote; longer audio costs more (floor holds up to ~20 minutes). Max 60 minutes/call. No first-call-free (real COGS).",
+      },
+    },
+    {
+      name: "text_to_speech",
+      tier: "paid",
+      ...dynamicQuote("text_to_speech"),
+      first_call_free: false,
+      value: {
+        note: "Text-to-speech via fal.ai Kokoro (20 English voices). Priced dynamically from text length — the price shown here is a representative 500-character quote (floor holds up to ~1000 characters). Max 5,000 characters/call. No first-call-free (real COGS).",
       },
     },
     {
