@@ -29,6 +29,10 @@ import { fetchRenderedTool } from "./fetch-rendered.js";
 import { taskRecipesTool } from "./task-recipes.js";
 import { keywordResearchTool } from "./keyword-research.js";
 import { removeBackgroundTool } from "./remove-background.js";
+import { imageGenerateTool } from "./image-generate.js";
+import { imageUpscaleTool } from "./image-upscale.js";
+import { audioTranscribeTool } from "./audio-transcribe.js";
+import { textToSpeechTool } from "./text-to-speech.js";
 import { uploadFileTool } from "./upload-file.js";
 import { pricingTool } from "./pricing.js";
 import { accountBalanceTool, accountDepositTool } from "./account.js";
@@ -54,6 +58,10 @@ export const tools: McpTool[] = [
   fetchRenderedTool,
   keywordResearchTool,
   removeBackgroundTool,
+  imageGenerateTool,
+  imageUpscaleTool,
+  audioTranscribeTool,
+  textToSpeechTool,
   uploadFileTool,
   taskRecipesTool,
   uuidTool,

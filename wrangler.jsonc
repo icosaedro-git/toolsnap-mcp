@@ -111,7 +111,12 @@
     "X_VETO_MIN_S": "1800",
     // Fase 22.3 — days back the daily metrics cron re-measures published
     // posts. Each read costs ~$0.005 (capped 2M/month) — lower to trim cost.
-    "X_METRICS_WINDOW_D": "14"
+    "X_METRICS_WINDOW_D": "14",
+    // Fase 13.1 — daily spend circuit breaker for fal.ai media tools
+    // (src/fal/budget.ts): rejects calls (before charging) once today's
+    // accumulated estimated COGS would exceed this many USD. Lower it in
+    // .dev.vars to test the breaker locally.
+    "FAL_DAILY_BUDGET_USD": "5"
   },
   // KV namespace for x402 nonce replay-protection (created 2026-06-23).
   // Also holds prepaid spend-authorization nonces (single-use) and
@@ -140,6 +145,11 @@
   //   wrangler r2 bucket lifecycle add toolsnap-screenshots --name uploads-24h      --prefix uploads/      --expire-days 1
   //   wrangler r2 bucket lifecycle add toolsnap-screenshots --name screenshots-24h --prefix screenshots/ --expire-days 1
   //   wrangler r2 bucket lifecycle add toolsnap-screenshots --name rembg-24h       --prefix rembg/       --expire-days 1
+  // Fase 13.1 — new fal.ai media tools (image_generate, image_upscale,
+  // audio_transcribe, text_to_speech, video_generate) write under media/
+  // (see src/fal/client.ts downloadAndRehost). NOT YET COVERED by a lifecycle
+  // rule — add one the same way before/soon after this ships:
+  //   wrangler r2 bucket lifecycle add toolsnap-screenshots --name media-24h      --prefix media/       --expire-days 1
   // Verify with: wrangler r2 bucket lifecycle list toolsnap-screenshots
   // This is the fix for a real gap: uploads/ (upload_file, /upload) and
   // rembg/ (remove_background output not yet fetched) had NO expiry before

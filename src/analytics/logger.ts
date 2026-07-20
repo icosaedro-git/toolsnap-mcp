@@ -70,6 +70,8 @@ export interface AnalyticsEvent {
   clientVersion?: string | null;
   /** Mcp-Session-Id (Fase 24) — enables the per-session CP-tarea-completa funnel. Not a human identity. */
   sessionId?: string | null;
+  /** Fase 13.1 — estimated fal.ai COGS (USD) for dynamically-priced media tool calls, for margin auditing. Undefined for flat-priced tools. */
+  cogsUsdc?: number;
 }
 
 export interface AnalyticsEnv {
@@ -134,8 +136,8 @@ export function writeEvent(
   // before the async op completes (fire-and-forget without waitUntil is a no-op).
   ctx.waitUntil(
     env.PREPAID_DB.prepare(
-      `INSERT INTO analytics_events (ts, tool_name, payment_type, payer, revenue_usdc, latency_ms, detail, client, internal, client_name, client_version, session_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO analytics_events (ts, tool_name, payment_type, payer, revenue_usdc, latency_ms, detail, client, internal, client_name, client_version, session_id, cogs_usdc)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
       .bind(
         Date.now(),
@@ -149,7 +151,8 @@ export function writeEvent(
         isInternalEvent(env, event) ? 1 : 0,
         event.clientName ?? null,
         event.clientVersion ?? null,
-        event.sessionId ?? null
+        event.sessionId ?? null,
+        event.cogsUsdc ?? null
       )
       .run()
       .catch(() => {
