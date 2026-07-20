@@ -4,7 +4,7 @@
  */
 
 import { FAMILIES } from "../tools/catalog.js";
-import { PROBE_CLIENTS } from "./surface.js";
+import { PROBE_CLIENTS, PROBE_NAME_PATTERNS } from "./surface.js";
 import { isUpstreamError } from "../alerts/error-classification.js";
 
 const MS_7D = 7 * 24 * 60 * 60 * 1000;
@@ -17,11 +17,21 @@ const PROBE_CLIENTS_SQL = Array.from(PROBE_CLIENTS)
   .join(", ");
 
 /**
+ * Fase 25.2 — predicate matching probe traffic by exact client_name OR by
+ * naming-convention pattern (surface.ts PROBE_NAME_PATTERNS): new scanners
+ * appear weekly, so the exact list alone always lags reality. Both constant
+ * lists, never user input.
+ */
+const IS_PROBE_SQL = `(client_name IN (${PROBE_CLIENTS_SQL}) OR ${PROBE_NAME_PATTERNS.map(
+  (p) => `client_name LIKE '${p}'`
+).join(" OR ")})`;
+
+/**
  * SQL fragment excluding directory-probe traffic from demand metrics —
  * shared by the panel's internalFilter and the weekly digest so the two
  * report on the same notion of "real demand".
  */
-const NON_PROBE_SQL = ` AND (client_name IS NULL OR client_name NOT IN (${PROBE_CLIENTS_SQL}))`;
+const NON_PROBE_SQL = ` AND (client_name IS NULL OR NOT ${IS_PROBE_SQL})`;
 
 /** tool_name -> family ids, precomputed once from the catalog (a tool can belong to >1 family). */
 const TOOL_FAMILIES: Record<string, string[]> = (() => {
@@ -643,7 +653,7 @@ export async function getDashboardData(
         .prepare(
           `SELECT COALESCE(client_name, 'unknown') AS client, count(*) AS hits, MAX(ts) AS last_seen
            FROM analytics_events
-           WHERE ts >= ? AND internal = 0 AND client_name IN (${PROBE_CLIENTS_SQL})
+           WHERE ts >= ? AND internal = 0 AND ${IS_PROBE_SQL}
            GROUP BY COALESCE(client_name, 'unknown')
            ORDER BY last_seen DESC`
         )
