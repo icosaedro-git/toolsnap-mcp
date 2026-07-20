@@ -36,6 +36,24 @@ import { classifySurface, persistSessionClient, readSessionClient, anonPayerId }
 import { maybeAlertPaywallHit } from "../alerts/error-alerts.js";
 import { verifyApiKey, touchKey, accountAddress, accountExists, type VerifiedKey } from "../fiat/keys.js";
 import type { VerifiedOAuthToken } from "../oauth/tokens.js";
+import { VIDEO_PAYMENT_CONTEXT_KEY, type VideoPaymentContext } from "../tools/video-generate.js";
+
+/**
+ * Fase 13.1b — attach payer/rail info to video_generate's args (under a
+ * reserved key, stripped before anything reaches fal.ai) right before
+ * callTool, for every payment rail. video_generate persists this into its
+ * media_jobs row so a LATER async failure (discovered by media_job, in a
+ * completely different request) can refund the correct payer. A no-op for
+ * every other tool.
+ */
+function withVideoPaymentContext(
+  toolName: string,
+  toolArgs: Record<string, unknown>,
+  ctx: VideoPaymentContext
+): Record<string, unknown> {
+  if (toolName !== "video_generate") return toolArgs;
+  return { ...toolArgs, [VIDEO_PAYMENT_CONTEXT_KEY]: ctx };
+}
 
 /**
  * Unified fiat identity (Fase 26) — resolves to the SAME synthetic address
@@ -678,7 +696,17 @@ export async function dispatch(
         // ---------------------------------------------------------------------
         if (isAdmin) {
           try {
-            const result = await callTool(toolName, toolArgs, env);
+            const result = await callTool(
+              toolName,
+              withVideoPaymentContext(toolName, toolArgs, {
+                paymentType: "admin",
+                payer: "admin",
+                refundAddress: null,
+                refundNonce: null,
+                priceMicro: 0n,
+              }),
+              env
+            );
             log({
               toolName,
               paymentType: "free_tool",
@@ -721,7 +749,17 @@ export async function dispatch(
             const whitelistedPayer = await isWhitelistedPayer(rawPayload, whitelisted);
             if (whitelistedPayer) {
               try {
-                const result = await callTool(toolName, toolArgs, env);
+                const result = await callTool(
+                  toolName,
+                  withVideoPaymentContext(toolName, toolArgs, {
+                    paymentType: "whitelisted",
+                    payer: whitelistedPayer,
+                    refundAddress: null,
+                    refundNonce: null,
+                    priceMicro: 0n,
+                  }),
+                  env
+                );
                 log({
                   toolName,
                   paymentType: "free_tool",
@@ -802,7 +840,17 @@ export async function dispatch(
 
           let apiKeyResult: string;
           try {
-            apiKeyResult = await callTool(toolName, toolArgs, env);
+            apiKeyResult = await callTool(
+              toolName,
+              withVideoPaymentContext(toolName, toolArgs, {
+                paymentType: isOAuth ? "oauth" : "api_key",
+                payer: payerLabel,
+                refundAddress: acctAddr,
+                refundNonce: spendNonce,
+                priceMicro: prepaidPriceMicro,
+              }),
+              env
+            );
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             const bal = await refundDebit(env.PREPAID_DB, acctAddr, prepaidPriceMicro, toolName, spendNonce);
@@ -931,7 +979,17 @@ export async function dispatch(
           // Execute; on failure, refund the debit (do not charge for failures).
           let prepaidResult: string;
           try {
-            prepaidResult = await callTool(toolName, toolArgs, env);
+            prepaidResult = await callTool(
+              toolName,
+              withVideoPaymentContext(toolName, toolArgs, {
+                paymentType: "prepaid",
+                payer: v.payer ?? "anon",
+                refundAddress: v.payer ?? null,
+                refundNonce: v.nonce ?? null,
+                priceMicro: prepaidPriceMicro,
+              }),
+              env
+            );
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             const bal = await refundDebit(env.PREPAID_DB, v.payer!, prepaidPriceMicro, toolName, v.nonce!);
@@ -1070,7 +1128,19 @@ export async function dispatch(
         // Step 4: execute the tool FIRST — do not charge on failure
         let toolResult: string;
         try {
-          toolResult = await callTool(toolName, toolArgs, env);
+          toolResult = await callTool(
+            toolName,
+            withVideoPaymentContext(toolName, toolArgs, {
+              paymentType: "x402",
+              payer,
+              // Pay-per-call settles on-chain right after this call succeeds —
+              // no refund path if the render later fails (see video-generate.ts).
+              refundAddress: null,
+              refundNonce: null,
+              priceMicro: price.payPerCallMicro,
+            }),
+            env
+          );
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           // Tool failed → do NOT settle or consume free call, return error

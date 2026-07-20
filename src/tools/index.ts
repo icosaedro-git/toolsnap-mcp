@@ -33,6 +33,8 @@ import { imageGenerateTool } from "./image-generate.js";
 import { imageUpscaleTool } from "./image-upscale.js";
 import { audioTranscribeTool } from "./audio-transcribe.js";
 import { textToSpeechTool } from "./text-to-speech.js";
+import { videoGenerateTool } from "./video-generate.js";
+import { mediaJobTool } from "./media-job.js";
 import { uploadFileTool } from "./upload-file.js";
 import { pricingTool } from "./pricing.js";
 import { accountBalanceTool, accountDepositTool } from "./account.js";
@@ -62,6 +64,8 @@ export const tools: McpTool[] = [
   imageUpscaleTool,
   audioTranscribeTool,
   textToSpeechTool,
+  videoGenerateTool,
+  mediaJobTool,
   uploadFileTool,
   taskRecipesTool,
   uuidTool,
