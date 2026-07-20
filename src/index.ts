@@ -18,6 +18,7 @@ import { X_PANEL_HTML } from "./x-agent/panel.js";
 import { X_PUSH_SW_JS } from "./x-agent/push-sw.js";
 import { dispatchXAgentApi } from "./x-agent/panel-api.js";
 import { fetchXMetrics } from "./x-agent/metrics.js";
+import { snapshotDirectoryStats } from "./analytics/directory-stats.js";
 
 export interface Env {
   // Fase 21.1 — Workers Static Assets binding for the public website
@@ -84,6 +85,13 @@ export interface Env {
   // Optional — the scheduled alert handler no-ops when either is missing.
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
+
+  // Fase 25.3 — directory-listing API keys (set via: wrangler secret put
+  // SMITHERY_API_KEY / GLAMA_API_KEY). Both optional — analytics/directory-
+  // stats.ts degrades to unauthenticated fetches (their public endpoints)
+  // when either is missing; only affects rate limits.
+  SMITHERY_API_KEY?: string;
+  GLAMA_API_KEY?: string;
 
   // DataForSEO credentials for keyword_research (set via: wrangler secret put DATAFORSEO_LOGIN/PASSWORD).
   DATAFORSEO_LOGIN?: string;
@@ -934,6 +942,13 @@ export default {
     ctx.waitUntil(
       fetchXMetrics(env).catch((err) =>
         console.error("x-agent metrics cron failed:", err instanceof Error ? err.message : err)
+      )
+    );
+    // Fase 25.3 — daily directory-listing snapshot (Smithery useCount, Glama
+    // listing), same piggyback pattern as the metrics fetch above.
+    ctx.waitUntil(
+      snapshotDirectoryStats(env).catch((err) =>
+        console.error("directory-stats cron failed:", err instanceof Error ? err.message : err)
       )
     );
   },

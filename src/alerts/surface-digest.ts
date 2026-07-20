@@ -55,6 +55,24 @@ export async function checkSurfaceDigest(env: Env, now: Date = new Date()): Prom
   const pf = d.paywall_funnel_this_week;
   const paywallPct = pf.hit_payers > 0 ? Math.round((pf.converted_payers / pf.hit_payers) * 100) : 0;
 
+  // Fase 25.3 — directory-listing stats: useCount + week-over-week delta
+  // where the source exposes one (Smithery), presence-only otherwise
+  // (Glama), plus a drift warning when a listing description changed since
+  // the last daily snapshot — descriptions are hand-edited on each
+  // directory's site, so a silent change is worth a look.
+  const directoryLines = d.directory_stats.length
+    ? d.directory_stats
+        .map((r) => {
+          const countPart =
+            r.use_count !== null
+              ? `useCount ${r.use_count} ${pctDelta(r.use_count, r.use_count_7d_ago ?? 0)}`
+              : "listed (no usage metric exposed)";
+          const driftPart = r.description_changed ? " ⚠ description changed" : "";
+          return `  • ${r.source}: ${countPart}${driftPart}`;
+        })
+        .join("\n")
+    : "  (sin snapshots de directorios todavía)";
+
   const msg = [
     `📊 *ToolSnap — resumen semanal de superficie* (${month}, semana ${weekOfMonth(now)})`,
     ``,
@@ -69,6 +87,9 @@ export async function checkSurfaceDigest(env: Env, now: Date = new Date()): Prom
     `Conversión free→paid: *${conversionPct}%* (${d.paid_calls_this_week}/${d.total_calls_this_week})`,
     `Muro de pago → conversión: *${paywallPct}%* (${pf.converted_payers}/${pf.hit_payers} agentes que vieron el 402)`,
     `Top tools: ${topTools}`,
+    ``,
+    `*Directorios:*`,
+    directoryLines,
   ].join("\n");
 
   await sendTelegram(env, msg);

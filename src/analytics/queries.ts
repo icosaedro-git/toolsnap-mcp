@@ -165,6 +165,15 @@ export interface DashboardData {
    */
   directory_coverage: Array<{ client: string; hits: number; last_seen: number }>;
   /**
+   * Fase 25.3 — external directory-listing stats (Smithery useCount, Glama
+   * listing presence), snapshotted daily by the scheduled cron
+   * (analytics/directory-stats.ts) since this table only holds ToolSnap's
+   * own scheduled rows — not caller traffic, so it's outside internalFilter.
+   */
+  directory_stats: Array<{ source: string; use_count: number | null; ts: number }>;
+  /** Fase 25.3 — Smithery useCount over the last 30 days, one point per snapshot day, for the panel chart. */
+  smithery_use_count_series: Array<{ day: string; use_count: number }>;
+  /**
    * Fase 24.6 — how many distinct payers hit the x402 paywall (402_rejected)
    * and, within 7 days after their first hit, converted (called
    * wallet_setup, or a payment_type of x402_paid/x402_free_first/prepaid/
@@ -315,6 +324,8 @@ export async function getDashboardData(
     revenueByClient,
     sessionRows,
     directoryCoverage,
+    directoryStatsLatest,
+    smitheryUseCountSeries,
     paywallFunnel,
   ] = await Promise.all([
       db
@@ -660,6 +671,28 @@ export async function getDashboardData(
         .bind(since7)
         .all<{ client: string; hits: number; last_seen: number }>(),
 
+      // Fase 25.3 — most recent snapshot per directory source (independent of
+      // internalFilter/probe exclusion: this table only ever holds our own
+      // scheduled snapshots, never caller-driven rows).
+      db
+        .prepare(
+          `SELECT source, use_count, MAX(ts) AS ts
+           FROM directory_stats
+           GROUP BY source`
+        )
+        .all<{ source: string; use_count: number | null; ts: number }>(),
+
+      // Fase 25.3 — Smithery useCount series, last 30 days, for the panel chart.
+      db
+        .prepare(
+          `SELECT ts, use_count
+           FROM directory_stats
+           WHERE source = 'smithery' AND ts >= ? AND use_count IS NOT NULL
+           ORDER BY ts ASC`
+        )
+        .bind(since30)
+        .all<{ ts: number; use_count: number }>(),
+
       paywallConversionFunnel(db, since30, internalFilter),
     ]);
 
@@ -793,6 +826,11 @@ export async function getDashboardData(
     error_rate_by_tool: errorRateByToolOut,
     latency_by_tool: latencyByToolOut,
     directory_coverage: directoryCoverage.results ?? [],
+    directory_stats: directoryStatsLatest.results ?? [],
+    smithery_use_count_series: (smitheryUseCountSeries.results ?? []).map((r) => ({
+      day: dayLabel(r.ts),
+      use_count: r.use_count,
+    })),
     paywall_funnel: paywallFunnel,
     surface: {
       connects_by_client: connectsByClient.results ?? [],
@@ -815,6 +853,19 @@ export interface WeeklySurfaceDigest {
   paid_calls_this_week: number;
   /** Fase 24.6 — paywall-hit-to-conversion signal, this week (see getDashboardData's paywall_funnel). */
   paywall_funnel_this_week: { hit_payers: number; converted_payers: number };
+  /**
+   * Fase 25.3 — directory-listing stats: current snapshot per source, the
+   * snapshot closest to 7 days ago (for a week-over-week delta), and whether
+   * the listing description changed since the last snapshot (a drift signal
+   * — the description is edited by hand on each directory's site, so a
+   * silent change deserves a look).
+   */
+  directory_stats: Array<{
+    source: string;
+    use_count: number | null;
+    use_count_7d_ago: number | null;
+    description_changed: boolean;
+  }>;
 }
 
 /**
@@ -898,7 +949,7 @@ export async function getWeeklySurfaceDigest(db: D1Database, now = Date.now()): 
       .first<{ n: number }>(),
   ]);
 
-  const [lastWeekTotal, paywallFunnelThisWeek] = await Promise.all([
+  const [lastWeekTotal, paywallFunnelThisWeek, directoryStatsRows] = await Promise.all([
     db
       .prepare(
         `SELECT count(*) AS n FROM analytics_events
@@ -907,7 +958,45 @@ export async function getWeeklySurfaceDigest(db: D1Database, now = Date.now()): 
       .bind(startLastWeek, startThisWeek)
       .first<{ n: number }>(),
     paywallConversionFunnel(db, startThisWeek, digestFilter),
+    // Fase 25.3 — last 40 days of every directory snapshot (2 rows/day, so
+    // this is always a tiny result set), newest first per source. Latest,
+    // previous, and "closest to 7 days ago" are all derived in JS below,
+    // same style as the errorAgg/latencyByTool rollups above.
+    db
+      .prepare(
+        `SELECT source, ts, use_count, listing FROM directory_stats
+         WHERE ts >= ?
+         ORDER BY source ASC, ts DESC`
+      )
+      .bind(now - 40 * 24 * 60 * 60 * 1000)
+      .all<{ source: string; ts: number; use_count: number | null; listing: string | null }>(),
   ]);
+
+  const rowsBySource = new Map<string, Array<{ ts: number; use_count: number | null; listing: string | null }>>();
+  for (const row of directoryStatsRows.results ?? []) {
+    const arr = rowsBySource.get(row.source) ?? [];
+    arr.push(row); // already ordered newest-first by the query above
+    rowsBySource.set(row.source, arr);
+  }
+  const listingDescription = (listing: string | null): string | null => {
+    if (!listing) return null;
+    try {
+      return (JSON.parse(listing) as { description?: string }).description ?? null;
+    } catch {
+      return null;
+    }
+  };
+  const directoryStatsOut = Array.from(rowsBySource.entries()).map(([source, rows]) => {
+    const latest = rows[0];
+    const previous = rows[1];
+    const sevenDaysAgo = rows.find((r) => r.ts <= startThisWeek) ?? null;
+    return {
+      source,
+      use_count: latest.use_count,
+      use_count_7d_ago: sevenDaysAgo?.use_count ?? null,
+      description_changed: previous ? listingDescription(latest.listing) !== listingDescription(previous.listing) : false,
+    };
+  });
 
   return {
     connects_this_week: connectsThis.results ?? [],
@@ -919,5 +1008,6 @@ export async function getWeeklySurfaceDigest(db: D1Database, now = Date.now()): 
     top_tools_this_week: topTools.results ?? [],
     paid_calls_this_week: paidThis?.n ?? 0,
     paywall_funnel_this_week: paywallFunnelThisWeek,
+    directory_stats: directoryStatsOut,
   };
 }
