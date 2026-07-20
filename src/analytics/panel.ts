@@ -380,6 +380,37 @@ function directoryCoverageTable(items) {
   </table>\`;
 }
 
+// Fase 25.3 — approximate week-over-week delta for a cumulative counter
+// (Smithery useCount) sampled ~once/day: compares the latest point to the
+// point ~7 samples back, not a sum-of-days like windowDelta (which fits a
+// per-day flow, not a running total).
+function smitheryDelta(series) {
+  if (!series || series.length < 2) return null;
+  const current = series[series.length - 1].use_count;
+  const idx = Math.max(0, series.length - 8);
+  if (idx === series.length - 1) return null;
+  const past = series[idx].use_count;
+  if (past === 0) return null;
+  const pct = Math.round(((current - past) / past) * 100);
+  return { pct, up: current >= past };
+}
+
+// Fase 25.3 — external directory-listing stats (Smithery useCount, Glama
+// presence), latest daily snapshot per source.
+function directoryStatsTable(stats, smitherySeries) {
+  if (!stats || stats.length === 0) return '<div style="color:var(--muted);font-size:12px">no directory snapshots yet</div>';
+  const delta = smitheryDelta(smitherySeries);
+  const rows = stats.map(r => \`<tr>
+    <td>\${esc(r.source)}</td>
+    <td>\${r.use_count !== null ? fmt(r.use_count, 0) + (r.source === 'smithery' ? deltaBadge(delta) : '') : '—'}</td>
+    <td>\${timeLabel(r.ts)}</td>
+  </tr>\`).join('');
+  return \`<table class="err-table">
+    <thead><tr><th>Source</th><th>useCount</th><th>Last snapshot</th></tr></thead>
+    <tbody>\${rows}</tbody>
+  </table>\`;
+}
+
 // Fase 24.6 — agents that hit the x402 paywall vs. converted within 7 days.
 // Direct signal for whether the actionable 402 error.message (Fase 24.5)
 // recovers the conversion an agent loses when it only sees a bare
@@ -879,6 +910,11 @@ function render(d) {
         <h2>Directory coverage · 7d</h2>
         \${directoryCoverageTable(d.directory_coverage)}
       </div>
+    </div>
+
+    <div class="card" style="margin-bottom:24px">
+      <h2>Directory listings</h2>
+      \${directoryStatsTable(d.directory_stats, d.smithery_use_count_series)}
     </div>
 
     <div class="card" style="margin-bottom:24px">
