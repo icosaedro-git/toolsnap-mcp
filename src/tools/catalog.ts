@@ -105,7 +105,15 @@ export const FAMILIES: Record<string, Family> = {
     label: "Media generation (fal.ai)",
     oneLiner:
       "Generate images and video, upscale, transcribe audio, synthesize speech — pay-per-call, priced per job.",
-    tools: ["image_generate", "image_upscale", "audio_transcribe", "text_to_speech", "remove_background"],
+    tools: [
+      "image_generate",
+      "image_upscale",
+      "audio_transcribe",
+      "text_to_speech",
+      "video_generate",
+      "media_job",
+      "remove_background",
+    ],
   },
   utils: {
     label: "ID & encoding utilities",
@@ -190,6 +198,10 @@ export const NOTES: Record<string, string> = {
     "Speech-to-text via fal.ai Wizper (Whisper v3). Requires `duration_seconds` (your best estimate) to quote the call upfront; verified against the real audio duration after transcription — if you were off by more than 10% the call is rejected and any debit refunded. Returns text or SRT. Max 60 minutes/call. No first-call-free (real COGS).",
   text_to_speech:
     "Text-to-speech via fal.ai Kokoro (20 English voices). Priced dynamically from text length. Returns a public R2 WAV URL. Max 5,000 characters/call. No first-call-free (real COGS).",
+  video_generate:
+    "Async text/image-to-video via fal.ai (ltx-fast, flat $0.08, ~5s, or kling-pro, $0.07/s, 5-10s). Returns a job_id immediately — poll the free media_job tool until status is \"done\". Charged upfront at submit. Prepaid/API-key/OAuth jobs are auto-refunded if the render later fails; pay-per-call (crypto) settles at submit and is NOT refundable afterward. No first-call-free (real COGS).",
+  media_job:
+    "Free polling tool for video_generate's async jobs. Idempotent (a \"done\" job returns the cached URL without re-contacting fal.ai). job_id is treated as a bearer credential — anyone holding it can poll/read the result, matching most async job APIs (e.g. Stripe Checkout sessions).",
   link_check:
     "Follows redirects manually to build the full hop-by-hop chain (not just the final URL). Max 20 URLs per call, up to 5 redirect hops each. Detects broken links, redirect loops, and network/DNS failures without loading any page content. Does NOT accept `headers` — it takes up to 20 URLs across potentially different hosts in one call, so a single credential could not be scoped safely to just one of them; use fetch_extract/fetch_html per-URL with `headers` instead if a specific link needs auth.",
   html_table_extract:

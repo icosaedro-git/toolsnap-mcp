@@ -41,6 +41,7 @@ const FREE_TOOLS = [
   "task_recipes",
   "fetch_extract",
   "fetch_html",
+  "media_job",
 ];
 
 const PRICING_DATA = {
@@ -175,6 +176,15 @@ const PRICING_DATA = {
       first_call_free: false,
       value: {
         note: "Text-to-speech via fal.ai Kokoro (20 English voices). Priced dynamically from text length — the price shown here is a representative 500-character quote (floor holds up to ~1000 characters). Max 5,000 characters/call. No first-call-free (real COGS).",
+      },
+    },
+    {
+      name: "video_generate",
+      tier: "paid",
+      ...dynamicQuote("video_generate"),
+      first_call_free: false,
+      value: {
+        note: "Async text/image-to-video via fal.ai (ltx-fast default: flat, ltx-fast quote shown here; kling-pro: $0.07/s, higher quality). Returns a job_id — poll the free media_job tool. Charged upfront at submit; prepaid/API-key/OAuth jobs are auto-refunded if the render later fails, pay-per-call is not. No first-call-free (real COGS).",
       },
     },
     {
