@@ -1,6 +1,6 @@
 import type { McpTool } from "../mcp/types.js";
 import type { Env } from "../index.js";
-import { getFalQueueStatus, getFalQueueResult } from "../fal/queue.js";
+import { getFalQueueStatus, getFalQueueResult, FalQueueHttpError } from "../fal/queue.js";
 import { downloadAndRehost } from "../fal/client.js";
 import {
   getMediaJob,
@@ -8,6 +8,7 @@ import {
   markMediaJobRunning,
   markMediaJobFailed,
   markMediaJobRefunded,
+  type MediaJobRow,
 } from "../fal/media-jobs.js";
 import { refundDebit, microToUsdc } from "../x402/prepaid.js";
 
@@ -30,9 +31,31 @@ import { refundDebit, microToUsdc } from "../x402/prepaid.js";
  * ledger under the hood), this credits the exact original price_micro back
  * to refund_address and marks the job "refunded". Pay-per-call (x402) jobs
  * have no refund_address (settled on-chain at submit) — see video-generate.ts.
+ *
+ * TRANSIENT VS DEFINITIVE FAILURES (Fase 13.1c): a blip talking to fal (a
+ * status-check timeout, a network error, a 5xx, or a failed mp4
+ * download/rehost) must NOT kill a job that may still be rendering fine on
+ * fal's side — that would refund the customer while fal keeps our COGS and
+ * the eventual result is discarded. Only fail+refund on: an HTTP 4xx from
+ * fal's queue API (the request/job itself is invalid or expired), a
+ * COMPLETED result with no video URL, or the job exceeding
+ * MEDIA_JOB_MAX_AGE_SECONDS while still queued/running (catches orphaned
+ * jobs too — fal never got back to us at all). Everything else is reported
+ * back as a transient_error without touching the job's status, so the next
+ * poll tries again.
+ *
+ * DOUBLE-REFUND GUARD: markMediaJobFailed only transitions a job that is
+ * still 'queued'/'running' and reports whether it won that transition
+ * (D1's meta.changes). Two concurrent polls both discovering the same
+ * failure will only have ONE of them return true — only that caller
+ * refunds; the loser re-reads and reports the job's already-resolved state.
  */
 
 const REFUNDABLE_PAYMENT_TYPES = new Set(["prepaid", "api_key", "oauth"]);
+
+/** Jobs stuck queued/running past this age are presumed dead (orphaned or
+ *  fal never completing them) and get force-failed + refunded on next poll. */
+const MEDIA_JOB_MAX_AGE_SECONDS = 3600;
 
 interface FalVideoResult {
   video?: { url: string; content_type?: string };
@@ -68,6 +91,45 @@ async function refundIfApplicable(
   }
 }
 
+/**
+ * Definitively fail a job and refund if applicable — but ONLY for whichever
+ * caller actually wins the queued/running -> failed transition
+ * (markMediaJobFailed's guarded UPDATE, Fase 13.1c). If another concurrent
+ * poll already resolved this job (won the race, or it finished normally in
+ * between), re-read the current row and report that instead of refunding a
+ * second time.
+ */
+async function failJobOnce(env: Env, jobId: string, job: MediaJobRow, message: string): Promise<string> {
+  const won = await markMediaJobFailed(env.PREPAID_DB, jobId, message);
+  if (!won) {
+    const fresh = await getMediaJob(env.PREPAID_DB, jobId);
+    if (!fresh) {
+      return JSON.stringify({ job_id: jobId, status: "failed", error: message });
+    }
+    if (fresh.status === "done") {
+      return JSON.stringify({ job_id: jobId, status: "done", result_url: fresh.result_url });
+    }
+    return JSON.stringify({ job_id: jobId, status: fresh.status, error: fresh.error });
+  }
+  const refund = await refundIfApplicable(env, jobId, job);
+  return JSON.stringify({ job_id: jobId, status: refund.refunded ? "refunded" : "failed", error: message, ...refund });
+}
+
+/** True if an error carries a definitive (non-retryable) fal.ai HTTP status — a 4xx
+ *  means the request/job itself is invalid or expired, not a transient upstream blip. */
+export function isDefinitiveHttpError(err: unknown): boolean {
+  return err instanceof FalQueueHttpError && err.httpStatus >= 400 && err.httpStatus < 500;
+}
+
+function transientResponse(jobId: string, status: string, message: string): string {
+  return JSON.stringify({
+    job_id: jobId,
+    status,
+    transient_error: message,
+    note: "temporary upstream error — poll again in ~30s",
+  });
+}
+
 async function runMediaJob(args: Record<string, unknown>, env: Env): Promise<string> {
   if (!env.PREPAID_DB) throw new Error("D1 database is not configured (PREPAID_DB).");
   if (!env.SCREENSHOTS_BUCKET) throw new Error("R2 bucket is not configured (SCREENSHOTS_BUCKET).");
@@ -85,18 +147,35 @@ async function runMediaJob(args: Record<string, unknown>, env: Env): Promise<str
     return JSON.stringify({ job_id: jobId, status: job.status, error: job.error });
   }
 
+  const ageSeconds = Math.floor(Date.now() / 1000) - job.created_at;
+  const isExpired = ageSeconds > MEDIA_JOB_MAX_AGE_SECONDS;
+
   // status is "queued" or "running" — check fal.
   let falStatus: Awaited<ReturnType<typeof getFalQueueStatus>>;
   try {
     falStatus = await getFalQueueStatus(job.fal_status_url, env);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await markMediaJobFailed(env.PREPAID_DB, jobId, message);
-    const refund = await refundIfApplicable(env, jobId, job);
-    return JSON.stringify({ job_id: jobId, status: refund.refunded ? "refunded" : "failed", error: message, ...refund });
+    if (isDefinitiveHttpError(err) || isExpired) {
+      const failMessage = isExpired
+        ? `render did not complete within ${MEDIA_JOB_MAX_AGE_SECONDS / 3600}h (last error: ${message})`
+        : message;
+      return await failJobOnce(env, jobId, job, failMessage);
+    }
+    // Transient: a status-check timeout, network error, or fal 5xx. The
+    // render may still be in progress — do NOT fail/refund on a blip.
+    return transientResponse(jobId, job.status, message);
   }
 
   if (falStatus.status === "IN_QUEUE" || falStatus.status === "IN_PROGRESS") {
+    if (isExpired) {
+      return await failJobOnce(
+        env,
+        jobId,
+        job,
+        `render did not complete within ${MEDIA_JOB_MAX_AGE_SECONDS / 3600}h (fal still reports ${falStatus.status})`
+      );
+    }
     if (falStatus.status === "IN_PROGRESS" && job.status === "queued") {
       await markMediaJobRunning(env.PREPAID_DB, jobId);
     }
@@ -108,20 +187,44 @@ async function runMediaJob(args: Record<string, unknown>, env: Env): Promise<str
   }
 
   // COMPLETED — fetch the result and re-host it.
+  let result: FalVideoResult;
   try {
-    const result = await getFalQueueResult<FalVideoResult>(job.fal_response_url, env);
-    if (!result?.video?.url) {
-      throw new Error("fal.ai queue result had no video URL");
-    }
-    const { url } = await downloadAndRehost(result.video.url, env, "media/video_generate", "mp4", "video/mp4");
-    await markMediaJobDone(env.PREPAID_DB, jobId, url);
-    return JSON.stringify({ job_id: jobId, status: "done", result_url: url });
+    result = await getFalQueueResult<FalVideoResult>(job.fal_response_url, env);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await markMediaJobFailed(env.PREPAID_DB, jobId, message);
-    const refund = await refundIfApplicable(env, jobId, job);
-    return JSON.stringify({ job_id: jobId, status: refund.refunded ? "refunded" : "failed", error: message, ...refund });
+    if (isDefinitiveHttpError(err) || isExpired) {
+      return await failJobOnce(env, jobId, job, message);
+    }
+    // Transient: network error or fal 5xx fetching the result — try again later.
+    return transientResponse(jobId, job.status, message);
   }
+
+  if (!result?.video?.url) {
+    // fal genuinely says COMPLETED with nothing to show for it — definitive.
+    return await failJobOnce(env, jobId, job, "fal.ai queue result had no video URL");
+  }
+
+  let url: string;
+  try {
+    ({ url } = await downloadAndRehost(result.video.url, env, "media/video_generate", "mp4", "video/mp4"));
+  } catch (err) {
+    // The render succeeded on fal's side; a failure here is us failing to
+    // download/rehost the CDN mp4 — always transient (network/R2 blip), and
+    // failing the job here would refund a customer for a video that exists.
+    const message = err instanceof Error ? err.message : String(err);
+    if (isExpired) {
+      return await failJobOnce(
+        env,
+        jobId,
+        job,
+        `render completed on fal but could not be retrieved within ${MEDIA_JOB_MAX_AGE_SECONDS / 3600}h (last error: ${message})`
+      );
+    }
+    return transientResponse(jobId, job.status, message);
+  }
+
+  await markMediaJobDone(env.PREPAID_DB, jobId, url);
+  return JSON.stringify({ job_id: jobId, status: "done", result_url: url });
 }
 
 export const mediaJobTool: McpTool = {

@@ -28,6 +28,14 @@ import type { Env } from "../index.js";
 const DEFAULT_TIMEOUT_MS = 60_000;
 const LOCAL_PREFIX = "/files/";
 
+/**
+ * Default source-file size cap for resolveSourceAsDataUri (Fase 13.1c —
+ * shared between image_upscale and video_generate's kling-pro image_url so
+ * both keep their flat-price/runtime assumptions bounded; callers may pass
+ * a different `maxBytes` explicitly if a tool needs a different limit).
+ */
+export const DEFAULT_MAX_SOURCE_BYTES = 6 * 1024 * 1024; // 6 MB
+
 export interface FalSourceEnv {
   SCREENSHOTS_BUCKET: R2Bucket;
 }
@@ -43,7 +51,7 @@ export interface FalSourceEnv {
 export async function resolveSourceAsDataUri(
   sourceUrl: string,
   env: FalSourceEnv,
-  opts: { timeoutMs?: number; defaultMimeType?: string } = {}
+  opts: { timeoutMs?: number; defaultMimeType?: string; maxBytes?: number } = {}
 ): Promise<string> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
@@ -72,6 +80,12 @@ export async function resolveSourceAsDataUri(
         (srcRes.headers.get("content-type") ?? opts.defaultMimeType ?? "application/octet-stream")
           .split(";")[0]
           .trim();
+    }
+
+    if (opts.maxBytes !== undefined && srcBytes.byteLength > opts.maxBytes) {
+      throw new Error(
+        `Source file too large (${srcBytes.byteLength} bytes, max ${opts.maxBytes}) — this tool's pricing/runtime assumes a bounded source size. Downscale it first.`
+      );
     }
 
     const b64 = arrayBufferToBase64(srcBytes);

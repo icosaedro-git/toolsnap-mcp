@@ -5,8 +5,12 @@ interface Props {
   tier: 'free' | 'paid';
   priceUsdc: number | null;
   prepaidUsdc: number | null;
+  /** True for tools priced per-call from real args (e.g. media generation) —
+   *  the price shown is a representative example quote, not a flat rate. */
+  dynamic?: boolean;
 }
-const { name, description, tier, priceUsdc, prepaidUsdc } = Astro.props;
+const { name, description, tier, priceUsdc, prepaidUsdc, dynamic } = Astro.props;
+const pricePrefix = dynamic ? 'from ' : '';
 ---
 
 <div class="tool-row">
@@ -15,7 +19,7 @@ const { name, description, tier, priceUsdc, prepaidUsdc } = Astro.props;
   {tier === 'free' ? (
     <span class="badge badge--free">FREE</span>
   ) : (
-    <span class="badge badge--price mono">${priceUsdc?.toFixed(2)} &middot; ${prepaidUsdc?.toFixed(3).replace(/0$/, '')} prepaid</span>
+    <span class="badge badge--price mono">{pricePrefix}${priceUsdc?.toFixed(2)} &middot; ${prepaidUsdc?.toFixed(3).replace(/0$/, '')} prepaid</span>
   )}
 </div>
 

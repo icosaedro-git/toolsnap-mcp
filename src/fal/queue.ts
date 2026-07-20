@@ -11,6 +11,25 @@
 
 import type { FalCallEnv } from "./client.js";
 
+/**
+ * Thrown by the queue helpers below when fal.ai returns a non-2xx HTTP
+ * response, carrying the status code so media-job.ts (Fase 13.1c) can tell
+ * a definitive client-side failure (4xx — the request/job is genuinely
+ * invalid or gone) from a transient upstream blip (5xx) that shouldn't kill
+ * a job that's still rendering. The message is identical to what a plain
+ * Error would have carried (still starts with "fal.ai ...") so
+ * error-alerts.ts's provider-prefix classification keeps working unchanged.
+ */
+export class FalQueueHttpError extends Error {
+  constructor(
+    message: string,
+    public httpStatus: number
+  ) {
+    super(message);
+    this.name = "FalQueueHttpError";
+  }
+}
+
 export interface FalQueueSubmitResult {
   request_id: string;
   status_url: string;
@@ -56,7 +75,10 @@ export async function submitFalQueue(
       } catch {
         /* ignore */
       }
-      throw new Error(`fal.ai queue submit (${model}) failed: HTTP ${res.status}${detail ? ` — ${detail}` : ""}`);
+      throw new FalQueueHttpError(
+        `fal.ai queue submit (${model}) failed: HTTP ${res.status}${detail ? ` — ${detail}` : ""}`,
+        res.status
+      );
     }
     return (await res.json()) as FalQueueSubmitResult;
   } catch (err) {
@@ -89,7 +111,10 @@ export async function getFalQueueStatus(
       } catch {
         /* ignore */
       }
-      throw new Error(`fal.ai queue status check failed: HTTP ${res.status}${detail ? ` — ${detail}` : ""}`);
+      throw new FalQueueHttpError(
+        `fal.ai queue status check failed: HTTP ${res.status}${detail ? ` — ${detail}` : ""}`,
+        res.status
+      );
     }
     return (await res.json()) as FalQueueStatusResult;
   } catch (err) {
@@ -119,7 +144,10 @@ export async function getFalQueueResult<T = unknown>(
       } catch {
         /* ignore */
       }
-      throw new Error(`fal.ai queue result fetch failed: HTTP ${res.status}${detail ? ` — ${detail}` : ""}`);
+      throw new FalQueueHttpError(
+        `fal.ai queue result fetch failed: HTTP ${res.status}${detail ? ` — ${detail}` : ""}`,
+        res.status
+      );
     }
     return (await res.json()) as T;
   } catch (err) {
