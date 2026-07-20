@@ -1,7 +1,7 @@
 import type { McpTool } from "../mcp/types.js";
 import type { Env } from "../index.js";
-import { resolveSourceAsDataUri } from "../fal/client.js";
-import { checkFalBudget } from "../fal/budget.js";
+import { resolveSourceAsDataUri, DEFAULT_MAX_SOURCE_BYTES } from "../fal/client.js";
+import { checkFalBudget, recordFalCost } from "../fal/budget.js";
 import { FAL_COSTS, videoGenerateCogsMicro, MAX_VIDEO_SECONDS } from "../fal/pricing.js";
 import { submitFalQueue } from "../fal/queue.js";
 import { createMediaJob } from "../fal/media-jobs.js";
@@ -89,7 +89,10 @@ async function runVideoGenerate(args: Record<string, unknown>, env: Env): Promis
 
     const imageUrl = typeof args.image_url === "string" ? args.image_url.trim() : "";
     if (imageUrl) {
-      body.image_url = await resolveSourceAsDataUri(imageUrl, env, { defaultMimeType: "image/jpeg" });
+      body.image_url = await resolveSourceAsDataUri(imageUrl, env, {
+        defaultMimeType: "image/jpeg",
+        maxBytes: DEFAULT_MAX_SOURCE_BYTES,
+      });
       falModel = FAL_COSTS.video_generate["kling-pro"].modelImageToVideo;
     } else {
       falModel = FAL_COSTS.video_generate["kling-pro"].modelTextToVideo;
@@ -97,6 +100,12 @@ async function runVideoGenerate(args: Record<string, unknown>, env: Env): Promis
   }
 
   const submitted = await submitFalQueue(falModel, body, env);
+
+  // The submit call is the point of commitment with fal (they start billing
+  // as soon as the job is queued), so the daily breaker must count it here —
+  // not after the render completes, which could be minutes away or never
+  // happen. Same pattern as image-generate.ts's recordFalCost call.
+  await recordFalCost(env, cogsMicro);
 
   const rawCtx = args[VIDEO_PAYMENT_CONTEXT_KEY];
   const paymentCtx: VideoPaymentContext =

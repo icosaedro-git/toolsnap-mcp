@@ -29,7 +29,7 @@ const description = `The full ToolSnap MCP catalog: ${toolsData.free} free tools
         <p class="family-blurb text-soft">{f.oneLiner}</p>
         <div class="tool-rows">
           {f.tools.map((t: any) => (
-            <ToolRow name={t.name} description={t.description} tier={t.tier} priceUsdc={t.price_usdc} prepaidUsdc={t.prepaid_price_usdc} />
+            <ToolRow name={t.name} description={t.description} tier={t.tier} priceUsdc={t.price_usdc} prepaidUsdc={t.prepaid_price_usdc} dynamic={t.dynamic} />
           ))}
         </div>
         {f.id === 'images' && (

@@ -71,8 +71,13 @@ export async function getMediaJob(db: D1Database, jobId: string): Promise<MediaJ
 }
 
 export async function markMediaJobDone(db: D1Database, jobId: string, resultUrl: string): Promise<void> {
+  // Guarded the same way as markMediaJobFailed (Fase 13.1c) — mostly for
+  // symmetry/defense-in-depth: a job that a concurrent poll already flipped
+  // to 'failed' (e.g. the 1h age cutoff) must not be resurrected as 'done'.
   await db
-    .prepare("UPDATE media_jobs SET status = 'done', result_url = ?, updated_at = ? WHERE job_id = ?")
+    .prepare(
+      "UPDATE media_jobs SET status = 'done', result_url = ?, updated_at = ? WHERE job_id = ? AND status IN ('queued', 'running')"
+    )
     .bind(resultUrl, Math.floor(Date.now() / 1000), jobId)
     .run();
 }
@@ -84,11 +89,22 @@ export async function markMediaJobRunning(db: D1Database, jobId: string): Promis
     .run();
 }
 
-export async function markMediaJobFailed(db: D1Database, jobId: string, error: string): Promise<void> {
-  await db
-    .prepare("UPDATE media_jobs SET status = 'failed', error = ?, updated_at = ? WHERE job_id = ?")
+/**
+ * Marks a job 'failed', but ONLY if it is still 'queued' or 'running'
+ * (Fase 13.1c) — guards against two concurrent polls both discovering the
+ * same failure and both trying to fail+refund it. D1's `meta.changes`
+ * reports how many rows the UPDATE actually touched; the caller must only
+ * refund when this returns true (it won the transition), and re-read the
+ * job when it returns false (another poll already resolved it).
+ */
+export async function markMediaJobFailed(db: D1Database, jobId: string, error: string): Promise<boolean> {
+  const result = await db
+    .prepare(
+      "UPDATE media_jobs SET status = 'failed', error = ?, updated_at = ? WHERE job_id = ? AND status IN ('queued', 'running')"
+    )
     .bind(error.slice(0, 500), Math.floor(Date.now() / 1000), jobId)
     .run();
+  return (result.meta?.changes ?? 0) > 0;
 }
 
 export async function markMediaJobRefunded(db: D1Database, jobId: string): Promise<void> {

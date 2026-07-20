@@ -1,6 +1,6 @@
 import type { McpTool } from "../mcp/types.js";
 import type { Env } from "../index.js";
-import { resolveSourceAsDataUri, callFalSync, downloadAndRehost } from "../fal/client.js";
+import { resolveSourceAsDataUri, callFalSync, downloadAndRehost, DEFAULT_MAX_SOURCE_BYTES } from "../fal/client.js";
 import { checkFalBudget, recordFalCost } from "../fal/budget.js";
 import { FAL_COSTS, imageUpscaleCogsMicro } from "../fal/pricing.js";
 
@@ -10,11 +10,11 @@ import { FAL_COSTS, imageUpscaleCogsMicro } from "../fal/pricing.js";
  * Pricing note: ESRGAN bills fal by compute-second, not a fixed per-image
  * rate, so the price is a conservative flat estimate per scale factor (see
  * FAL_COSTS.image_upscale in src/fal/pricing.ts) rather than an exact COGS.
- * A source-size cap below keeps real runtime within that assumption; the
- * daily budget breaker is the backstop if a call ever runs hotter.
+ * A source-size cap (enforced by resolveSourceAsDataUri's maxBytes option,
+ * shared with video_generate's kling-pro image_url — Fase 13.1c) keeps real
+ * runtime within that assumption; the daily budget breaker is the backstop
+ * if a call ever runs hotter.
  */
-
-const MAX_SOURCE_BYTES = 6 * 1024 * 1024; // 6 MB — keeps ESRGAN runtime within our flat-price assumption
 
 interface EsrganResponse {
   image: { url: string; content_type?: string; width?: number; height?: number };
@@ -40,15 +40,10 @@ async function runImageUpscale(args: Record<string, unknown>, env: Env): Promise
   const cogsMicro = imageUpscaleCogsMicro(args);
   await checkFalBudget(env, cogsMicro);
 
-  const sourceDataUri = await resolveSourceAsDataUri(imageUrl, env, { defaultMimeType: "image/jpeg" });
-  // The data URI is base64 — roughly 4/3 the raw byte size; check against
-  // that inflated size since that's what we actually measured downloading.
-  const approxBytes = Math.floor((sourceDataUri.length * 3) / 4);
-  if (approxBytes > MAX_SOURCE_BYTES) {
-    throw new Error(
-      `Source image too large (${approxBytes} bytes, max ${MAX_SOURCE_BYTES}) — image_upscale's flat price assumes a bounded runtime. Downscale the source first.`
-    );
-  }
+  const sourceDataUri = await resolveSourceAsDataUri(imageUrl, env, {
+    defaultMimeType: "image/jpeg",
+    maxBytes: DEFAULT_MAX_SOURCE_BYTES,
+  });
 
   const result = await callFalSync<EsrganResponse>(
     FAL_COSTS.image_upscale.model,

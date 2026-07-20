@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { tools } from "../../src/tools/index.js";
-import { requiresPayment, getToolPrice } from "../../src/x402/middleware.js";
+import { requiresPayment, getToolPrice, estimateCogsUsdc } from "../../src/x402/middleware.js";
 import { FAMILIES, CORE_TOOLS, NOTES } from "../../src/tools/catalog.js";
 import { RECIPES } from "../../src/recipes.js";
 
@@ -27,6 +27,10 @@ const toolData = tools.map((t) => {
     tier: paid ? ("paid" as const) : ("free" as const),
     price_usdc: price ? Number(price.payPerCallStr) : null,
     prepaid_price_usdc: price ? Number(price.prepaidStr) : null,
+    // True for tools priced per-call from real args (e.g. media generation) —
+    // the representative price above is just one example quote, not a flat
+    // rate, so the site should render it as "from $X" (Fase 13.1c).
+    dynamic: price ? estimateCogsUsdc(t.name, price) !== undefined : false,
     notes: NOTES[t.name] ?? null,
   };
 });
