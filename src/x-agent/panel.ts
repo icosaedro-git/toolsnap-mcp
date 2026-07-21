@@ -257,6 +257,23 @@ function tweetUrl(row) {
   return 'https://x.com/i/web/status/' + row.tweet_id;
 }
 
+// The post being replied to / quoted — distinct from tweetUrl(row), which is
+// the id OF this row's own tweet (NULL for a manual reply/quote until Unai
+// pastes it back in). Found 2026-07-21: a reply marked "published manually"
+// had no way back to the original post in the panel, because the queue view
+// only ever linked via tweet_id. reply_to_tweet_id/quote_tweet_id are always
+// known up front (set at discovery/creation time), so this works in every
+// status, not just published.
+function originalPostUrl(row) {
+  if (row.kind === 'reply' && row.reply_to_tweet_id) {
+    return 'https://x.com/i/web/status/' + row.reply_to_tweet_id;
+  }
+  if (row.kind === 'quote' && row.quote_tweet_id) {
+    return 'https://x.com/i/web/status/' + row.quote_tweet_id;
+  }
+  return null;
+}
+
 function modalActions(row) {
   const btns = [];
   const editableStates = ['pending_approval', 'scheduled'];
@@ -312,6 +329,7 @@ function modal() {
   const row = state.rows.find(r => r.id === state.modalRowId);
   if (!row) return '';
   const link = tweetUrl(row);
+  const originalLink = originalPostUrl(row);
   return \`<div class="overlay" onclick="if(event.target===this) closeModal()">
     <div class="modal">
       <span class="modal-close" onclick="closeModal()">×</span>
@@ -321,6 +339,7 @@ function modal() {
       <div class="row"><span>Scheduled</span><span>\${fmtWhen(row)}</span></div>
       <div class="row"><span>Approval mode</span><span>\${esc(row.approval_mode)}</span></div>
       \${row.depends_on ? '<div class="row"><span>Depends on</span><span>#' + row.depends_on + '</span></div>' : ''}
+      \${originalLink ? '<div class="row"><span>Post original</span><span><a href="' + originalLink + '" target="_blank" style="color:var(--accent)">abrir post original ↗</a></span></div>' : ''}
       \${link ? '<div class="row"><span>Tweet</span><span><a href="' + link + '" target="_blank" style="color:var(--accent)">open on X ↗</a></span></div>' : ''}
       <div style="margin-top:10px;padding:10px;background:var(--bg);border-radius:8px;font-size:13px;white-space:pre-wrap">\${esc(row.text || '(sin texto — repost puro)')}</div>
       <div class="modal-actions">\${modalActions(row)}</div>
