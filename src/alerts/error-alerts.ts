@@ -139,6 +139,7 @@ interface PaywallHitParams {
   toolName: string;
   clientIp: string;
   client?: string | null;
+  clientName?: string | null;
 }
 
 const PAYWALL_ALERT_TTL_SEC = 6 * HOUR_SEC;
@@ -157,7 +158,12 @@ export function maybeAlertPaywallHit(env: AlertEnv, ctx: ExecutionContext, param
   ctx.waitUntil(
     (async () => {
       try {
-        const { toolName, clientIp, client } = params;
+        const { toolName, clientIp, client, clientName } = params;
+
+        // Same probe exclusion as maybeAlertError / the panel (queries.ts IS_PROBE_SQL):
+        // a directory scraper or uptime probe hitting the paywall is not a lost
+        // conversion, so it must not page Telegram while the panel excludes it.
+        if (isProbeClient(clientName)) return;
 
         if (!(await shouldAlert(env.X402_NONCES, `alert:paywall:${clientIp}`, PAYWALL_ALERT_TTL_SEC))) return;
 
@@ -166,7 +172,8 @@ export function maybeAlertPaywallHit(env: AlertEnv, ctx: ExecutionContext, param
           `tool: \`${toolName}\``,
           `ip: ${clientIp}${client ? ` · client: ${client}` : ""}`,
           `conversión en riesgo — aún no ha llamado a wallet_setup ni ido al checkout`,
-        ];
+          clientName ? `client_name: ${clientName}` : null,
+        ].filter((l): l is string => l !== null);
 
         await sendTelegram(env, lines.join("\n"));
       } catch {

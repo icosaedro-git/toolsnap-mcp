@@ -1081,7 +1081,7 @@ export async function dispatch(
               client: clientUA,
               internal: isInternal,
             });
-            maybeAlertPaywallHit(env, ctx, { toolName, clientIp, client: clientUA });
+            maybeAlertPaywallHit(env, ctx, { toolName, clientIp, client: clientUA, clientName: surface.name });
           }
           // No payment payload at all → agent likely has no wallet yet.
           // Inject a wallet_setup hint into the standard x402 response so the
