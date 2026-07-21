@@ -134,6 +134,18 @@ function manualRecoveryKeyboard(queueId: number, tweetUrl: string | null): Inlin
   return rows;
 }
 
+/**
+ * Keyboard for a row already marked "published manually" and waiting on the
+ * real tweet URL (see markPublishedManual / tryCaptureManualTweetUrl) — just
+ * the "open post" URL button so Unai can get back to the original post to
+ * copy its link, or re-check the reply he just made. No callback actions
+ * left to take at this point (found 2026-07-21: the previous version dropped
+ * the keyboard entirely here, losing the only way back to the original post).
+ */
+function manualPublishedKeyboard(tweetUrl: string | null): InlineKeyboardButton[][] {
+  return tweetUrl ? [[{ text: "🔗 Abrir post", url: tweetUrl }]] : [];
+}
+
 /** Decision keyboard for a manual-quote card (kind='quote') — no "Publicar (API)" option exists, X rejects automated quotes (2026-07-14 incident). */
 function manualQuoteKeyboard(queueId: number, quoteUrl: string | null): InlineKeyboardButton[][] {
   const rows: InlineKeyboardButton[][] = [];
@@ -203,9 +215,26 @@ async function tryCaptureManualTweetUrl(env: XTelegramEnv, db: D1Database, repli
     return;
   }
 
+  // 2026-07-21 hardening — the original post's link sits right above in the
+  // same card (row.reply_to_tweet_id for a reply, row.quote_tweet_id for a
+  // quote), so it's an easy paste mistake to grab that link instead of the
+  // one for the reply Unai actually just posted. Recording it as tweet_id
+  // would silently attribute the original author's post to Unai's own
+  // metrics — reject it instead of writing it.
+  if (match[1] === row.reply_to_tweet_id || match[1] === row.quote_tweet_id) {
+    await sendXAgentReply(env, "Ese es el link del post original, no el de tu respuesta — pega la URL de tu propio tweet.", repliedToId);
+    return;
+  }
+
   await db.prepare("UPDATE x_queue SET tweet_id = ?, updated_at = ? WHERE id = ?").bind(match[1], nowTs(), row.id).run();
   const messageId = row.tg_message_id ?? repliedToId;
-  await editXAgentMessageText(env, messageId, `${metaCardFor({ ...row, tweet_id: match[1] })}\n\n📋 *Publicada a mano*\n✅ *URL registrada — entrará en métricas*`);
+  const tweetUrl = `https://x.com/i/web/status/${match[1]}`;
+  await editXAgentMessageText(
+    env,
+    messageId,
+    `${metaCardFor({ ...row, tweet_id: match[1] })}\n\n📋 *Publicada a mano*\n✅ *URL registrada — entrará en métricas*`,
+    { inlineKeyboard: manualPublishedKeyboard(tweetUrl) }
+  );
 }
 
 /**
@@ -255,13 +284,20 @@ export async function sendApprovalCard(
   }
 }
 
+interface TelegramMessage {
+  message_id: number;
+  text?: string;
+  chat: { id: number };
+  reply_to_message?: { message_id: number };
+}
+
 export interface TelegramUpdate {
-  message?: {
-    message_id: number;
-    text?: string;
-    chat: { id: number };
-    reply_to_message?: { message_id: number };
-  };
+  message?: TelegramMessage;
+  // Telegram sends this instead of `message` when Unai edits a message he
+  // already sent (native Telegram "Edit" on his own reply) rather than
+  // sending a new one — found 2026-07-21: this went unhandled entirely, so
+  // editing a reply-to-the-card via Telegram's own edit silently did nothing.
+  edited_message?: TelegramMessage;
   callback_query?: {
     id: string;
     data?: string;
@@ -387,6 +423,11 @@ export async function handleTelegramUpdate(
   update: TelegramUpdate
 ): Promise<void> {
   const allowedChatId = env.TELEGRAM_CHAT_ID;
+  // Treat a native Telegram edit of Unai's own message the same as a fresh
+  // one (2026-07-21 fix) — Telegram delivers that as `edited_message`, never
+  // `message`, so without this an in-place edit of a reply-to-the-card was
+  // silently dropped.
+  const msg = update.message ?? update.edited_message;
 
   if (update.callback_query) {
     const cq = update.callback_query;
@@ -460,11 +501,15 @@ export async function handleTelegramUpdate(
         // tweet_id is still NULL at this point (markPublishedManual was
         // called with tweetId=null) — ask for the real URL so metrics can
         // pick this row up (Fase 22.5, see the reply_to_message handler
-        // below for where the answer gets parsed).
+        // below for where the answer gets parsed). Keep the "open post"
+        // button alive (2026-07-21 fix) — losing it here stranded Unai with
+        // no way back to the original post once he'd marked it manual.
+        const tweetUrl = tweetUrlFor(row!);
         await editXAgentMessageText(
           env,
           messageId,
-          `${metaCardFor(row!)}\n\n📋 *Publicada a mano* — responde a este mensaje con la URL del tweet para activar métricas.`
+          `${metaCardFor(row!)}\n\n📋 *Publicada a mano* — responde a este mensaje con la URL del tweet para activar métricas.`,
+          { inlineKeyboard: manualPublishedKeyboard(tweetUrl) }
         );
       }
       return;
@@ -513,10 +558,10 @@ export async function handleTelegramUpdate(
     return;
   }
 
-  if (update.message?.reply_to_message && update.message.text) {
-    const chatId = update.message.chat.id;
+  if (msg?.reply_to_message && msg.text) {
+    const chatId = msg.chat.id;
     if (!allowedChatId || String(chatId) !== String(allowedChatId)) return;
-    const repliedToId = update.message.reply_to_message.message_id;
+    const repliedToId = msg.reply_to_message.message_id;
     // Fase 22.4 UX fix: a split reply/quote card can be replied-to via either
     // message (the text one, which is what the "✏️ Editar" prompt threads
     // onto, or the meta/buttons one, for anyone who habitually replies to
@@ -529,11 +574,34 @@ export async function handleTelegramUpdate(
     if (!row) {
       // Fase 22.5 — no pending row matched: maybe this is a reply to an
       // already-"published manually" card (tweet_id still NULL) carrying the
-      // real tweet URL, so metrics can pick it up. Anything else is ignored.
-      await tryCaptureManualTweetUrl(env, db, repliedToId, update.message.text.trim());
+      // real tweet URL, so metrics can pick it up.
+      const replyText = msg.text.trim();
+      if (!TWEET_URL_ID_RE.test(replyText)) {
+        // 2026-07-21 fix — no tweet URL in the text either, so this isn't a
+        // metrics-capture reply: most likely Unai tried to correct a draft
+        // whose card already left pending_approval (approved/published/
+        // rejected/etc). The old behavior fell straight into
+        // tryCaptureManualTweetUrl's generic "can't read a tweet id" message,
+        // which was confusing when the real problem is "there's nothing left
+        // to edit here". Look up the row (by either message id) regardless of
+        // status so the reply names the actual state.
+        const anyRow = await db
+          .prepare("SELECT * FROM x_queue WHERE tg_message_id = ? OR tg_text_message_id = ?")
+          .bind(repliedToId, repliedToId)
+          .first<XQueueRow>();
+        if (anyRow) {
+          await sendXAgentReply(
+            env,
+            `Esa card ya no está pendiente (estado: ${anyRow.status}). Para editar el borrador tiene que estar pendiente de aprobación.`,
+            repliedToId
+          );
+          return;
+        }
+      }
+      await tryCaptureManualTweetUrl(env, db, repliedToId, replyText);
       return;
     }
-    const newText = update.message.text.trim();
+    const newText = msg.text.trim();
 
     // Fase 22.4 UX fix (2026-07-11): editing a reply no longer auto-publishes
     // via API — it corrects the draft and hands the decision (API / manual /
@@ -592,10 +660,10 @@ export async function handleTelegramUpdate(
   }
 
   // Fase 22.4 — /pause, /resume, /status: plain text commands, no reply-to needed.
-  if (update.message?.text && !update.message.reply_to_message) {
-    const chatId = update.message.chat.id;
+  if (msg?.text && !msg.reply_to_message) {
+    const chatId = msg.chat.id;
     if (!allowedChatId || String(chatId) !== String(allowedChatId)) return;
-    const text = update.message.text.trim();
+    const text = msg.text.trim();
 
     if (/^\/pause\b/i.test(text)) {
       const until = parsePauseUntil(text);
