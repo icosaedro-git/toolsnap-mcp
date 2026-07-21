@@ -18,3 +18,5 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - name: First-connection token budget
+        run: npx tsx scripts/first-connection-audit.ts

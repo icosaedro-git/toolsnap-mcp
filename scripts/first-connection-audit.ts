@@ -18,6 +18,15 @@
  *    from agents beats a leaner list; one fetch_extract call repays the
  *    overhead ~80x. Descriptions are budget-conscious (3-6 words); do NOT
  *    add prose here to chase directory scores — see nota 06.2 §📐 principio 7.
+ *  - 2026-07-21: 2,650 — deliberate raise (+~311 measured) to cover growth
+ *    that landed without re-budgeting: PAYMENT section expanded for fal.ai
+ *    media tools + dynamic per-call pricing (fase 13.1), PRIVACY section
+ *    (fase 25.1 privacy comms), and consent-framed memory_snippet (PR #61).
+ *    Each line earned its place in its own phase decision; trimming them to
+ *    hit the old number would undo that work. Same criterion as the 2,300
+ *    raise: spend tokens where they prevent bad calls or build trust, never
+ *    on prose for directory scores. Script now runs in CI so the next
+ *    overshoot fails a PR instead of drifting silently.
  *
  * Run:  npx tsx scripts/first-connection-audit.ts
  */
@@ -26,7 +35,7 @@ import { assertCatalogComplete } from "../src/tools/catalog.js";
 import { buildServerInstructions } from "../src/mcp/server.js";
 import type { Env } from "../src/index.js";
 
-const TOKEN_BUDGET = 2_300;
+const TOKEN_BUDGET = 2_650;
 
 /** Rough token estimate: chars / 4 (same heuristic used across the project docs). */
 function estimateTokens(s: string): number {
