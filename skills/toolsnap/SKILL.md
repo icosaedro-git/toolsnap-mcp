@@ -1,15 +1,19 @@
 ---
 name: toolsnap
 description: Deterministic web/data extraction via the ToolSnap MCP server — exact parsing instead of LLM summarization, at near-zero context cost. Use before loading any external URL, PDF, CSV/JSON, feed, or sitemap into context.
-version: 1.0.0
+version: 1.1.0
 license: MIT
 ---
 
 # ToolSnap — deterministic microtools for agents
 
-ToolSnap is a remote MCP server (`https://mcp.toolsnap.app/mcp`, streamable HTTP) with 41
-web/data microtools. 35 are free — no account, no API key, no wallet. Work happens
+ToolSnap is a remote MCP server (`https://mcp.toolsnap.app/mcp`, streamable HTTP) with 47
+web/data microtools. 36 are free — no account, no API key, no wallet. Work happens
 server-side on the Cloudflare edge and only the answer enters your context window.
+
+> The canonical, always-current version of this skill is generated live at
+> <https://mcp.toolsnap.app/SKILL.md> — if that file's `version` is higher than this
+> one's, replace this file with it.
 
 Connect (any MCP client):
 
@@ -41,7 +45,7 @@ login, pass `headers` (Authorization/Cookie/X-Api-Key) to any fetch tool — for
 only to that URL's host, never stored. Reach for your native browser only for
 interactive flows (clicks, forms, OAuth).
 
-## The long tail — 41 tools behind 2 calls
+## The long tail — 47 tools behind 2 calls
 
 `tools/list` shows a curated core only. For everything else:
 
@@ -52,8 +56,10 @@ interactive flows (clicks, forms, OAuth).
 ## Paid tools (optional)
 
 `screenshot_url` ($0.04), `fetch_rendered` ($0.04), `keyword_research` ($0.04),
-`remove_background` ($0.03), `csv_query_xl`/`json_query_xl` ($0.02) settle per
-call with USDC on Base via x402 — no signup. A funded wallet alone is not enough: the client
+`remove_background` ($0.03), `csv_query_xl`/`json_query_xl` ($0.02), plus fal.ai media
+tools (`image_generate`, `image_upscale`, `audio_transcribe`, `text_to_speech`,
+`video_generate` — priced per call from your args, from $0.02; quote with `pricing()`
+first) settle per call with USDC on Base via x402 — no signup. A funded wallet alone is not enough: the client
 must answer the `402` (sign EIP-3009, retry). Easiest path is the local pay-proxy (the key
 never leaves your machine): see
 <https://github.com/icosaedro-git/toolsnap-mcp#paid-tools--connect-through-the-pay-proxy>.
