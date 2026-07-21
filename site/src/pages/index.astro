@@ -139,9 +139,9 @@ const description =
         <div class="tab-panel" role="tabpanel" data-tab-panel="any-agent" hidden>
           <p class="client-step">Generic streamable-HTTP config:</p>
           <CodeBlock lang="json" code={`{ "mcpServers": { "toolsnap": { "url": "https://mcp.toolsnap.app/mcp", "transport": "streamable-http" } } }`} />
-          <p class="client-step">Or, for agentic clients that can edit their own config, hand it this prompt:</p>
+          <p class="client-step">Or, for agentic clients that can edit their own config, hand it this one-liner:</p>
           <div class="endpoint-pill mono">
-            <span id="connect-prompt-any">Connect to https://mcp.toolsnap.app/mcp as an MCP server and save it for future sessions.</span>
+            <span id="connect-prompt-any">Set up https://mcp.toolsnap.app/SKILL.md — connect the MCP server it describes and save the skill for future sessions.</span>
             <button class="copy-btn" data-copy-target="#connect-prompt-any" aria-label="Copy to clipboard">
               <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
               <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
@@ -149,6 +149,7 @@ const description =
               <span class="copy-btn-label label-copied">Copied</span>
             </button>
           </div>
+          <p class="caption text-mute"><a href="/SKILL.md">SKILL.md</a> is a self-contained skill file — connect config, tool discovery and cost guardrails — generated live from the server, so it's never stale.</p>
           <a href="/docs#connect" class="btn btn--ghost btn--sm">Full docs for this client &rarr;</a>
         </div>
       </div>

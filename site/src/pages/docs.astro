@@ -50,6 +50,7 @@ const toc = [
     <p><strong>Gemini CLI</strong></p>
     <CodeBlock lang="json" code={`{ "mcpServers": { "toolsnap": { "httpUrl": "https://mcp.toolsnap.app/mcp" } } }`} />
     <p class="text-mute">Goes in <code class="inline">~/.gemini/settings.json</code>, field <code class="inline">httpUrl</code> (<code class="inline">url</code> is SSE). Gemini CLI stopped serving individual/free/Pro/Ultra accounts on 2026-06-18 — this still applies to enterprise Gemini Code Assist licenses and API-key auth; everyone else should use Antigravity above.</p>
+    <p><strong>Any agent, one line</strong> — point your agent at <a href="/SKILL.md"><code class="inline">https://mcp.toolsnap.app/SKILL.md</code></a>: a self-contained skill file with the connect config, the tool-discovery pattern and cost guardrails. Generated live from the server, so counts and prices are never stale. Agents with a skill directory can save it and stay current by re-fetching.</p>
     <p class="text-mute">Troubleshooting: if your client is old and can't add a remote streamable-HTTP server directly, wrap it with <a href="https://github.com/geelen/mcp-remote"><code class="inline">mcp-remote</code></a> as a stdio bridge. It's not the recommended path — every current client (Claude Desktop, Claude Code, Cursor, VS Code) supports the direct URL.</p>
   </DocSection>
 
