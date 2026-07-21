@@ -6,7 +6,8 @@ import { getDashboardData } from "./analytics/queries.js";
 import { PANEL_HTML } from "./analytics/panel.js";
 import { checkUsageAlerts } from "./alerts/usage-alerts.js";
 import { checkSurfaceDigest } from "./alerts/surface-digest.js";
-import { looksLikeApiKey, issueKey, revokeKey, accountExists, accountAddress } from "./fiat/keys.js";
+import { looksLikeApiKey, issueKey, revokeKey, accountExists, accountAddress, verifyApiKey, touchKey } from "./fiat/keys.js";
+import { debitBalance, refundDebit, getBalanceMicro, microToUsdc, usdcToMicro } from "./x402/prepaid.js";
 import { handleCmsAuthStart, handleCmsAuthCallback } from "./cms-auth.js";
 import { verifyPolarSignature, debugPolarSignature, getOrCreateAccountByEmail, creditOrder } from "./fiat/polar.js";
 import { writeEvent } from "./analytics/logger.js";
@@ -216,6 +217,180 @@ function jsonResponse(data: unknown, status = 200): Response {
   );
 }
 
+// ---------------------------------------------------------------------------
+// POST /upload — out-of-band file upload (generalized from the original
+// image-only endpoint). See the route handler above for the rationale.
+// ---------------------------------------------------------------------------
+
+export const UPLOAD_ALLOWED_TYPES: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "text/csv": "csv",
+  "application/json": "json",
+  "application/pdf": "pdf",
+  "text/html": "html",
+  "text/plain": "txt",
+  "text/markdown": "md",
+  "application/xml": "xml",
+  "text/xml": "xml",
+};
+
+export const FREE_UPLOAD_MAX_BYTES = 25 * 1024 * 1024; // 25 MB — anonymous, no auth
+export const PAID_UPLOAD_MAX_BYTES = 100 * 1024 * 1024; // 100 MB — requires API key + debit
+const PAID_UPLOAD_PRICE_USDC = "0.02";
+
+export async function handleFileUpload(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const contentType = (request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+  const ext = UPLOAD_ALLOWED_TYPES[contentType];
+  if (!ext) {
+    return jsonResponse(
+      { error: `Unsupported content-type "${contentType}". Allowed: ${Object.keys(UPLOAD_ALLOWED_TYPES).join(", ")}` },
+      415
+    );
+  }
+
+  const declaredLength = Number(request.headers.get("content-length") ?? "");
+  if (!Number.isFinite(declaredLength) || declaredLength <= 0) {
+    return jsonResponse({ error: "Content-Length header is required and must be a positive integer." }, 411);
+  }
+  if (declaredLength > PAID_UPLOAD_MAX_BYTES) {
+    return jsonResponse({ error: `File too large: ${declaredLength} bytes (max ${PAID_UPLOAD_MAX_BYTES}, the paid tier's ceiling).` }, 413);
+  }
+
+  const key = `uploads/${Date.now()}-${Math.random().toString(36).slice(2, 9)}.${ext}`;
+  const workerBase = new URL(request.url).origin;
+  const expires = "≤24h (auto-delete)";
+
+  // ---- Free tier: anonymous, <= FREE_UPLOAD_MAX_BYTES, buffered. ----------
+  if (declaredLength <= FREE_UPLOAD_MAX_BYTES) {
+    const bytes = await request.arrayBuffer();
+    if (bytes.byteLength > FREE_UPLOAD_MAX_BYTES) {
+      return jsonResponse({ error: `File too large: ${bytes.byteLength} bytes (max ${FREE_UPLOAD_MAX_BYTES} free — present an API key for up to ${PAID_UPLOAD_MAX_BYTES}).` }, 413);
+    }
+    await env.SCREENSHOTS_BUCKET.put(key, bytes, { httpMetadata: { contentType } });
+    writeEvent(
+      env,
+      {
+        toolName: "upload_endpoint",
+        paymentType: "free_tool",
+        payer: "anon",
+        revenueUsdc: 0,
+        latencyMs: 0,
+        detail: `free upload ${bytes.byteLength}B ${contentType}`,
+        client: request.headers.get("user-agent") ?? "",
+        internal: false,
+      },
+      ctx
+    );
+    return jsonResponse({
+      url: `${workerBase}/files/${key}`,
+      key,
+      content_type: contentType,
+      file_size_bytes: bytes.byteLength,
+      tier: "free",
+      expires,
+    });
+  }
+
+  // ---- Paid tier: 25-100 MB, requires a fiat API key, streamed to R2. -----
+  const authHeader = request.headers.get("authorization") ?? "";
+  const bearerKey = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : authHeader.trim();
+  const rawApiKey = request.headers.get("x-api-key") ?? bearerKey;
+
+  if (!looksLikeApiKey(rawApiKey)) {
+    return jsonResponse(
+      {
+        error: `Files over ${FREE_UPLOAD_MAX_BYTES} bytes require an API key (up to ${PAID_UPLOAD_MAX_BYTES}, $${PAID_UPLOAD_PRICE_USDC}/upload).`,
+        error_code: "api_key_required",
+        get_credits: "https://mcp.toolsnap.app/checkout",
+        alternative: "Host the file yourself and pass its URL to the tool instead — no upload needed.",
+      },
+      402
+    );
+  }
+
+  const account = await verifyApiKey(env.PREPAID_DB, rawApiKey);
+  if (!account) {
+    return jsonResponse({ error: "Invalid or revoked API key.", error_code: "invalid_api_key" }, 401);
+  }
+
+  const addr = accountAddress(account.accountId);
+  const priceMicro = usdcToMicro(PAID_UPLOAD_PRICE_USDC);
+  const nonce = crypto.randomUUID();
+  const debit = await debitBalance(env.PREPAID_DB, addr, priceMicro, nonce, "upload_endpoint");
+  if (!debit.ok) {
+    const bal = await getBalanceMicro(env.PREPAID_DB, addr);
+    return jsonResponse(
+      {
+        error: `Insufficient balance: have $${microToUsdc(bal)}, need $${PAID_UPLOAD_PRICE_USDC}.`,
+        error_code: "insufficient_balance",
+        top_up: `https://mcp.toolsnap.app/checkout?account=${account.accountId}`,
+      },
+      402
+    );
+  }
+  ctx.waitUntil(touchKey(env.PREPAID_DB, account.keyId));
+
+  if (!request.body) {
+    await refundDebit(env.PREPAID_DB, addr, priceMicro, "upload_endpoint", nonce);
+    return jsonResponse({ error: "Request had no body." }, 400);
+  }
+
+  try {
+    // Streamed straight to R2 — never buffered whole in Worker memory, which
+    // is what makes the 100 MB paid ceiling safe (the free tier's 25 MB is
+    // small enough to buffer, matching the original image-only endpoint).
+    await env.SCREENSHOTS_BUCKET.put(key, request.body, {
+      httpMetadata: { contentType },
+    });
+  } catch (err) {
+    await refundDebit(env.PREPAID_DB, addr, priceMicro, "upload_endpoint", nonce);
+    writeEvent(
+      env,
+      {
+        toolName: "upload_endpoint",
+        paymentType: "tool_error",
+        payer: `acct:${account.accountId}`,
+        revenueUsdc: 0,
+        latencyMs: 0,
+        detail: err instanceof Error ? err.message : String(err),
+        client: request.headers.get("user-agent") ?? "",
+        internal: false,
+      },
+      ctx
+    );
+    return jsonResponse({ error: `Upload failed: ${err instanceof Error ? err.message : String(err)}` }, 500);
+  }
+
+  writeEvent(
+    env,
+    {
+      toolName: "upload_endpoint",
+      paymentType: "api_key",
+      payer: `acct:${account.accountId}`,
+      revenueUsdc: Number(PAID_UPLOAD_PRICE_USDC),
+      latencyMs: 0,
+      detail: `paid upload ${declaredLength}B ${contentType}`,
+      client: request.headers.get("user-agent") ?? "",
+      internal: false,
+    },
+    ctx
+  );
+
+  return jsonResponse({
+    url: `${workerBase}/files/${key}`,
+    key,
+    content_type: contentType,
+    file_size_bytes: declaredLength,
+    tier: "paid",
+    price_usdc: PAID_UPLOAD_PRICE_USDC,
+    expires,
+  });
+}
+
 function buildSkillMd(env: Env): string {
   const full = listTools("full");
   const paid = full.filter(({ name }) => requiresPayment(name));
@@ -234,7 +409,7 @@ function buildSkillMd(env: Env): string {
   return `---
 name: toolsnap
 description: Deterministic web/data extraction via the ToolSnap MCP server — exact parsing instead of LLM summarization, at near-zero context cost. Reach for it before fetching any URL, PDF, CSV/JSON, feed, or sitemap into context, or whenever a task needs scraping, search, or structured data extraction. Trigger for: web scraping, page-to-clean-text, PDF/CSV/JSON queries, SEO metadata, link/sitemap audits, or any mention of "toolsnap".
-version: 1.2.0
+version: 1.3.0
 license: MIT
 ---
 
@@ -282,6 +457,24 @@ CSV/JSON queried without loading it (\`csv_query\`/\`json_query\`), PDF text
 \`link_check\`), or SEO metadata (\`fetch_metadata\`). Output is deterministic parsing — no LLM
 in the loop, reproducible, zero added inference cost.
 
+## Local files (no URL?)
+
+Never paste a large local file inline (\`csv\`/\`json\`/\`data\` args) — the bytes are tokens
+you already generated, so that spends your context BEFORE the tool even runs. If you have
+shell access, upload out-of-band instead and pass the returned URL:
+
+\`\`\`
+curl -X POST -H "Content-Type: text/csv" --data-binary @data.csv https://mcp.toolsnap.app/upload
+\`\`\`
+
+→ \`{ "url": "https://mcp.toolsnap.app/files/..." }\` — pass that \`url\` to \`csv_query\`,
+\`json_query\`, \`pdf_text_extract\`, or \`html_to_markdown\`. Free ≤25 MB; 25–100 MB costs
+$0.02 with an API key (\`Authorization: Bearer sk_...\`). Auto-deletes ≤24h either way — this
+is the ONLY path that touches storage.
+
+No shell, or a small file and maximum privacy matter more than context? Inline args
+(≤5 MB) work and are never stored — just costlier in context than a URL.
+
 ## Paid tools (optional, real per-call cost — inspect before you run)
 
 ${paidLines || "none currently priced"}. Settle with USDC on Base via x402 (no signup), or
@@ -296,7 +489,9 @@ expected, stop and ask instead of authorizing it.**
 Fetched/queried content is processed in memory and never stored — analytics keep only
 metadata (tool name, latency, pseudonymous payer). Exceptions are declared, not hidden:
 screenshot_url/remove_background outputs are stored in R2 at a public URL (that IS the
-deliverable), upload_file inputs auto-delete on consumption or ≤24h.
+deliverable); anything you explicitly send to POST /upload or upload_file is stored for
+≤24h then auto-deleted (or sooner, once a tool consumes it) — inline args and your own
+hosted URLs are more private than either, since nothing is ever written to storage.
 
 ## Habits
 
@@ -972,31 +1167,26 @@ export default {
       return jsonResponse(await getWebhookInfo(env));
     }
 
-    // File upload — POST /upload
-    // Accepts raw image bytes (Content-Type: image/jpeg|png|webp|gif), stores in R2
-    // under uploads/ as a temporary file. Consumed tools (e.g. remove_background)
-    // delete the upload immediately after reading it; anything never consumed
-    // still auto-expires within 24h via an R2 lifecycle rule on uploads/ (set
-    // outside this repo — see wrangler.jsonc).
-    // Returns { url, key, content_type, file_size_bytes }. Free, no auth required.
+    // File upload — POST /upload (generalized: out-of-band upload for file tools)
+    //
+    // The out-of-band counterpart to inline tool args: a harness with shell
+    // access (curl, a script) POSTs raw bytes here directly, OUTSIDE the LLM
+    // token stream, and gets back a short /files/ URL to pass to csv_query,
+    // json_query, pdf_text_extract, html_to_markdown, or remove_background.
+    // Inline args (csv/json/data) are the alternative for small files with no
+    // shell access — nothing is stored, but the bytes count against context.
+    //
+    // Two tiers, same object, both in uploads/ (24h R2 lifecycle rule — see
+    // wrangler.jsonc):
+    //   - Free, anonymous, <= FREE_UPLOAD_MAX_BYTES.
+    //   - Paid ($0.02 flat, debited from a fiat account balance), up to
+    //     PAID_UPLOAD_MAX_BYTES, requires Authorization: Bearer sk_... or
+    //     X-Api-Key. Streamed straight to R2 (never buffered whole) so a
+    //     100 MB upload doesn't blow the Worker's ~128 MB memory ceiling.
+    //
+    // Returns { url, key, content_type, file_size_bytes, tier, expires }.
     if (method === "POST" && url.pathname === "/upload") {
-      const contentType = (request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
-      const ALLOWED: Record<string, string> = {
-        "image/jpeg": "jpg", "image/jpg": "jpg",
-        "image/png": "png", "image/webp": "webp", "image/gif": "gif",
-      };
-      const ext = ALLOWED[contentType];
-      if (!ext) {
-        return jsonResponse({ error: `Unsupported content-type "${contentType}". Allowed: image/jpeg, image/png, image/webp, image/gif` }, 415);
-      }
-      const bytes = await request.arrayBuffer();
-      if (bytes.byteLength > 10 * 1024 * 1024) {
-        return jsonResponse({ error: "File too large (max 10 MB)" }, 413);
-      }
-      const key = `uploads/${Date.now()}-${Math.random().toString(36).slice(2, 9)}.${ext}`;
-      await env.SCREENSHOTS_BUCKET.put(key, bytes, { httpMetadata: { contentType } });
-      const workerBase = new URL(request.url).origin;
-      return jsonResponse({ url: `${workerBase}/files/${key}`, key, content_type: contentType, file_size_bytes: bytes.byteLength });
+      return handleFileUpload(request, env, ctx);
     }
 
     // File serving — GET /files/:key  (serves R2 objects uploaded via /upload or by tools)

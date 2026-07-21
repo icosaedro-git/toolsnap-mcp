@@ -1,5 +1,6 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
+import type { Env } from "../index.js";
+import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, type FilesEnv } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_JSON_BYTES = 5_000_000; // 5 MB
@@ -297,7 +298,7 @@ interface JsonQueryEngineOptions {
   tooLargeHint: string;
 }
 
-async function runJsonQuery(args: Record<string, unknown>, opts: JsonQueryEngineOptions): Promise<string> {
+async function runJsonQuery(args: Record<string, unknown>, opts: JsonQueryEngineOptions, filesEnv?: FilesEnv): Promise<string> {
   if (typeof args.query !== "string" || !args.query.trim()) {
     throw new Error("`query` is required.");
   }
@@ -324,7 +325,7 @@ async function runJsonQuery(args: Record<string, unknown>, opts: JsonQueryEngine
           signal: controller.signal,
           headers: { "User-Agent": `toolsnap-mcp/1.0 (${opts.toolName}; +https://toolsnap.app)` },
         },
-        { forwardHeaders }
+        { forwardHeaders, env: filesEnv }
       );
     } catch (err) {
       throw new Error(`Failed to fetch: ${err instanceof Error ? err.message : String(err)}`);
@@ -390,15 +391,22 @@ export const jsonQueryTool: McpTool = {
     required: ["query"],
   },
   annotations: { readOnlyHint: true },
-  run(args) {
-    return runJsonQuery(args, {
-      toolName: "json_query",
-      allowInline: true,
-      maxBytes: MAX_JSON_BYTES,
-      fetchTimeoutMs: FETCH_TIMEOUT_MS,
-      tooLargeHint:
-        "Use `json_query_xl` (paid: $0.02/call or $0.01 prepaid, up to 25 MB) with the same url and query.",
-    });
+  run() {
+    throw new Error("json_query is env-aware and must be called via runWithEnv");
+  },
+  runWithEnv(args, env) {
+    return runJsonQuery(
+      args,
+      {
+        toolName: "json_query",
+        allowInline: true,
+        maxBytes: MAX_JSON_BYTES,
+        fetchTimeoutMs: FETCH_TIMEOUT_MS,
+        tooLargeHint:
+          "Use `json_query_xl` (paid: $0.02/call or $0.01 prepaid, up to 25 MB) with the same url and query.",
+      },
+      env as Env
+    );
   },
 };
 
@@ -417,13 +425,20 @@ export const jsonQueryXlTool: McpTool = {
     required: ["url", "query"],
   },
   annotations: { readOnlyHint: true },
-  run(args) {
-    return runJsonQuery(args, {
-      toolName: "json_query_xl",
-      allowInline: false,
-      maxBytes: XL_MAX_JSON_BYTES,
-      fetchTimeoutMs: XL_FETCH_TIMEOUT_MS,
-      tooLargeHint: "This file exceeds even json_query_xl's 25 MB cap.",
-    });
+  run() {
+    throw new Error("json_query_xl is env-aware and must be called via runWithEnv");
+  },
+  runWithEnv(args, env) {
+    return runJsonQuery(
+      args,
+      {
+        toolName: "json_query_xl",
+        allowInline: false,
+        maxBytes: XL_MAX_JSON_BYTES,
+        fetchTimeoutMs: XL_FETCH_TIMEOUT_MS,
+        tooLargeHint: "This file exceeds even json_query_xl's 25 MB cap.",
+      },
+      env as Env
+    );
   },
 };

@@ -1,8 +1,9 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
+import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, type FilesEnv } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 15_000;
-const MAX_PDF_BYTES = 20_000_000; // 20 MB
+const MAX_PDF_BYTES = 20_000_000; // 20 MB — URL fetch cap
+const MAX_INLINE_PDF_BYTES = 5_000_000; // 5 MB decoded — inline base64 cap (matches csv/json inline)
 const DEFAULT_MAX_CHARS = 20_000;
 const HARD_MAX_CHARS = 100_000;
 
@@ -700,55 +701,85 @@ function trimEol(bytes: Uint8Array, start: number, es: number): number {
 // Tool
 // ---------------------------------------------------------------------------
 
+/** Decode a base64 string into an ArrayBuffer, capped at `maxBytes`. */
+function decodeBase64Pdf(data: string, maxBytes: number): ArrayBuffer {
+  let bin: string;
+  try {
+    bin = atob(data.replace(/\s/g, ""));
+  } catch {
+    throw new Error("`data` is not valid base64.");
+  }
+  if (bin.length > maxBytes) {
+    throw new Error(`PDF too large: ${bin.length} bytes (max ${maxBytes} for inline data — use \`url\` for larger files).`);
+  }
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
+
 export const pdfTextExtractTool: McpTool = {
   name: "pdf_text_extract",
-  description: "Fetch a PDF by URL, extract text. No OCR — text-based PDFs only.",
+  description: "Extract text from a PDF: url or base64 data. No OCR — text-based PDFs only.",
   inputSchema: {
     type: "object",
     properties: {
-      url: { type: "string", description: "PDF URL." },
+      url: { type: "string", description: "PDF URL (alt. to data)." },
+      data: { type: "string", description: "Base64 PDF, ≤5MB decoded (alt. to url)." },
       maxChars: { type: "number", description: `Default ${DEFAULT_MAX_CHARS}, max ${HARD_MAX_CHARS}.` },
       headers: HEADERS_SCHEMA_PROPERTY,
     },
-    required: ["url"],
   },
   annotations: { readOnlyHint: true },
-  async run(args) {
-    if (typeof args.url !== "string") throw new Error("`url` must be a string.");
-    const url = args.url;
-    if (!url.startsWith("http://") && !url.startsWith("https://")) {
-      throw new Error("`url` must start with http:// or https://");
-    }
-    const forwardHeaders = parseForwardHeaders(args.headers);
+  run() {
+    throw new Error("pdf_text_extract is env-aware and must be called via runWithEnv");
+  },
+  async runWithEnv(args, env) {
+    const hasUrl = typeof args.url === "string" && args.url.length > 0;
+    const hasData = typeof args.data === "string" && args.data.length > 0;
+
+    if (!hasUrl && !hasData) throw new Error("Provide either `url` or `data`.");
+    if (hasUrl && hasData) throw new Error("Provide either `url` or `data`, not both.");
 
     const rawMax = args.maxChars !== undefined ? Number(args.maxChars) : DEFAULT_MAX_CHARS;
     const maxChars = Math.min(Math.max(1, Math.floor(rawMax)), HARD_MAX_CHARS);
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    let response: Response;
-    try {
-      response = await safeFetch(
-        url,
-        {
-          signal: controller.signal,
-          headers: { "User-Agent": "toolsnap-mcp/1.0 (pdf_text_extract; +https://toolsnap.app)" },
-        },
-        { forwardHeaders }
-      );
-    } catch (err) {
-      throw new Error(`Failed to fetch: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      clearTimeout(timer);
-    }
+    let buf: ArrayBuffer;
 
-    if (!response.ok) {
-      throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
-    }
+    if (hasData) {
+      buf = decodeBase64Pdf(args.data as string, MAX_INLINE_PDF_BYTES);
+    } else {
+      const url = args.url as string;
+      if (!url.startsWith("http://") && !url.startsWith("https://")) {
+        throw new Error("`url` must start with http:// or https://");
+      }
+      const forwardHeaders = parseForwardHeaders(args.headers);
 
-    const buf = await response.arrayBuffer();
-    if (buf.byteLength > MAX_PDF_BYTES) {
-      throw new Error(`PDF too large: ${buf.byteLength} bytes (max ${MAX_PDF_BYTES}).`);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      let response: Response;
+      try {
+        response = await safeFetch(
+          url,
+          {
+            signal: controller.signal,
+            headers: { "User-Agent": "toolsnap-mcp/1.0 (pdf_text_extract; +https://toolsnap.app)" },
+          },
+          { forwardHeaders, env: env as FilesEnv }
+        );
+      } catch (err) {
+        throw new Error(`Failed to fetch: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        clearTimeout(timer);
+      }
+
+      if (!response.ok) {
+        throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
+      }
+
+      buf = await response.arrayBuffer();
+      if (buf.byteLength > MAX_PDF_BYTES) {
+        throw new Error(`PDF too large: ${buf.byteLength} bytes (max ${MAX_PDF_BYTES}).`);
+      }
     }
 
     let text = await extractPDFText(buf);
