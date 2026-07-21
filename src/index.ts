@@ -243,6 +243,12 @@ export const PAID_UPLOAD_MAX_BYTES = 100 * 1024 * 1024; // 100 MB — requires A
 const PAID_UPLOAD_PRICE_USDC = "0.02";
 
 export async function handleFileUpload(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  // Same internal-traffic marking as the MCP path — keeps our own e2e/test
+  // uploads out of the public analytics numbers.
+  const internalHeader = request.headers.get("x-toolsnap-internal");
+  const isInternal = Boolean(env.TOOLSNAP_INTERNAL_TOKEN && internalHeader === env.TOOLSNAP_INTERNAL_TOKEN);
+  const clientUA = request.headers.get("user-agent") ?? "";
+
   const contentType = (request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
   const ext = UPLOAD_ALLOWED_TYPES[contentType];
   if (!ext) {
@@ -280,8 +286,8 @@ export async function handleFileUpload(request: Request, env: Env, ctx: Executio
         revenueUsdc: 0,
         latencyMs: 0,
         detail: `free upload ${bytes.byteLength}B ${contentType}`,
-        client: request.headers.get("user-agent") ?? "",
-        internal: false,
+        client: clientUA,
+        internal: isInternal,
       },
       ctx
     );
@@ -314,15 +320,48 @@ export async function handleFileUpload(request: Request, env: Env, ctx: Executio
 
   const account = await verifyApiKey(env.PREPAID_DB, rawApiKey);
   if (!account) {
+    // Same event the MCP dispatcher writes for a bad key — a probing pattern
+    // should be as visible from this endpoint as from tools/call.
+    writeEvent(
+      env,
+      {
+        toolName: "upload_endpoint",
+        paymentType: "api_key_rejected",
+        payer: "anon",
+        revenueUsdc: 0,
+        latencyMs: 0,
+        detail: "invalid_or_revoked_key",
+        client: clientUA,
+        internal: isInternal,
+      },
+      ctx
+    );
     return jsonResponse({ error: "Invalid or revoked API key.", error_code: "invalid_api_key" }, 401);
   }
 
+  // Same payer label the MCP fiat rail uses (`key:{keyId}`, server.ts) — one
+  // identity per payer in the panel, and no account id in analytics rows.
+  const payerLabel = `key:${account.keyId}`;
   const addr = accountAddress(account.accountId);
   const priceMicro = usdcToMicro(PAID_UPLOAD_PRICE_USDC);
   const nonce = crypto.randomUUID();
   const debit = await debitBalance(env.PREPAID_DB, addr, priceMicro, nonce, "upload_endpoint");
   if (!debit.ok) {
     const bal = await getBalanceMicro(env.PREPAID_DB, addr);
+    writeEvent(
+      env,
+      {
+        toolName: "upload_endpoint",
+        paymentType: "api_key_insufficient",
+        payer: payerLabel,
+        revenueUsdc: 0,
+        latencyMs: 0,
+        detail: `have ${microToUsdc(bal)} USDC, need ${PAID_UPLOAD_PRICE_USDC}`,
+        client: clientUA,
+        internal: isInternal,
+      },
+      ctx
+    );
     return jsonResponse(
       {
         error: `Insufficient balance: have $${microToUsdc(bal)}, need $${PAID_UPLOAD_PRICE_USDC}.`,
@@ -353,12 +392,12 @@ export async function handleFileUpload(request: Request, env: Env, ctx: Executio
       {
         toolName: "upload_endpoint",
         paymentType: "tool_error",
-        payer: `acct:${account.accountId}`,
+        payer: payerLabel,
         revenueUsdc: 0,
         latencyMs: 0,
         detail: err instanceof Error ? err.message : String(err),
-        client: request.headers.get("user-agent") ?? "",
-        internal: false,
+        client: clientUA,
+        internal: isInternal,
       },
       ctx
     );
@@ -370,12 +409,12 @@ export async function handleFileUpload(request: Request, env: Env, ctx: Executio
     {
       toolName: "upload_endpoint",
       paymentType: "api_key",
-      payer: `acct:${account.accountId}`,
+      payer: payerLabel,
       revenueUsdc: Number(PAID_UPLOAD_PRICE_USDC),
       latencyMs: 0,
       detail: `paid upload ${declaredLength}B ${contentType}`,
-      client: request.headers.get("user-agent") ?? "",
-      internal: false,
+      client: clientUA,
+      internal: isInternal,
     },
     ctx
   );
