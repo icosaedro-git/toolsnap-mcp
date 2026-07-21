@@ -1,5 +1,6 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
+import type { Env } from "../index.js";
+import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, type FilesEnv } from "./safe-fetch.js";
 
 const DEFAULT_MAX_CHARS = 12_000;
 const HARD_MAX_CHARS = 50_000;
@@ -156,7 +157,11 @@ function convertToMarkdown(html: string): string {
   return md.trim();
 }
 
-async function fetchHtml(url: string, forwardHeaders: Record<string, string> | undefined): Promise<string> {
+async function fetchHtml(
+  url: string,
+  forwardHeaders: Record<string, string> | undefined,
+  filesEnv: FilesEnv | undefined
+): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   let response: Response;
@@ -169,7 +174,7 @@ async function fetchHtml(url: string, forwardHeaders: Record<string, string> | u
           "User-Agent": "toolsnap-mcp/1.0 (html_to_markdown; +https://toolsnap.app)",
         },
       },
-      { forwardHeaders }
+      { forwardHeaders, env: filesEnv }
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -196,7 +201,10 @@ export const htmlToMarkdownTool: McpTool = {
     },
   },
   annotations: { readOnlyHint: true },
-  async run(args) {
+  run() {
+    throw new Error("html_to_markdown is env-aware and must be called via runWithEnv");
+  },
+  async runWithEnv(args, env) {
     const hasUrl = typeof args.url === "string" && args.url.length > 0;
     const hasHtml = typeof args.html === "string" && args.html.length > 0;
 
@@ -213,7 +221,7 @@ export const htmlToMarkdownTool: McpTool = {
       if (!url.startsWith("http://") && !url.startsWith("https://")) {
         throw new Error("`url` must start with http:// or https://");
       }
-      rawHtml = await fetchHtml(url, parseForwardHeaders(args.headers));
+      rawHtml = await fetchHtml(url, parseForwardHeaders(args.headers), env as Env);
     } else {
       rawHtml = args.html as string;
     }

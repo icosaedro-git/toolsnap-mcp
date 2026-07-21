@@ -1,5 +1,6 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
+import type { Env } from "../index.js";
+import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, type FilesEnv } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_CSV_BYTES = 5_000_000; // 5 MB — free tier
@@ -333,7 +334,11 @@ interface CsvQueryEngineOptions {
   tooLargeHint: string;
 }
 
-async function runCsvQuery(args: CsvQueryArgs & { url?: unknown; csv?: unknown }, opts: CsvQueryEngineOptions): Promise<string> {
+async function runCsvQuery(
+  args: CsvQueryArgs & { url?: unknown; csv?: unknown },
+  opts: CsvQueryEngineOptions,
+  filesEnv?: FilesEnv
+): Promise<string> {
   const hasUrl = typeof args.url === "string" && (args.url as string).length > 0;
   const hasCSV = opts.allowInline && typeof args.csv === "string" && (args.csv as string).length > 0;
 
@@ -395,7 +400,7 @@ async function runCsvQuery(args: CsvQueryArgs & { url?: unknown; csv?: unknown }
           signal: controller.signal,
           headers: { "User-Agent": `toolsnap-mcp/1.0 (${opts.toolName}; +https://toolsnap.app)` },
         },
-        { forwardHeaders }
+        { forwardHeaders, env: filesEnv }
       );
     } catch (err) {
       clearTimeout(timer);
@@ -469,17 +474,24 @@ export const csvQueryTool: McpTool = {
     },
   },
   annotations: { readOnlyHint: true },
-  run(args) {
-    return runCsvQuery(args, {
-      toolName: "csv_query",
-      allowInline: true,
-      maxBytes: MAX_CSV_BYTES,
-      fetchTimeoutMs: FETCH_TIMEOUT_MS,
-      defaultLimit: 500,
-      hardMaxLimit: 5000,
-      tooLargeHint:
-        "Use `csv_query_xl` (paid: $0.02/call or $0.01 prepaid, up to 100 MB) with the same arguments. If you have no balance yet, csv_query_xl will return funding instructions (card or USDC).",
-    });
+  run() {
+    throw new Error("csv_query is env-aware and must be called via runWithEnv");
+  },
+  runWithEnv(args, env) {
+    return runCsvQuery(
+      args,
+      {
+        toolName: "csv_query",
+        allowInline: true,
+        maxBytes: MAX_CSV_BYTES,
+        fetchTimeoutMs: FETCH_TIMEOUT_MS,
+        defaultLimit: 500,
+        hardMaxLimit: 5000,
+        tooLargeHint:
+          "Use `csv_query_xl` (paid: $0.02/call or $0.01 prepaid, up to 100 MB) with the same arguments. If you have no balance yet, csv_query_xl will return funding instructions (card or USDC).",
+      },
+      env as Env
+    );
   },
 };
 
@@ -502,15 +514,22 @@ export const csvQueryXlTool: McpTool = {
     required: ["url"],
   },
   annotations: { readOnlyHint: true },
-  run(args) {
-    return runCsvQuery(args, {
-      toolName: "csv_query_xl",
-      allowInline: false,
-      maxBytes: XL_MAX_CSV_BYTES,
-      fetchTimeoutMs: XL_FETCH_TIMEOUT_MS,
-      defaultLimit: XL_DEFAULT_LIMIT,
-      hardMaxLimit: XL_HARD_MAX_LIMIT,
-      tooLargeHint: "This file exceeds even csv_query_xl's 100 MB cap.",
-    });
+  run() {
+    throw new Error("csv_query_xl is env-aware and must be called via runWithEnv");
+  },
+  runWithEnv(args, env) {
+    return runCsvQuery(
+      args,
+      {
+        toolName: "csv_query_xl",
+        allowInline: false,
+        maxBytes: XL_MAX_CSV_BYTES,
+        fetchTimeoutMs: XL_FETCH_TIMEOUT_MS,
+        defaultLimit: XL_DEFAULT_LIMIT,
+        hardMaxLimit: XL_HARD_MAX_LIMIT,
+        tooLargeHint: "This file exceeds even csv_query_xl's 100 MB cap.",
+      },
+      env as Env
+    );
   },
 };

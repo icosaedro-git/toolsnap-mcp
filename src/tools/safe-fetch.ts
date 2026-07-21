@@ -146,6 +146,42 @@ export function assertPublicHttpUrl(raw: string): URL {
   return parsed;
 }
 
+export interface FilesEnv {
+  SCREENSHOTS_BUCKET: R2Bucket;
+}
+
+const OWN_FILES_HOST = "mcp.toolsnap.app";
+const FILES_PREFIX = "/files/";
+
+/**
+ * If `rawUrl` points at one of our own /files/<key> objects (e.g. one minted
+ * by POST /upload or a paid tool's own output), read it straight from the R2
+ * binding instead of fetching. A Cloudflare Worker cannot fetch() its own
+ * zone (same-zone subrequest loopback is blocked), so a plain fetch() to our
+ * own /files/ URL always fails — this is the fix, mirroring the pattern
+ * src/fal/client.ts resolveSourceAsDataUri already uses for image tools.
+ * Returns null for any other URL (caller should fall through to a normal
+ * fetch), or a 404 Response if the key doesn't exist in R2.
+ */
+export async function resolveOwnFilesResponse(rawUrl: string, env: FilesEnv): Promise<Response | null> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (parsed.hostname.toLowerCase() !== OWN_FILES_HOST || !parsed.pathname.startsWith(FILES_PREFIX)) {
+    return null;
+  }
+  const key = decodeURIComponent(parsed.pathname.slice(FILES_PREFIX.length));
+  if (!key) return null;
+
+  const obj = await env.SCREENSHOTS_BUCKET.get(key);
+  if (!obj) return new Response("File not found", { status: 404, statusText: "Not Found" });
+  const contentType = obj.httpMetadata?.contentType ?? "application/octet-stream";
+  return new Response(obj.body, { status: 200, headers: { "Content-Type": contentType } });
+}
+
 export interface SafeFetchOptions {
   /**
    * Caller-supplied auth headers (from parseForwardHeaders) forwarded ONLY
@@ -155,6 +191,12 @@ export interface SafeFetchOptions {
    * domain the caller never authorised it for.
    */
   forwardHeaders?: Record<string, string>;
+  /**
+   * Env (R2 binding) — when provided, a URL matching our own /files/ prefix
+   * is served directly from R2 (see resolveOwnFilesResponse) instead of
+   * being fetched, which would fail (same-zone loopback).
+   */
+  env?: FilesEnv;
 }
 
 /**
@@ -168,6 +210,11 @@ export async function safeFetch(
   init: RequestInit = {},
   opts: SafeFetchOptions = {}
 ): Promise<Response> {
+  if (opts.env) {
+    const own = await resolveOwnFilesResponse(rawUrl, opts.env);
+    if (own) return own;
+  }
+
   let current = assertPublicHttpUrl(rawUrl);
   const originalHost = current.hostname.toLowerCase();
 
