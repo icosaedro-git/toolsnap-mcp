@@ -116,6 +116,7 @@ export function writeEvent(
       paymentType: event.paymentType,
       payer: event.payer,
       client: event.client,
+      clientName: event.clientName ?? null,
       detail,
     });
   }

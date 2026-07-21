@@ -1,5 +1,6 @@
 import { sendTelegram, type TelegramEnv } from "./telegram.js";
 import { isUpstreamError } from "./error-classification.js";
+import { isProbeClient } from "../analytics/surface.js";
 
 /**
  * Real-time Telegram alerts for failed/rejected analytics events, called from
@@ -21,6 +22,7 @@ interface ErrorEventParams {
   paymentType: string;
   payer: string;
   client?: string | null;
+  clientName?: string | null;
   detail?: string | null;
 }
 
@@ -55,7 +57,7 @@ export function maybeAlertError(env: AlertEnv, ctx: ExecutionContext, params: Er
   ctx.waitUntil(
     (async () => {
       try {
-        const { toolName, paymentType, payer, client, detail } = params;
+        const { toolName, paymentType, payer, client, clientName, detail } = params;
 
         // User-side rejections already surfaced to the caller and visible in
         // the panel — not a red alert. oauth_insufficient/oauth_rejected
@@ -92,6 +94,12 @@ export function maybeAlertError(env: AlertEnv, ctx: ExecutionContext, params: Er
           return;
         }
 
+        // Directory/registry probes and uptime scanners are excluded from the panel
+        // (see queries.ts IS_PROBE_SQL). Alerting must use the SAME classification or
+        // the two diverge: a probe hitting a tool with an empty payload would page
+        // Telegram while being invisible in the panel.
+        if (isProbeClient(clientName)) return;
+
         let icon = "🟠";
         let key: string;
         let ttlSec: number;
@@ -116,6 +124,7 @@ export function maybeAlertError(env: AlertEnv, ctx: ExecutionContext, params: Er
           provider ? `proveedor: ${provider}` : null,
           detail ? `detail: ${detail}` : null,
           `payer: ${truncatePayer(payer)}${client ? ` · client: ${client}` : ""}`,
+          clientName ? `client_name: ${clientName}` : null,
         ].filter((l): l is string => l !== null);
 
         await sendTelegram(env, lines.join("\n"));

@@ -155,6 +155,28 @@ export const PROBE_NAME_PATTERNS: readonly string[] = [
   "%spider%",
 ];
 
+/** LIKE pattern (SQLite semantics: % = any run, _ = one char) → case-insensitive anchored RegExp. */
+function likePatternToRegExp(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // escape regex metachars first
+  const body = escaped.replace(/%/g, ".*").replace(/_/g, ".");
+  return new RegExp(`^${body}$`, "i");
+}
+
+const PROBE_NAME_REGEXPS: readonly RegExp[] = PROBE_NAME_PATTERNS.map(likePatternToRegExp);
+
+/**
+ * JS twin of queries.ts IS_PROBE_SQL — true when this client is a directory/
+ * registry scraper or uptime probe (exact name in PROBE_CLIENTS, or matching a
+ * PROBE_NAME_PATTERNS convention). Both derive from the same two constant lists
+ * so the panel's exclusion and this predicate never diverge. A null/empty
+ * client_name is NOT a probe (mirrors the panel treating NULL as real demand).
+ */
+export function isProbeClient(clientName: string | null | undefined): boolean {
+  if (!clientName) return false;
+  if (PROBE_CLIENTS.has(clientName)) return true;
+  return PROBE_NAME_REGEXPS.some((re) => re.test(clientName));
+}
+
 const ANON_HASH_PREFIX = "anon:";
 const ANON_HASH_HEX_LEN = 12;
 
