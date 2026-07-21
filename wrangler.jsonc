@@ -53,6 +53,9 @@
       "/checkout/start",
       "/welcome",
       "/.well-known/*",
+      // Fase A1 (nota 16 §Acciones) — one-line onboarding skill, served
+      // dynamically so tool counts/prices never go stale (monid-style AX).
+      "/SKILL.md",
       "/analytics",
       "/analytics/data",
       "/files/*",
