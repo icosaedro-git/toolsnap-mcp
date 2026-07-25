@@ -153,7 +153,41 @@ export const PROBE_NAME_PATTERNS: readonly string[] = [
   "%crawler%",
   "%-audit",
   "%spider%",
+  "%verifier%",
 ];
+
+/**
+ * Fase 25.4 — the TypeScript twin of `IS_PROBE_SQL` (queries.ts), for callers
+ * that classify a single live event instead of querying the table: the
+ * Telegram error alerts. Same reasoning as `isUpstreamError` in Fase 24.6 —
+ * the panel and the alerts must agree on what counts as a probe, or they
+ * drift and the pager fills with traffic the panel already discards.
+ *
+ * Also matches against the raw User-Agent, not just the resolved client_name:
+ * a scanner that calls a tool without a prior `initialize` has no clientInfo,
+ * and `classifySurface`'s UA fallback can still land on a generic label
+ * (2026-07-25 review: `firefly-miner-probe/0.1` arrived as `Smithery Connect`).
+ *
+ * Keep in sync with PROBE_CLIENTS / PROBE_NAME_PATTERNS above — those SQL
+ * `LIKE` patterns are the source of truth and this mirrors them.
+ */
+export function isProbeClient(clientName?: string | null, userAgent?: string | null): boolean {
+  if (clientName && PROBE_CLIENTS.has(clientName)) return true;
+  for (const candidate of [clientName, userAgent]) {
+    if (!candidate) continue;
+    const value = candidate.toLowerCase();
+    for (const pattern of PROBE_NAME_PATTERNS) {
+      const body = pattern.replaceAll("%", "");
+      const matches = pattern.startsWith("%")
+        ? pattern.endsWith("%")
+          ? value.includes(body)
+          : value.endsWith(body)
+        : value.startsWith(body);
+      if (matches) return true;
+    }
+  }
+  return false;
+}
 
 const ANON_HASH_PREFIX = "anon:";
 const ANON_HASH_HEX_LEN = 12;

@@ -124,6 +124,18 @@ export function assertPublicHttpUrl(raw: string): URL {
   try {
     parsed = new URL(raw);
   } catch {
+    // Fase 25.4 — the single most repeated real-caller mistake in the
+    // 2026-07-25 analytics review (7 occurrences across two agents): passing a
+    // local filesystem path. The fetch runs on ToolSnap's edge, not on the
+    // caller's machine, so the path can never resolve — say so instead of
+    // leaving the agent to retry the same path.
+    // Windows drive paths ("C:\tmp\x.csv") parse as a URL with scheme "c:" and
+    // never reach here — they fall through to the protocol check below.
+    if (/^(~|\.{1,2}\/|\/(?!\/))/.test(raw.trim())) {
+      throw new Error(
+        "`url` must be a valid absolute URL (http:// or https://). Local file paths are not supported: ToolSnap fetches server-side, so it cannot read your filesystem. Pass a public URL, or send the file content inline via the tool's raw-content argument (`csv`/`json`/`html`/`data`)."
+      );
+    }
     throw new Error("`url` must be a valid absolute URL (http:// or https://).");
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
