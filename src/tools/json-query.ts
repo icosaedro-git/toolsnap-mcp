@@ -42,7 +42,8 @@ type Token =
   | { t: "index"; idx: number }
   | { t: "wildcard" }
   | { t: "recursive"; key: string }
-  | { t: "filter"; expr: string };
+  /** `expr` is kept verbatim for error messages; `filter` is the validated form. */
+  | { t: "filter"; expr: string; filter: ParsedFilter };
 
 function tokenize(path: string): Token[] {
   const tokens: Token[] = [];
@@ -89,7 +90,10 @@ function tokenize(path: string): Token[] {
         const end = path.indexOf(")", i);
         if (end === -1) throw new Error("Unclosed filter expression");
         const expr = path.slice(i + 2, end); // skip ?( to get inner expression
-        tokens.push({ t: "filter", expr });
+        // Validated here, once, before any data is read: an unevaluable filter
+        // used to fall through to `return false` per item and surface as an
+        // empty result (or, with `&&`, a wrong one). See parseFilterExpr.
+        tokens.push({ t: "filter", expr, filter: parseFilterExpr(expr) });
         i = end + 2; // skip ) and ]
         continue;
       }
@@ -148,26 +152,100 @@ function readIdent(s: string, start: number): string {
 // Filter expression evaluator: @.key op value
 // ---------------------------------------------------------------------------
 
-function evalFilter(item: JSONValue, expr: string): boolean {
-  // expr like: @.price < 10  or  @.name = "Alice"  or  @.tag =~ /foo/
-  const m = expr.match(/^@\.(.+?)\s*(=~|!=|>=|<=|>|<|=)\s*(.+)$/);
-  if (!m) return false;
+interface ParsedFilter {
+  key: string;
+  op: string;
+  /** Value with surrounding quotes stripped — used by every op except `=~`. */
+  valStr: string;
+  /** Compiled only for `=~`. */
+  regex?: RegExp;
+}
+
+/** True when `&&`/`||` appear outside a quoted string — i.e. as operators, not
+ *  as part of a value like `@.name = "Ben && Jerry"`. */
+function hasUnquotedLogicalOp(expr: string): boolean {
+  let quote: string | null = null;
+  for (let i = 0; i < expr.length; i++) {
+    const c = expr[i];
+    if (quote) {
+      if (c === "\\") i++;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'") { quote = c; continue; }
+    if ((c === "&" && expr[i + 1] === "&") || (c === "|" && expr[i + 1] === "|")) return true;
+  }
+  return false;
+}
+
+/**
+ * Fase 25.5 — parses `@.key op value`, the ONLY filter shape this engine can
+ * evaluate. Throws a caller-facing Error for anything else.
+ *
+ * Every check here is **purely syntactic and data-independent**: an expression
+ * either has the shape or it doesn't, whatever JSON you feed it. That's what
+ * makes it safe to run at tokenize time, before any data is touched — it can
+ * never turn a well-formed filter that legitimately matches nothing into an
+ * error. Those keep returning `[]` via the data-dependent `return false` paths
+ * in evalFilter (missing key, no row matching a comparison), which this
+ * function deliberately does NOT touch.
+ *
+ * Shared by tokenize() (validate once) and evalFilter() (evaluate per item) so
+ * the two can't drift — same rule as isUpstreamError/isProbeClient.
+ */
+function parseFilterExpr(expr: string): ParsedFilter {
+  const shown = expr.trim();
+  const help = "Supported filter shape: [?(@.key op value)] with op one of = != > >= < <= =~ . Example: [?(@.price < 10)].";
+
+  // Checked before the shape match: the lazy `(.+?)` key group happily matches
+  // `@.price > 1 && @.stock > 100` as key "price", op ">", value
+  // "1 && @.stock > 100" → parseFloat gives 1 and the second condition is
+  // silently dropped, returning a WRONG non-empty result rather than an empty
+  // one. Verified against the live tool on 2026-07-25.
+  if (hasUnquotedLogicalOp(shown)) {
+    throw new Error(
+      `Filter "${shown}" uses a compound condition (&& / ||), which is not supported — it would silently ignore all but the first condition. Apply one condition per query and narrow further with a second query. ${help}`
+    );
+  }
+
+  const m = shown.match(/^@\.(.+?)\s*(=~|!=|>=|<=|>|<|=)\s*(.+)$/);
+  if (!m) {
+    const hint = /^@\.[^\s=<>!~]+$/.test(shown)
+      ? " Existence checks are not supported: compare explicitly, e.g. [?(@.name != '')]."
+      : shown.startsWith(".") || shown.startsWith("@[")
+        ? " Fields must be written as @.key (jq and bracket forms are not supported here)."
+        : "";
+    throw new Error(`Invalid filter "${shown}": no comparison found.${hint} ${help}`);
+  }
 
   const [, key, op, rawVal] = m;
-  const actual = getNestedKey(item, key);
-  if (actual === undefined) return false;
+  const parsed: ParsedFilter = { key, op, valStr: rawVal.trim().replace(/^["']|["']$/g, "") };
 
-  // String value: strip optional quotes
-  const valStr = rawVal.trim().replace(/^["']|["']$/g, "");
-
-  // Regex match
   if (op === "=~") {
     const regexMatch = rawVal.trim().match(/^\/(.+)\/([gimu]*)$/);
-    if (!regexMatch) return false;
+    if (!regexMatch) {
+      throw new Error(`Invalid filter "${shown}": =~ needs a /regex/ literal, e.g. [?(@.name =~ /^Al/)].`);
+    }
     try {
-      return new RegExp(regexMatch[1], regexMatch[2]).test(String(actual));
-    } catch { return false; }
+      parsed.regex = new RegExp(regexMatch[1], regexMatch[2]);
+    } catch (err) {
+      throw new Error(
+        `Invalid filter "${shown}": ${err instanceof Error ? err.message : "bad regular expression"}.`
+      );
+    }
   }
+
+  return parsed;
+}
+
+function evalFilter(item: JSONValue, filter: ParsedFilter): boolean {
+  const { key, op, valStr, regex } = filter;
+  const actual = getNestedKey(item, key);
+  // Data-dependent: the key is absent from THIS item. A legitimate no-match,
+  // never a syntax problem — must stay silent.
+  if (actual === undefined) return false;
+
+  if (op === "=~") return regex!.test(String(actual));
 
   const actualNum = typeof actual === "number" ? actual : parseFloat(String(actual));
   const valNum = parseFloat(valStr);
@@ -258,7 +336,7 @@ function evalTokens(
 
       case "filter": {
         if (Array.isArray(node)) {
-          pushAll(results, node.filter((item) => evalFilter(item, token.expr)));
+          pushAll(results, node.filter((item) => evalFilter(item, token.filter)));
         }
         break;
       }
@@ -357,11 +435,15 @@ async function runJsonQuery(args: Record<string, unknown>, opts: JsonQueryEngine
     // Fase 25.4 — "Expected ] at position 7" alone told the agent nothing
     // about which dialect this is (4 occurrences from one real caller in the
     // 2026-07-25 review, retrying jq/full-JSONPath syntax). Name the supported
-    // subset and show a working query.
+    // subset and show a working query. Fase 25.5: filter errors are already
+    // specific and self-explanatory, so they don't get the generic tail.
+    const message = err instanceof Error ? err.message : String(err);
+    if (/^(Invalid )?[Ff]ilter /.test(message)) throw new Error(`Invalid query: ${message}`);
     throw new Error(
-      `Invalid query: ${err instanceof Error ? err.message : String(err)}. ` +
-        "This is JSONPath-lite: $.a.b, $.items[0], $.items[*].name, ..key (recursive). " +
-        "Filter expressions ([?(...)]), slices and jq syntax are not supported. Example: '$.users[*].name'."
+      `Invalid query: ${message}. ` +
+        "This is JSONPath-lite: $.a.b, $.items[0], $.items[*].name, $['key'], ..key (recursive) " +
+        "and single-condition filters [?(@.price < 10)]. Slices ([0:2]) and jq syntax are not supported. " +
+        "Example: '$.users[*].name'."
     );
   }
 
