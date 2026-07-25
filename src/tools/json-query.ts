@@ -354,7 +354,15 @@ async function runJsonQuery(args: Record<string, unknown>, opts: JsonQueryEngine
   try {
     tokens = tokenize((args.query as string).trim());
   } catch (err) {
-    throw new Error(`Invalid query: ${err instanceof Error ? err.message : String(err)}`);
+    // Fase 25.4 — "Expected ] at position 7" alone told the agent nothing
+    // about which dialect this is (4 occurrences from one real caller in the
+    // 2026-07-25 review, retrying jq/full-JSONPath syntax). Name the supported
+    // subset and show a working query.
+    throw new Error(
+      `Invalid query: ${err instanceof Error ? err.message : String(err)}. ` +
+        "This is JSONPath-lite: $.a.b, $.items[0], $.items[*].name, ..key (recursive). " +
+        "Filter expressions ([?(...)]), slices and jq syntax are not supported. Example: '$.users[*].name'."
+    );
   }
 
   // Start evaluation from root

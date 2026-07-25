@@ -20,3 +20,11 @@ jobs:
       - run: npm run typecheck
       - name: First-connection token budget
         run: npx tsx scripts/first-connection-audit.ts
+      # Every file in test/ is pure logic (no network, no D1, no wrangler dev).
+      # Added in Fase 25.4 so the alert noise floor can't regress silently.
+      - name: Unit tests
+        run: |
+          for t in test/*.ts; do
+            echo "--- $t"
+            npx tsx "$t"
+          done

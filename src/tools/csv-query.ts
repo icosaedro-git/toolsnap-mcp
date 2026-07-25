@@ -113,8 +113,17 @@ class StreamingCSVParser {
 function compileFilter(filter: string): (row: Record<string, string>) => boolean {
   const m = filter.match(/^(.+?)\s*(=|!=|>=|<=|>|<|contains|startswith|endswith)\s*(.+)$/i);
   if (!m) {
+    // Fase 25.4 — agents reach for SQL/OData word operators here ("Pclass eq
+    // 3" showed up twice in the 2026-07-25 review). The old message listed the
+    // valid operators but never showed a working filter, so the retry was a
+    // guess. Lead with an example built from the caller's own input.
+    const guess = filter.match(/^(.+?)\s+(eq|ne|gt|ge|lt|le)\s+(.+)$/i);
+    const wordOps: Record<string, string> = { eq: "=", ne: "!=", gt: ">", ge: ">=", lt: "<", le: "<=" };
+    const suggestion = guess
+      ? ` Did you mean "${guess[1].trim()} ${wordOps[guess[2].toLowerCase()]} ${guess[3].trim()}"? Operators are symbols, not SQL/OData words.`
+      : ` Example: "age >= 30".`;
     throw new Error(
-      `Invalid filter: "${filter}". Expected: column op value  (op: = != > >= < <= contains startswith endswith)`
+      `Invalid filter: "${filter}". Expected: column op value  (op: = != > >= < <= contains startswith endswith).${suggestion}`
     );
   }
 

@@ -1,5 +1,6 @@
 import { sendTelegram, type TelegramEnv } from "./telegram.js";
 import { isUpstreamError } from "./error-classification.js";
+import { isProbeClient } from "../analytics/surface.js";
 
 /**
  * Real-time Telegram alerts for failed/rejected analytics events, called from
@@ -21,6 +22,8 @@ interface ErrorEventParams {
   paymentType: string;
   payer: string;
   client?: string | null;
+  /** Normalized MCP surface (see src/analytics/surface.ts) — used to spot directory probes. */
+  clientName?: string | null;
   detail?: string | null;
 }
 
@@ -55,7 +58,7 @@ export function maybeAlertError(env: AlertEnv, ctx: ExecutionContext, params: Er
   ctx.waitUntil(
     (async () => {
       try {
-        const { toolName, paymentType, payer, client, detail } = params;
+        const { toolName, paymentType, payer, client, clientName, detail } = params;
 
         // User-side rejections already surfaced to the caller and visible in
         // the panel — not a red alert. oauth_insufficient/oauth_rejected
@@ -92,6 +95,19 @@ export function maybeAlertError(env: AlertEnv, ctx: ExecutionContext, params: Er
           return;
         }
 
+        // Fase 25.4 — directory/registry scanners health-check the server by
+        // calling tools with no arguments (csv_query, json_query,
+        // html_to_markdown, pdf_text_extract → "Provide either `url` or …")
+        // and by probing for a tool that cannot exist. Those are validation
+        // errors the caller *wants* back, not ToolSnap malfunctions. The panel
+        // has excluded probes from demand since Fase 25.1/25.3 (IS_PROBE_SQL);
+        // the pager never learned the same rule, so ~77% of the alerts in the
+        // 2026-07-25 review were scanners. Same divergence, same fix as the
+        // upstream-error split above: one shared classifier, both consumers.
+        if (paymentType === "tool_error" && isProbeClient(clientName, client)) {
+          return;
+        }
+
         let icon = "🟠";
         let key: string;
         let ttlSec: number;
@@ -100,7 +116,15 @@ export function maybeAlertError(env: AlertEnv, ctx: ExecutionContext, params: Er
           key = `alert:err:${paymentType}`;
           ttlSec = 5 * 60;
         } else if (paymentType === "tool_error") {
-          key = `alert:err:tool_error:${toolName}`;
+          // A tool name we don't serve can't be throttled per-tool: probes
+          // generate a fresh random name every run (`__verifymcp_auth_probe_
+          // <hash>__`), so the per-tool key was unique every time and NOTHING
+          // was ever deduped — every probe paged. Collapse the whole class
+          // onto one key. Still alerts (catalog drift would surface here), but
+          // at most once an hour however many names get tried.
+          key = detail?.startsWith("Tool not found:")
+            ? "alert:err:tool_not_found"
+            : `alert:err:tool_error:${toolName}`;
           ttlSec = HOUR_SEC;
         } else {
           // 402_rejected with a real payment-verification failure (not a bare handshake).
