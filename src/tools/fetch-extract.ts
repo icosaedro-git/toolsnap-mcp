@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
+import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, httpUrlArgError } from "./safe-fetch.js";
 
 const DEFAULT_MAX_CHARS = 8_000;
 const HARD_MAX_CHARS = 32_000;
@@ -105,7 +105,7 @@ export const fetchExtractTool: McpTool = {
   async run(args) {
     const url = args.url;
     if (typeof url !== "string" || (!url.startsWith("http://") && !url.startsWith("https://"))) {
-      throw new Error("url must be a string starting with http:// or https://");
+      throw httpUrlArgError(url);
     }
 
     const rawMax = args.maxChars !== undefined ? Number(args.maxChars) : DEFAULT_MAX_CHARS;

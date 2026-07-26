@@ -119,6 +119,34 @@ function isPrivateIPv6(host: string): boolean {
  * resolve to a loopback/private/link-local address or an internal hostname.
  * Throws a caller-facing Error with a clear reason on rejection.
  */
+/**
+ * Fase 25.6 — the caller-facing message for a `url` ARGUMENT that isn't an
+ * http(s) string, shared by every tool that pre-checks its argument before
+ * fetching (fetch_extract, fetch_html, screenshot_url, extract_structured).
+ *
+ * Fase 25.4 added a local-path explanation to assertPublicHttpUrl, but these
+ * four tools reject earlier, on their own, and so kept the bare message: a
+ * real caller hit it 6 times on 2026-07-26 and never got the explanation.
+ * One message, one place, so they can't drift again.
+ */
+export function httpUrlArgError(raw: unknown, field = "url"): Error {
+  const base = `\`${field}\` must be a string starting with http:// or https://`;
+  if (typeof raw !== "string" || raw.trim() === "") {
+    return new Error(`${base}. Received ${raw === undefined ? "nothing" : typeof raw}.`);
+  }
+  const value = raw.trim();
+  if (/^(~|\.{1,2}\/|\/(?!\/)|[a-zA-Z]:[\\/])/.test(value)) {
+    return new Error(
+      `${base}. Local file paths are not supported: ToolSnap fetches server-side, so it cannot read your filesystem. Pass a public URL, or upload the file first via POST /upload and query the URL it returns.`
+    );
+  }
+  if (/^[a-zA-Z][\w+.-]*:/.test(value)) {
+    return new Error(`${base}. Got the "${value.split(":")[0]}:" scheme, which is not supported.`);
+  }
+  // Bare host or search term — the most likely fix is just adding the scheme.
+  return new Error(`${base}. Try "https://${value}".`);
+}
+
 export function assertPublicHttpUrl(raw: string): URL {
   let parsed: URL;
   try {

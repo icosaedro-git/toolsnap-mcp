@@ -13,6 +13,14 @@ export function isUpstreamError(detail?: string | null): boolean {
   return (
     /^Fetch failed: HTTP \d/.test(detail) ||
     detail.includes("client-side rendered (SPA)") ||
-    detail === "rate_limited"
+    detail === "rate_limited" ||
+    // Fase 25.6 — our own fetch timeout firing on a slow/unresponsive target
+    // ("Failed to fetch URL: The operation was aborted", always at exactly the
+    // configured deadline). Same class as an upstream 5xx: the tool worked,
+    // the destination didn't answer in time. Paged 4 times on 2026-07-26 from
+    // one real caller sweeping hundreds of sites, where a handful of slow
+    // hosts is expected, not a ToolSnap fault. Still logged and visible in the
+    // panel's error-rate-by-tool.
+    /(operation was aborted|The user aborted a request|timed? ?out)/i.test(detail)
   );
 }

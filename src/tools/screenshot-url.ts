@@ -1,5 +1,6 @@
 import type { McpTool } from "../mcp/types.js";
 import type { Env } from "../index.js";
+import { httpUrlArgError } from "./safe-fetch.js";
 
 /**
  * screenshot_url (Fase 11.2) — capture a web page as a PNG/JPEG image, upload it
@@ -47,7 +48,7 @@ function parseParams(args: Record<string, unknown>): ScreenshotParams {
     typeof url !== "string" ||
     (!url.startsWith("http://") && !url.startsWith("https://"))
   ) {
-    throw new Error("`url` must be a string starting with http:// or https://");
+    throw httpUrlArgError(url);
   }
 
   const fullPage = args.fullPage === true;
