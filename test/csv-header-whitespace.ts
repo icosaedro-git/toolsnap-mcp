@@ -124,6 +124,29 @@ console.log("\nSin regresión");
     esc.ok ? JSON.stringify(JSON.parse(esc.out).rows[0]) : esc.err
   );
 
+  // Espacio ANTES de la comilla de apertura: es relleno del delimitador, no
+  // contenido. Es el caso más común de campo entrecomillado (contiene una coma)
+  // y el primer intento de F25.6 lo dejaba sin trimear.
+  const beforeQuote = await q('name, "city, region"\nAlice, "Madrid, ES"\n', { limit: 1 });
+  assert(
+    "el espacio antes de la comilla de apertura no entra en el campo",
+    beforeQuote.ok && JSON.parse(beforeQuote.out).meta.columns[1] === "city, region",
+    beforeQuote.ok ? JSON.stringify(JSON.parse(beforeQuote.out).meta.columns) : beforeQuote.err
+  );
+  assert(
+    "y el valor entrecomillado tampoco lo arrastra",
+    beforeQuote.ok && JSON.parse(beforeQuote.out).rows[0]["city, region"] === "Madrid, ES",
+    beforeQuote.ok ? JSON.stringify(JSON.parse(beforeQuote.out).rows[0]) : beforeQuote.err
+  );
+
+  // Espacio DESPUÉS de la comilla de cierre: mismo caso.
+  const afterQuote = await q('name,city\n"Alice" , "Madrid"\n', { limit: 1 });
+  assert(
+    "el espacio tras la comilla de cierre no entra en el campo",
+    afterQuote.ok && JSON.parse(afterQuote.out).rows[0].name === "Alice",
+    afterQuote.ok ? JSON.stringify(JSON.parse(afterQuote.out).rows[0]) : afterQuote.err
+  );
+
   // Campo vacío entre comas.
   const empty = await q("a,b,c\n1,,3\n", { limit: 1 });
   assert(

@@ -33,6 +33,8 @@ class StreamingCSVParser {
   private sawContentThisRow = false;
   /** True once the current field has opened a quote — see finishField(). */
   private fieldQuoted = false;
+  /** True once the current field's closing quote has been consumed. */
+  private afterClosingQuote = false;
 
   /**
    * Fase 25.6 — closes a field, trimming surrounding whitespace ONLY when the
@@ -54,6 +56,7 @@ class StreamingCSVParser {
     this.row.push(this.fieldQuoted ? this.field : this.field.trim());
     this.field = "";
     this.fieldQuoted = false;
+    this.afterClosingQuote = false;
   }
 
   /** Feed a chunk of decoded text; returns any rows completed by it. */
@@ -76,6 +79,7 @@ class StreamingCSVParser {
             continue;
           }
           this.inQuotes = false;
+          this.afterClosingQuote = true;
           // fall through: `ch` is processed below as a normal (non-quoted) character
         } else if (ch === '"') {
           this.pendingQuoteDecision = true;
@@ -88,6 +92,12 @@ class StreamingCSVParser {
 
       if (ch === '"') {
         this.inQuotes = true;
+        // Whitespace BEFORE the opening quote is padding around the delimiter,
+        // not content: `a, "b, c"` must yield `b, c`, exactly as `a, b` yields
+        // `b`. Without this the commonest quoted case (a field containing a
+        // comma) kept the leading space and stayed unmatchable — the very bug
+        // this trimming was added to fix.
+        if (!this.fieldQuoted && this.field.trim() === "") this.field = "";
         this.fieldQuoted = true;
         this.sawContentThisRow = true;
       } else if (ch === ",") {
@@ -103,6 +113,10 @@ class StreamingCSVParser {
         if (ch === "\r") this.skipLFAfterCR = true;
       } else {
         if (ch.trim() !== "") this.sawContentThisRow = true;
+        // Whitespace AFTER the closing quote is padding too (`"a" , "b"`).
+        // Non-whitespace there is malformed CSV; keep appending it as before
+        // rather than silently dropping data.
+        if (this.afterClosingQuote && ch.trim() === "") continue;
         this.field += ch;
       }
     }
