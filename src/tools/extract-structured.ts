@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
+import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, httpUrlArgError } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 10_000;
 
@@ -315,7 +315,7 @@ export const extractStructuredTool: McpTool = {
   },
   async run(args) {
     if (typeof args.url !== "string" || !args.url.startsWith("http")) {
-      throw new Error("`url` must be a string starting with http:// or https://");
+      throw httpUrlArgError(args.url);
     }
     if (typeof args.schema !== "string" || !args.schema.trim()) {
       throw new Error("`schema` must be a non-empty JSON string.");

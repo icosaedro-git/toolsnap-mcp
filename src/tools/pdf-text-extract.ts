@@ -593,7 +593,20 @@ async function extractPDFText(buffer: ArrayBuffer): Promise<string> {
 
   const bytes = new Uint8Array(buffer);
   const magic = LATIN1.decode(bytes.slice(0, 5));
-  if (!magic.startsWith("%PDF-")) throw new Error("Not a valid PDF file.");
+  if (!magic.startsWith("%PDF-")) {
+    // Fase 25.6 — "Not a valid PDF file." was a dead end: the caller had no
+    // idea WHAT arrived, so the usual next move was retrying the same URL.
+    // Almost always the server returned an HTML page instead (a landing page,
+    // a cookie wall, a 404 body served with status 200), which fetch_extract
+    // handles. Name what came back and point at the tool that can read it.
+    const head = LATIN1.decode(bytes.slice(0, 200)).trimStart().toLowerCase();
+    const looksHtml = head.startsWith("<!doctype html") || head.startsWith("<html") || head.startsWith("<?xml");
+    throw new Error(
+      looksHtml
+        ? "Not a valid PDF file: the URL returned an HTML page, not a PDF (often a landing page, a cookie/login wall, or an error page served with status 200). Use `fetch_extract` to read it, or pass the direct link to the .pdf file."
+        : "Not a valid PDF file: the response does not start with the %PDF- header. Check that the URL points at the file itself rather than a viewer page."
+    );
+  }
 
   // Whole-file latin1 view is used only for *text* operations (dict parsing,
   // object lookup). Stream bytes are always sliced from `bytes` directly.

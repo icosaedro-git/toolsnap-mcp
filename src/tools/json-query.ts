@@ -378,7 +378,10 @@ interface JsonQueryEngineOptions {
 
 async function runJsonQuery(args: Record<string, unknown>, opts: JsonQueryEngineOptions, filesEnv?: FilesEnv): Promise<string> {
   if (typeof args.query !== "string" || !args.query.trim()) {
-    throw new Error("`query` is required.");
+    // Fase 25.6 — hit 4× in one day by a real caller who clearly wanted to
+    // look at the document before knowing its shape. `$` already does that;
+    // nothing said so.
+    throw new Error("`query` is required. Use `$` to return the whole document, or e.g. `$.items[*].name`.");
   }
 
   const hasUrl = typeof args.url === "string" && (args.url as string).length > 0;

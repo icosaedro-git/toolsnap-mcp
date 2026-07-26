@@ -31,6 +31,30 @@ class StreamingCSVParser {
   // explicitly quoted empty string (`""`), which LOOKS blank once collapsed
   // to `[""]` but isn't.
   private sawContentThisRow = false;
+  /** True once the current field has opened a quote — see finishField(). */
+  private fieldQuoted = false;
+
+  /**
+   * Fase 25.6 — closes a field, trimming surrounding whitespace ONLY when the
+   * field was never quoted (the `skipinitialspace` behaviour every real CSV
+   * reader implements). A quoted field keeps its spaces verbatim, because
+   * there they are deliberate.
+   *
+   * Why this matters: `name, city, n` (a space after each comma, which is how
+   * a huge share of real CSVs are written) produced header ` city`, so
+   * `select`/`filter`/`sort_by` on `city` could never match. `select` failed
+   * with "Column(s) not found: city. Available: name,  city, n" — naming the
+   * column it claimed was missing — and `filter`/`sort_by` were WORSE: they
+   * silently returned 0 rows / skipped the sort, a wrong answer rather than an
+   * error. Passing the untrimmed " city" didn't help either, since the
+   * requested names were already trimmed on the other side. Hit by a real
+   * caller on 2026-07-26 (AirPassengers dataset).
+   */
+  private finishField(): void {
+    this.row.push(this.fieldQuoted ? this.field : this.field.trim());
+    this.field = "";
+    this.fieldQuoted = false;
+  }
 
   /** Feed a chunk of decoded text; returns any rows completed by it. */
   push(chunk: string): string[][] {
@@ -64,13 +88,13 @@ class StreamingCSVParser {
 
       if (ch === '"') {
         this.inQuotes = true;
+        this.fieldQuoted = true;
         this.sawContentThisRow = true;
       } else if (ch === ",") {
-        this.row.push(this.field);
-        this.field = "";
+        this.finishField();
         this.sawContentThisRow = true;
       } else if (ch === "\r" || ch === "\n") {
-        this.row.push(this.field);
+        this.finishField();
         const row = this.row;
         this.row = [];
         this.field = "";
@@ -93,10 +117,9 @@ class StreamingCSVParser {
       this.inQuotes = false;
     }
     if (this.field.length === 0 && this.row.length === 0) return [];
-    this.row.push(this.field);
+    this.finishField();
     const row = this.row;
     this.row = [];
-    this.field = "";
     const sawContent = this.sawContentThisRow;
     this.sawContentThisRow = false;
     if (!sawContent && row.length === 1 && row[0].trim() === "") return [];
