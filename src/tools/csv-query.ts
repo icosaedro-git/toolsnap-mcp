@@ -18,7 +18,7 @@ const XL_HARD_MAX_LIMIT = 1_000;
 // of splitting the whole text into lines up front.
 // ---------------------------------------------------------------------------
 
-class StreamingCSVParser {
+export class StreamingCSVParser {
   private field = "";
   private row: string[] = [];
   private inQuotes = false;
@@ -112,10 +112,15 @@ class StreamingCSVParser {
         this.sawContentThisRow = false;
         if (ch === "\r") this.skipLFAfterCR = true;
       } else {
-        if (ch.trim() !== "") this.sawContentThisRow = true;
-        // Whitespace AFTER the closing quote is padding too (`"a" , "b"`).
-        // Non-whitespace there is malformed CSV; keep appending it as before
-        // rather than silently dropping data.
+        // Whitespace AFTER the closing quote is padding too (`"a" , "b"`), but
+        // only the padding immediately touching the quote — the first
+        // non-blank character (even in malformed CSV like `"a" b c`) ends the
+        // padding window, so the rest of the field is kept verbatim instead of
+        // having its interior spaces silently eaten.
+        if (ch.trim() !== "") {
+          this.sawContentThisRow = true;
+          this.afterClosingQuote = false;
+        }
         if (this.afterClosingQuote && ch.trim() === "") continue;
         this.field += ch;
       }
@@ -130,7 +135,7 @@ class StreamingCSVParser {
       this.pendingQuoteDecision = false;
       this.inQuotes = false;
     }
-    if (this.field.length === 0 && this.row.length === 0) return [];
+    if (this.field.length === 0 && this.row.length === 0 && !this.sawContentThisRow) return [];
     this.finishField();
     const row = this.row;
     this.row = [];

@@ -178,6 +178,14 @@ export function isProbeClient(clientName?: string | null, userAgent?: string | n
     const value = candidate.toLowerCase();
     for (const pattern of PROBE_NAME_PATTERNS) {
       const body = pattern.replaceAll("%", "");
+      // Only edge wildcards (`%x`, `x%`, `%x%`) are mirrored here. A pattern
+      // with an interior `%` (e.g. `foo%bar`) would silently match wrong under
+      // this logic instead of failing loudly — catch it at the source instead.
+      if (pattern.replace(/^%|%$/g, "").includes("%")) {
+        throw new Error(
+          `isProbeClient: unsupported LIKE pattern "${pattern}" — only edge wildcards are mirrored; update the matcher or the pattern`
+        );
+      }
       const matches = pattern.startsWith("%")
         ? pattern.endsWith("%")
           ? value.includes(body)
