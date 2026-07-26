@@ -178,6 +178,29 @@ console.log("\nSin regresión");
     crlf.ok && JSON.parse(crlf.out).rows[0].b === "2",
     crlf.ok ? JSON.stringify(JSON.parse(crlf.out).rows[0]) : crlf.err
   );
+
+  // Fase 25.7 — CSV malformado (texto tras la comilla de cierre): solo el
+  // espacio pegado a la comilla de cierre es padding descartable (el mismo
+  // criterio que separa "a", "b" de "a" , "b"); a partir del primer carácter
+  // no en blanco el resto del campo se conserva tal cual, con sus espacios
+  // interiores. Antes (#79) TODO espacio posterior a la comilla se comía sin
+  // parar, dando "abc". El resultado correcto de este criterio es "ab c" (el
+  // único espacio comido es el que toca la comilla), no "a b c".
+  const malformedAfterQuote = await q('name,val\n"a" b c,x\n', { limit: 1 });
+  assert(
+    'texto malformado tras la comilla solo pierde el espacio pegado a la comilla ("ab c", no "abc")',
+    malformedAfterQuote.ok && JSON.parse(malformedAfterQuote.out).rows[0].name === "ab c",
+    malformedAfterQuote.ok ? JSON.stringify(JSON.parse(malformedAfterQuote.out).rows[0]) : malformedAfterQuote.err
+  );
+
+  // Última fila = campo vacío entrecomillado (`""`) sin \n final: no debe
+  // perderse frente al mismo CSV con \n final (camino end()).
+  const emptyQuotedEof = await q('name\nAlice\n""', { limit: 5 });
+  assert(
+    'una última fila "" sin salto de línea final no se pierde',
+    emptyQuotedEof.ok && JSON.parse(emptyQuotedEof.out).rows.length === 2,
+    emptyQuotedEof.ok ? `${JSON.parse(emptyQuotedEof.out).rows.length} filas` : emptyQuotedEof.err
+  );
 }
 
 console.log(`\n${passed}/${passed + failed} tests passed`);
