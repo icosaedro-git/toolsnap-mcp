@@ -22,6 +22,7 @@
  * Run: npx tsx test/alert-noise.ts
  */
 import { isProbeClient } from "../src/analytics/surface.js";
+import { isUpstreamError } from "../src/alerts/error-classification.js";
 import { maybeAlertError } from "../src/alerts/error-alerts.js";
 
 let passed = 0;
@@ -78,6 +79,34 @@ console.log("isProbeClient");
     !isProbeClient("claude-code", "python-httpx/0.28.1"),
     "expected false"
   );
+}
+
+// ---------------------------------------------------------------------------
+// isUpstreamError — the timeout rule must never swallow money/COGS failures
+// ---------------------------------------------------------------------------
+console.log("\nisUpstreamError (regla de timeout, Fase 25.6)");
+{
+  for (const detail of [
+    "Failed to fetch URL: The operation was aborted",
+    "Failed to fetch: The operation was aborted",
+    "Failed to fetch feed: The operation was aborted",
+    "Failed to fetch sitemap: The user aborted a request",
+  ]) {
+    assert(`silencia el timeout de fetch propio: "${detail.slice(0, 34)}…"`, isUpstreamError(detail), "esperaba true");
+  }
+
+  // La primera versión de esta regla casaba "timeout" en cualquier posición y
+  // se tragaba estos, incluido un fallo de la ruta de dinero. Nunca ampliar.
+  for (const detail of [
+    "fal.ai: request timed out after 60s",
+    "fal.ai video job timeout",
+    "ScreenshotOne: capture timed out",
+    "DataForSEO: gateway timeout",
+    "Settle timed out on-chain",
+    "Deposit confirmation timed out",
+  ]) {
+    assert(`NO silencia un fallo de proveedor/dinero: "${detail.slice(0, 34)}…"`, !isUpstreamError(detail), "esperaba false");
+  }
 }
 
 // ---------------------------------------------------------------------------

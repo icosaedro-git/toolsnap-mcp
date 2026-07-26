@@ -14,13 +14,22 @@ export function isUpstreamError(detail?: string | null): boolean {
     /^Fetch failed: HTTP \d/.test(detail) ||
     detail.includes("client-side rendered (SPA)") ||
     detail === "rate_limited" ||
-    // Fase 25.6 — our own fetch timeout firing on a slow/unresponsive target
-    // ("Failed to fetch URL: The operation was aborted", always at exactly the
-    // configured deadline). Same class as an upstream 5xx: the tool worked,
-    // the destination didn't answer in time. Paged 4 times on 2026-07-26 from
-    // one real caller sweeping hundreds of sites, where a handful of slow
-    // hosts is expected, not a ToolSnap fault. Still logged and visible in the
-    // panel's error-rate-by-tool.
-    /(operation was aborted|The user aborted a request|timed? ?out)/i.test(detail)
+    // Fase 25.6 — our own fetch timeout firing on a slow/unresponsive target,
+    // always at exactly the configured deadline. Same class as an upstream
+    // 5xx: the tool worked, the destination didn't answer in time. Paged 4
+    // times on 2026-07-26 from one real caller sweeping hundreds of sites,
+    // where a handful of slow hosts is expected, not a ToolSnap fault. Still
+    // logged and visible in the panel's error-rate-by-tool.
+    //
+    // ANCHORED to our own fetch wrappers on purpose (see src/tools/*.ts:
+    // "Failed to fetch URL:", "Failed to fetch:", "Failed to fetch feed:",
+    // "Failed to fetch sitemap:"). The first cut of this rule matched the bare
+    // word "timeout" anywhere and silently swallowed `fal.ai: request timed
+    // out`, `ScreenshotOne: capture timed out` and — worst — `Settle timed out
+    // on-chain`: COGS and money failures that F14 requires to keep paging.
+    // Never widen this to an unanchored timeout match.
+    /^Failed to fetch(?: URL| feed| sitemap)?: (?:The operation was aborted|The user aborted a request|.*\btimed out\b)/i.test(
+      detail
+    )
   );
 }
