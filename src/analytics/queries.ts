@@ -202,31 +202,21 @@ export interface DashboardData {
   };
 }
 
-/** Percentile via OFFSET on a sorted single-column result (SQLite has no PERCENTILE_CONT). */
-async function latencyPercentile(
-  db: D1Database,
-  since: number,
-  fraction: number,
-  internalFilter: string
-): Promise<number> {
-  const count = await db
-    .prepare(`SELECT count(*) AS n FROM analytics_events WHERE ts >= ? AND latency_ms > 0${internalFilter}`)
-    .bind(since)
-    .first<{ n: number }>();
-  const n = count?.n ?? 0;
-  if (n === 0) return 0;
-  const offset = Math.min(n - 1, Math.floor(n * fraction));
-  const row = await db
-    .prepare(
-      `SELECT latency_ms FROM analytics_events
-       WHERE ts >= ? AND latency_ms > 0${internalFilter}
-       ORDER BY latency_ms ASC
-       LIMIT 1 OFFSET ?`
-    )
-    .bind(since, offset)
-    .first<{ latency_ms: number }>();
-  return row?.latency_ms ?? 0;
-}
+/**
+ * Fase 25.8 — el p50/p95 global se calcula en JS a partir de `latencyRows`
+ * (las mismas filas que ya alimentan el desglose por tool), no en SQL.
+ *
+ * Antes: latencyPercentile() lanzaba 4 consultas por carga del panel (un
+ * count + un `ORDER BY latency_ms LIMIT 1 OFFSET n` por cada percentil), y
+ * ese ORDER BY sin indice era la consulta menos eficiente de todo el panel
+ * (870k filas leidas en 7 dias, queryEfficiency 0.00004). Las filas ya
+ * estaban en memoria: `latencyRows` trae todas las latencias no-connect de
+ * la ventana de 30d (LIMIT 20000, holgado — hoy son ~2.2k).
+ *
+ * Sin cambio de resultado: los eventos `connect` se registran con
+ * latency_ms = 0, asi que el viejo filtro `latency_ms > 0` ya los excluia,
+ * exactamente igual que el `payment_type != 'connect'` de latencyRows.
+ */
 
 function dayLabel(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10);
@@ -283,9 +273,38 @@ async function paywallConversionFunnel(
   return { hit_payers: row?.hit_payers ?? 0, converted_payers: row?.converted_payers ?? 0 };
 }
 
+/**
+ * Fase 25.8 — cache en memoria del isolate para el payload del panel.
+ *
+ * Una sola carga de /analytics/data lanza 22 consultas sobre
+ * analytics_events. El panel se refresca solo, hay dos consumidores mas
+ * (/reports/analytics y la rutina de review) y un F5 repetido recalculaba
+ * todo. 60 s de TTL absorben rafagas (recargas, dos pestanas, el refresco
+ * automatico) sin que el dashboard se note desactualizado.
+ *
+ * Es estado de isolate, no un binding: se pierde al reciclarse el isolate y
+ * no se comparte entre colos. Eso basta — es un amortiguador de rafagas, no
+ * una fuente de verdad — y evita meter datos privados del panel en la Cache
+ * API compartida del edge.
+ */
+const DASHBOARD_TTL_MS = 60_000;
+const dashboardCache = new Map<string, { at: number; data: DashboardData }>();
+
 export async function getDashboardData(
   db: D1Database,
   includeInternal = false
+): Promise<DashboardData> {
+  const key = includeInternal ? "internal" : "external";
+  const hit = dashboardCache.get(key);
+  if (hit && Date.now() - hit.at < DASHBOARD_TTL_MS) return hit.data;
+  const fresh = await computeDashboardData(db, includeInternal);
+  dashboardCache.set(key, { at: Date.now(), data: fresh });
+  return fresh;
+}
+
+async function computeDashboardData(
+  db: D1Database,
+  includeInternal: boolean
 ): Promise<DashboardData> {
   const now = Date.now();
   const since30 = now - MS_30D;
@@ -317,8 +336,6 @@ export async function getDashboardData(
     totalByTool,
     errorRows,
     latencyRows,
-    p50,
-    p95,
     connectsByClient,
     callsByClient,
     revenueByClient,
@@ -590,8 +607,8 @@ export async function getDashboardData(
 
       // Fase 24.6 — raw per-call latency rows for the per-tool p50/p95
       // breakdown below (computed in JS, same bounded-fetch pattern as the
-      // session funnel). The global p50/p95 (latencyPercentile calls below)
-      // stays SQL-side since it doesn't need per-tool grouping.
+      // session funnel). Fase 25.8: el p50/p95 GLOBAL sale tambien de aqui
+      // (antes eran 4 consultas SQL aparte, la peor del panel).
       db
         .prepare(
           `SELECT tool_name AS tool, latency_ms
@@ -601,9 +618,6 @@ export async function getDashboardData(
         )
         .bind(since30)
         .all<{ tool: string; latency_ms: number }>(),
-
-      latencyPercentile(db, since30, 0.5, internalFilter),
-      latencyPercentile(db, since30, 0.95, internalFilter),
 
       // NOTE: GROUP BY the raw COALESCE(...) expression, not its output alias
       // ("client") — grouping by the alias mis-collapses rows in D1's SQLite
@@ -770,6 +784,14 @@ export async function getDashboardData(
     })
     .sort((a, b) => b.errors - a.errors)
     .slice(0, 10);
+
+  // Fase 25.8 — p50/p95 global desde las mismas filas (ver nota en la
+  // cabecera de percentileOf): evita 4 consultas SQL por carga del panel.
+  const allLatencies = (latencyRows.results ?? [])
+    .map((r) => r.latency_ms)
+    .sort((a, b) => a - b);
+  const p50 = percentileOf(allLatencies, 0.5);
+  const p95 = percentileOf(allLatencies, 0.95);
 
   // Fase 24.6 — per-tool p50/p95 from the raw latency rows, top 10 by volume.
   const latencyByTool = new Map<string, number[]>();
