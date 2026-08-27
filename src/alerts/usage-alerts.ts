@@ -19,11 +19,20 @@ const FREE_TIER = 100; // ScreenshotOne free screenshots / month
 const BREAK_EVEN = 135; // monthly paid calls that cover Workers Paid $5/mo
 const THRESHOLDS = [50, 90, 100];
 const KV_TTL_SEC = 45 * 24 * 60 * 60;
-// 2 years — the panel now shows a 1y timeframe and we want history to grow
-// into it. D1 free tier is 5 GB (~25M rows at ~200 B/row); even sustained
-// high traffic (~34k calls/day) wouldn't fill that in 2 years, and by then
-// the revenue implied would make Workers Paid a non-issue.
-const ANALYTICS_RETENTION_MS = 730 * 24 * 60 * 60 * 1000;
+// Retencion de analytics_events. Fase 25.8 — la restriccion que manda no es
+// el espacio (D1 free = 5 GB) sino las FILAS LEIDAS: 5M/dia a partir del
+// 2026-09-01. Cada fila que sobrevive la escanean las consultas del panel,
+// asi que la tabla se mantiene pequena a proposito.
+//
+// 1 ano para los eventos reales — cubre el timeframe de 1y del panel y a
+// ~150 llamadas/dia son ~55k filas, perfectamente escaneables.
+const ANALYTICS_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
+// 60 dias para los eventos `connect`, que son el 83% de la tabla (33k de
+// 39.6k) y solo se leen en tres sitios, todos con ventana corta: los
+// "connects por cliente" del panel (30d) y las dos mitades del digest
+// semanal (14d). Todo connect mas viejo que eso es peso muerto que solo
+// encarece cada escaneo. 60d deja 2x de margen sobre la ventana mas larga.
+const CONNECT_RETENTION_MS = 60 * 24 * 60 * 60 * 1000;
 
 /** Payment types that mean the tool actually executed (hit the provider). */
 const EXECUTED_TYPES = ["x402_paid", "prepaid", "free_tool", "x402_free_first"];
@@ -80,14 +89,18 @@ export async function checkUsageAlerts(env: Env, now: Date = new Date()): Promis
     purgeOldR2Objects(env.SCREENSHOTS_BUCKET, "uploads/", TTL_24H, now),
   ]);
 
-  // Retention: drop analytics_events older than 90 days (money ledger tables
-  // are untouched — this only trims the append-only telemetry log).
-  await env.PREPAID_DB.prepare(`DELETE FROM analytics_events WHERE ts < ?`)
-    .bind(now.getTime() - ANALYTICS_RETENTION_MS)
-    .run()
-    .catch(() => {
-      // Retention is best-effort — never let it break the alerts cron.
-    });
+  // Retencion en dos tramos (las tablas del ledger de dinero no se tocan —
+  // esto solo poda el log de telemetria append-only).
+  await env.PREPAID_DB.batch([
+    env.PREPAID_DB.prepare(
+      `DELETE FROM analytics_events WHERE ts < ? AND payment_type = 'connect'`
+    ).bind(now.getTime() - CONNECT_RETENTION_MS),
+    env.PREPAID_DB.prepare(`DELETE FROM analytics_events WHERE ts < ?`).bind(
+      now.getTime() - ANALYTICS_RETENTION_MS
+    ),
+  ]).catch(() => {
+    // Retention is best-effort — never let it break the alerts cron.
+  });
   const count = await monthScreenshotCount(env, now);
   const month = monthKey(now);
 

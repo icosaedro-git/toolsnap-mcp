@@ -953,7 +953,25 @@ async function load() {
 }
 
 load();
-setInterval(load, 60_000);
+
+// Fase 25.8 — el auto-refresh era cada 60 s SIN mirar si la pestana estaba
+// visible. Cada carga dispara ~22 consultas sobre analytics_events, asi que
+// una pestana olvidada abierta quemaba ~13M filas/hora de D1: mas del doble
+// del limite diario del free tier (5M) en 60 minutos de nada.
+// Ahora: cada 5 min y solo con la pestana en primer plano, mas un refresco
+// al volver a ella si el dato tiene mas de 5 min. El boton ↻ sigue siendo
+// el camino manual de siempre.
+var REFRESH_MS = 5 * 60 * 1000;
+var lastLoad = Date.now();
+function autoLoad() {
+  if (document.visibilityState !== 'visible') return;
+  lastLoad = Date.now();
+  load();
+}
+setInterval(autoLoad, REFRESH_MS);
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState === 'visible' && Date.now() - lastLoad >= REFRESH_MS) autoLoad();
+});
 </script>
 </body>
 </html>`;
