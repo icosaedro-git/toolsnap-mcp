@@ -279,15 +279,16 @@ async function paywallConversionFunnel(
  * Una sola carga de /analytics/data lanza 22 consultas sobre
  * analytics_events. El panel se refresca solo, hay dos consumidores mas
  * (/reports/analytics y la rutina de review) y un F5 repetido recalculaba
- * todo. 60 s de TTL absorben rafagas (recargas, dos pestanas, el refresco
- * automatico) sin que el dashboard se note desactualizado.
+ * todo. 5 min de TTL absorben las rafagas (recargas seguidas, dos pestanas
+ * abiertas, el boton ↻ pulsado varias veces) sin que el dashboard se note
+ * desactualizado: mide un servidor con ~150 llamadas al dia.
  *
  * Es estado de isolate, no un binding: se pierde al reciclarse el isolate y
  * no se comparte entre colos. Eso basta — es un amortiguador de rafagas, no
  * una fuente de verdad — y evita meter datos privados del panel en la Cache
  * API compartida del edge.
  */
-const DASHBOARD_TTL_MS = 60_000;
+const DASHBOARD_TTL_MS = 5 * 60_000;
 const dashboardCache = new Map<string, { at: number; data: DashboardData }>();
 
 export async function getDashboardData(
@@ -584,9 +585,15 @@ async function computeDashboardData(
       // not a full table scan.
       db
         .prepare(
+          // Fase 25.8 — es el denominador del error_pct por tool, y el
+          // numerador (errorRows) son solo payment_type de error, jamas un
+          // connect. Los connect ademas van todos con tool_name =
+          // 'initialize', un bucket propio que nadie consulta aqui: filtrarlos
+          // no altera ningun porcentaje y permite usar idx_ae_noconnect_ts en
+          // vez de escanear la tabla entera.
           `SELECT tool_name AS tool, count(*) AS total
            FROM analytics_events
-           WHERE ts >= ?${internalFilter}
+           WHERE ts >= ? AND payment_type != 'connect'${internalFilter}
            GROUP BY tool_name`
         )
         .bind(since30)
@@ -647,9 +654,16 @@ async function computeDashboardData(
 
       db
         .prepare(
+          // Fase 25.8 — `payment_type != 'connect'` no cambia NADA del
+          // resultado (los eventos connect se registran siempre con
+          // revenue_usdc = 0, verificado en produccion) y el panel lee esto
+          // como lookup `revenue.get(client) ?? 0` sobre una lista de
+          // clientes que sale de connects_by_client + funnel, nunca de aqui.
+          // Lo que si cambia es el coste: sin ese termino la consulta no
+          // puede usar idx_ae_noconnect_ts y escaneaba la tabla entera.
           `SELECT COALESCE(client_name, 'unknown') AS client, COALESCE(sum(revenue_usdc), 0) AS revenue
            FROM analytics_events
-           WHERE ts >= ?${internalFilter}
+           WHERE ts >= ? AND payment_type != 'connect'${internalFilter}
            GROUP BY COALESCE(client_name, 'unknown')
            ORDER BY revenue DESC`
         )

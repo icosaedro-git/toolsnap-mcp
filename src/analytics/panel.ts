@@ -954,23 +954,25 @@ async function load() {
 
 load();
 
-// Fase 25.8 — el auto-refresh era cada 60 s SIN mirar si la pestana estaba
-// visible. Cada carga dispara ~22 consultas sobre analytics_events, asi que
-// una pestana olvidada abierta quemaba ~13M filas/hora de D1: mas del doble
-// del limite diario del free tier (5M) en 60 minutos de nada.
-// Ahora: cada 5 min y solo con la pestana en primer plano, mas un refresco
-// al volver a ella si el dato tiene mas de 5 min. El boton ↻ sigue siendo
-// el camino manual de siempre.
-var REFRESH_MS = 5 * 60 * 1000;
+// Fase 25.8 — aqui estaba un setInterval(load, 60_000), sin mirar siquiera si
+// la pestana estaba visible. Cada carga son ~22 consultas sobre
+// analytics_events (~97k filas leidas), asi que un refresco por minuto son
+// ~5,8M filas/hora: mas que el limite DIARIO del free tier de D1 (5M) en una
+// sola hora, y se pagaba igual con la pestana olvidada en segundo plano.
+//
+// No hay intervalo. Este panel mide un servidor con ~150 llamadas al dia: no
+// hay ningun dato que se pierda por no refrescar solo, y el boton ↻ da el
+// dato fresco al instante cuando de verdad hace falta. Lo unico automatico
+// que queda es refrescar al VOLVER a la pestana, y solo si lo que se ve tiene
+// mas de 15 minutos — acotado a 4 cargas/hora como mucho, y solo mientras
+// alguien esta mirando de verdad.
+var STALE_MS = 15 * 60 * 1000;
 var lastLoad = Date.now();
-function autoLoad() {
+document.addEventListener('visibilitychange', function () {
   if (document.visibilityState !== 'visible') return;
+  if (Date.now() - lastLoad < STALE_MS) return;
   lastLoad = Date.now();
   load();
-}
-setInterval(autoLoad, REFRESH_MS);
-document.addEventListener('visibilitychange', function () {
-  if (document.visibilityState === 'visible' && Date.now() - lastLoad >= REFRESH_MS) autoLoad();
 });
 </script>
 </body>
