@@ -33,7 +33,6 @@ import {
 } from "../x402/prepaid.js";
 import { writeEvent, type AnalyticsEvent } from "../analytics/logger.js";
 import { classifySurface, persistSessionClient, readSessionClient, anonPayerId } from "../analytics/surface.js";
-import { maybeAlertPaywallHit } from "../alerts/error-alerts.js";
 import { verifyApiKey, touchKey, accountAddress, accountExists, type VerifiedKey } from "../fiat/keys.js";
 import type { VerifiedOAuthToken } from "../oauth/tokens.js";
 import { VIDEO_PAYMENT_CONTEXT_KEY, type VideoPaymentContext } from "../tools/video-generate.js";
@@ -1081,7 +1080,6 @@ export async function dispatch(
               client: clientUA,
               internal: isInternal,
             });
-            maybeAlertPaywallHit(env, ctx, { toolName, clientIp, client: clientUA });
           }
           // No payment payload at all → agent likely has no wallet yet.
           // Inject a wallet_setup hint into the standard x402 response so the

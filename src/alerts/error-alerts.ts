@@ -1,5 +1,5 @@
 import { sendTelegram, type TelegramEnv } from "./telegram.js";
-import { isUpstreamError } from "./error-classification.js";
+import { classifyToolError } from "./error-classification.js";
 import { isProbeClient } from "../analytics/surface.js";
 
 /**
@@ -82,28 +82,31 @@ export function maybeAlertError(env: AlertEnv, ctx: ExecutionContext, params: Er
         // Our own admin-key testing/diagnostics, not a customer-facing failure.
         if (paymentType === "tool_error" && payer === "admin") return;
 
-        // Upstream target-site failures: the tool worked, the destination URL
-        // refused (429/403/404/5xx), is a JS-rendered SPA, or the caller hit
-        // our own free-tier rate limit (expected, uncharged error paths).
-        // Still logged and visible in the panel, but not a ToolSnap
-        // malfunction — paging Telegram for these buries real errors once
-        // traffic grows. Provider (COGS) errors keep alerting: they carry a
-        // provider prefix, not "Fetch failed: HTTP". Shared with the panel's
-        // error-rate-by-tool split (queries.ts) so the two never diverge
-        // again — see error-classification.ts.
-        if (paymentType === "tool_error" && isUpstreamError(detail)) {
+        // Fase 25.9 — LA regla. Un `tool_error` solo pagina si no es ni ruido
+        // del llamante ni del destino (ver error-classification.ts). Antes se
+        // paginaba por defecto y se iban anadiendo excepciones; la revision del
+        // 2026-09-17 conto 14 alertas en 5 dias y CERO accionables: 9 eran
+        // mensajes de validacion que el propio agente pidio de vuelta y 5 eran
+        // el sitio destino portandose mal (bucle de redirects, muro de bots).
+        // Eso entrena a ignorar el bot, que es exactamente como se pierde la
+        // alerta que si importa.
+        //
+        // Siguen paginando: proveedores de COGS (fal.ai, ScreenshotOne,
+        // DataForSEO, Microlink), bindings o secretos sin configurar, tools
+        // env-aware mal cableadas y cualquier excepcion que no reconozcamos —
+        // "internal" es el caso por descarte, asi que un fallo nuevo no se
+        // pierde. Todo lo demas sigue registrado y visible en el panel.
+        if (paymentType === "tool_error" && classifyToolError(detail) !== "internal") {
           return;
         }
 
-        // Fase 25.4 — directory/registry scanners health-check the server by
-        // calling tools with no arguments (csv_query, json_query,
-        // html_to_markdown, pdf_text_extract → "Provide either `url` or …")
-        // and by probing for a tool that cannot exist. Those are validation
-        // errors the caller *wants* back, not ToolSnap malfunctions. The panel
-        // has excluded probes from demand since Fase 25.1/25.3 (IS_PROBE_SQL);
-        // the pager never learned the same rule, so ~77% of the alerts in the
-        // 2026-07-25 review were scanners. Same divergence, same fix as the
-        // upstream-error split above: one shared classifier, both consumers.
+        // Fase 25.4 — escaneres de directorios que hacen health-check llamando
+        // a las tools sin argumentos o pidiendo una tool inexistente. El panel
+        // los excluye de la demanda desde Fase 25.1/25.3 (IS_PROBE_SQL); el
+        // pager aprendio la misma regla aqui. Redundante con el filtro de
+        // arriba en la practica (sus errores son de clase "caller"), pero se
+        // mantiene: un escaner que provoque un error interno tampoco deberia
+        // despertar a nadie a las 3 de la manana.
         if (paymentType === "tool_error" && isProbeClient(clientName, client)) {
           return;
         }
@@ -116,15 +119,10 @@ export function maybeAlertError(env: AlertEnv, ctx: ExecutionContext, params: Er
           key = `alert:err:${paymentType}`;
           ttlSec = 5 * 60;
         } else if (paymentType === "tool_error") {
-          // A tool name we don't serve can't be throttled per-tool: probes
-          // generate a fresh random name every run (`__verifymcp_auth_probe_
-          // <hash>__`), so the per-tool key was unique every time and NOTHING
-          // was ever deduped — every probe paged. Collapse the whole class
-          // onto one key. Still alerts (catalog drift would surface here), but
-          // at most once an hour however many names get tried.
-          key = detail?.startsWith("Tool not found:")
-            ? "alert:err:tool_not_found"
-            : `alert:err:tool_error:${toolName}`;
+          // Fase 25.9 — lo que sobrevive al filtro de arriba es un fallo real
+          // de ToolSnap, no un aviso: mismo rojo que los fallos de dinero.
+          icon = "🔴";
+          key = `alert:err:tool_error:${toolName}`;
           ttlSec = HOUR_SEC;
         } else {
           // 402_rejected with a real payment-verification failure (not a bare handshake).
@@ -150,46 +148,19 @@ export function maybeAlertError(env: AlertEnv, ctx: ExecutionContext, params: Er
   );
 }
 
-interface PaywallHitParams {
-  toolName: string;
-  clientIp: string;
-  client?: string | null;
-}
-
-const PAYWALL_ALERT_TTL_SEC = 6 * HOUR_SEC;
-
-/**
- * Fase 24.5 — signal, not error: an agent hit the x402 paywall with no
- * payment payload at all (no wallet yet). This is a lost-conversion
- * opportunity, not a ToolSnap malfunction — maybeAlertError already
- * suppresses it entirely (see the `no_payment_payload` check above). Sends
- * a single 🟡 Telegram message per IP per 6h window: it fires on the FIRST
- * hit and shouldAlert dedupes the rest, so a burst reads as one business
- * signal instead of either silence or per-call noise. Repeat volume is
- * visible in the panel's 402_no_wallet breakdown, not here.
+/*
+ * Fase 24.5 tenia aqui `maybeAlertPaywallHit`: un 🟡 por cada agente que
+ * chocaba con el muro de pago sin wallet. Retirado en Fase 25.9.
+ *
+ * Por que: el throttle era por IP y 6h, y los escaneres llegan desde una IP
+ * distinta cada vez — en los 5 dias del 2026-09-17, 13 de los 17 impactos
+ * fueron `agentstatus-probe` tanteando `keyword_research` desde 13 IPs, o sea
+ * 13 mensajes por algo que no se puede accionar en el momento y que nunca iba
+ * a convertir. Ademas era redundante: el embudo completo (agentes que vieron
+ * el 402 → agentes que pagaron) ya sale cada lunes en el digest semanal
+ * (surface-digest.ts, "Muro de pago → conversión") y el desglose vive en el
+ * panel. Una oportunidad de conversion es material de informe, no de pager.
  */
-export function maybeAlertPaywallHit(env: AlertEnv, ctx: ExecutionContext, params: PaywallHitParams): void {
-  ctx.waitUntil(
-    (async () => {
-      try {
-        const { toolName, clientIp, client } = params;
-
-        if (!(await shouldAlert(env.X402_NONCES, `alert:paywall:${clientIp}`, PAYWALL_ALERT_TTL_SEC))) return;
-
-        const lines = [
-          `🟡 agente golpeando el muro de pago sin wallet`,
-          `tool: \`${toolName}\``,
-          `ip: ${clientIp}${client ? ` · client: ${client}` : ""}`,
-          `conversión en riesgo — aún no ha llamado a wallet_setup ni ido al checkout`,
-        ];
-
-        await sendTelegram(env, lines.join("\n"));
-      } catch {
-        // Alerts must never break the caller.
-      }
-    })()
-  );
-}
 
 interface BusinessSignalParams {
   toolName: string;

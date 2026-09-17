@@ -4,8 +4,8 @@
  */
 
 import { FAMILIES } from "../tools/catalog.js";
-import { PROBE_CLIENTS, PROBE_NAME_PATTERNS } from "./surface.js";
-import { isUpstreamError } from "../alerts/error-classification.js";
+import { PROBE_CLIENTS, PROBE_NAME_PATTERNS, PROBE_UA_PATTERNS, isProbeClient } from "./surface.js";
+import { classifyToolError } from "../alerts/error-classification.js";
 
 const MS_7D = 7 * 24 * 60 * 60 * 1000;
 const MS_30D = 30 * 24 * 60 * 60 * 1000;
@@ -22,16 +22,21 @@ const PROBE_CLIENTS_SQL = Array.from(PROBE_CLIENTS)
  * appear weekly, so the exact list alone always lags reality. Both constant
  * lists, never user input.
  */
-const IS_PROBE_SQL = `(client_name IN (${PROBE_CLIENTS_SQL}) OR ${PROBE_NAME_PATTERNS.map(
-  (p) => `client_name LIKE '${p}'`
-).join(" OR ")})`;
+const IS_PROBE_SQL = `(client_name IN (${PROBE_CLIENTS_SQL}) OR ${[
+  ...PROBE_NAME_PATTERNS.map((p) => `client_name LIKE '${p}'`),
+  // Fase 25.9 — la convencion de crawler en el User-Agent crudo
+  // ("MiBot/0.1 (+https://mibot.example/bot)"). Espejo exacto de la rama
+  // equivalente de isProbeClient (surface.ts): es la unica regla de esta
+  // familia que no envejece, porque persigue la convencion y no el nombre.
+  ...PROBE_UA_PATTERNS.map((p) => `client LIKE '${p}'`),
+].join(" OR ")})`;
 
 /**
  * SQL fragment excluding directory-probe traffic from demand metrics —
  * shared by the panel's internalFilter and the weekly digest so the two
  * report on the same notion of "real demand".
  */
-const NON_PROBE_SQL = ` AND (client_name IS NULL OR NOT ${IS_PROBE_SQL})`;
+const NON_PROBE_SQL = ` AND NOT COALESCE(${IS_PROBE_SQL}, 0)`;
 
 /** tool_name -> family ids, precomputed once from the catalog (a tool can belong to >1 family). */
 const TOOL_FAMILIES: Record<string, string[]> = (() => {
@@ -141,11 +146,13 @@ export interface DashboardData {
     detail: string | null;
   }>;
   /**
-   * Fase 24.6 — errors split into upstream (destination site 4xx/5xx, SPA,
-   * our own rate limit — not a ToolSnap malfunction) vs ours, using the same
-   * classification error-alerts.ts uses to decide what pages Telegram (see
-   * error-classification.ts). `errors` stays the combined total for
-   * backwards compat with existing consumers of this field.
+   * Fase 24.6 / 25.9 — errores partidos en tres clases con el MISMO
+   * clasificador que decide que pagina en Telegram (error-classification.ts):
+   * `caller_errors` (el agente llamo mal), `upstream_errors` (el destino
+   * fallo) y `our_errors` (fallo real de ToolSnap). La invariante que importa:
+   * **our_errors es exactamente lo que suena en el movil**; lo demas se
+   * registra y se mira aqui. `errors` sigue siendo el total combinado por
+   * compatibilidad con los consumidores existentes.
    */
   error_rate_by_tool: Array<{
     tool: string;
@@ -153,6 +160,8 @@ export interface DashboardData {
     errors: number;
     our_errors: number;
     upstream_errors: number;
+    /** Fase 25.9 — el agente llamo mal a la tool (falta un argumento, URL invalida). Ni fallo nuestro ni del destino. */
+    caller_errors: number;
     error_pct: number;
   }>;
   /** Fase 24.6 — p50/p95 latency per tool (top 10 by call volume), catches a slow provider hidden by the global average. */
@@ -773,15 +782,17 @@ async function computeDashboardData(
     funnelByClient.set(agg.client, bucket);
   }
 
-  // Fase 24.6 — classify each raw error row via the shared isUpstreamError
-  // (error-classification.ts) and roll up per tool, joined against the
+  // Fase 24.6 / 25.9 — classify each raw error row via the shared
+  // classifyToolError (error-classification.ts) and roll up per tool, joined against the
   // separately-fetched total-calls-per-tool denominator.
   const totalByToolMap = new Map((totalByTool.results ?? []).map((r) => [r.tool, r.total]));
-  const errorAgg = new Map<string, { errors: number; upstream: number }>();
+  const errorAgg = new Map<string, { errors: number; upstream: number; caller: number }>();
   for (const row of errorRows.results ?? []) {
-    const agg = errorAgg.get(row.tool) ?? { errors: 0, upstream: 0 };
+    const agg = errorAgg.get(row.tool) ?? { errors: 0, upstream: 0, caller: 0 };
     agg.errors += 1;
-    if (isUpstreamError(row.detail)) agg.upstream += 1;
+    const kind = classifyToolError(row.detail);
+    if (kind === "upstream") agg.upstream += 1;
+    else if (kind === "caller") agg.caller += 1;
     errorAgg.set(row.tool, agg);
   }
   const errorRateByToolOut = Array.from(errorAgg.entries())
@@ -791,8 +802,9 @@ async function computeDashboardData(
         tool,
         total,
         errors: agg.errors,
-        our_errors: agg.errors - agg.upstream,
+        our_errors: agg.errors - agg.upstream - agg.caller,
         upstream_errors: agg.upstream,
+        caller_errors: agg.caller,
         error_pct: total > 0 ? Math.round((agg.errors / total) * 100) : 0,
       };
     })
@@ -902,6 +914,14 @@ export interface WeeklySurfaceDigest {
     use_count_7d_ago: number | null;
     description_changed: boolean;
   }>;
+  /**
+   * Fase 25.9 — el ruido que el pager ya NO manda, contado una vez por semana.
+   * El movil deja de vibrar por estas cosas, pero el volumen sigue siendo
+   * informacion: si `caller` se dispara en una tool concreta es que su esquema
+   * confunde a los agentes, y si `internal` no es cero es que hubo alertas
+   * reales que revisar en el panel.
+   */
+  suppressed_errors_this_week: { caller: number; upstream: number; internal: number; probe: number };
 }
 
 /**
@@ -985,7 +1005,7 @@ export async function getWeeklySurfaceDigest(db: D1Database, now = Date.now()): 
       .first<{ n: number }>(),
   ]);
 
-  const [lastWeekTotal, paywallFunnelThisWeek, directoryStatsRows] = await Promise.all([
+  const [lastWeekTotal, paywallFunnelThisWeek, weekErrorRows, directoryStatsRows] = await Promise.all([
     db
       .prepare(
         `SELECT count(*) AS n FROM analytics_events
@@ -994,6 +1014,18 @@ export async function getWeeklySurfaceDigest(db: D1Database, now = Date.now()): 
       .bind(startLastWeek, startThisWeek)
       .first<{ n: number }>(),
     paywallConversionFunnel(db, startThisWeek, digestFilter),
+    // Fase 25.9 — TODOS los tool_error de la semana (incluidos los de
+    // escaneres, a diferencia del resto del digest: aqui el objetivo es medir
+    // el ruido que se ha silenciado, no la demanda real). Se clasifican en JS
+    // con el mismo clasificador que usa el pager.
+    db
+      .prepare(
+        `SELECT detail, client_name, client FROM analytics_events
+         WHERE ts >= ? AND payment_type = 'tool_error' AND internal = 0
+         LIMIT 20000`
+      )
+      .bind(startThisWeek)
+      .all<{ detail: string | null; client_name: string | null; client: string | null }>(),
     // Fase 25.3 — last 40 days of every directory snapshot (2 rows/day, so
     // this is always a tiny result set), newest first per source. Latest,
     // previous, and "closest to 7 days ago" are all derived in JS below,
@@ -1034,6 +1066,15 @@ export async function getWeeklySurfaceDigest(db: D1Database, now = Date.now()): 
     };
   });
 
+  const suppressed = { caller: 0, upstream: 0, internal: 0, probe: 0 };
+  for (const row of weekErrorRows.results ?? []) {
+    if (isProbeClient(row.client_name, row.client)) {
+      suppressed.probe += 1;
+      continue;
+    }
+    suppressed[classifyToolError(row.detail)] += 1;
+  }
+
   return {
     connects_this_week: connectsThis.results ?? [],
     connects_last_week: connectsLast.results ?? [],
@@ -1045,5 +1086,6 @@ export async function getWeeklySurfaceDigest(db: D1Database, now = Date.now()): 
     paid_calls_this_week: paidThis?.n ?? 0,
     paywall_funnel_this_week: paywallFunnelThisWeek,
     directory_stats: directoryStatsOut,
+    suppressed_errors_this_week: suppressed,
   };
 }

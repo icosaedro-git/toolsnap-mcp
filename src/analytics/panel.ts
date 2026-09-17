@@ -346,22 +346,29 @@ function creditPurchasesTable(items) {
   </table>\${pagerBar('purchases', total)}\`;
 }
 
-// Fase 24.6 — split our_errors (real ToolSnap bugs) from upstream_errors
-// (destination site 4xx/5xx, SPA, our own rate limit — not our fault).
-// our_errors renders in red, upstream_errors in a muted amber — the red
-// segment is what actually needs fixing.
+// Fase 24.6 / 25.9 — tres clases de error, mismo clasificador que decide que
+// suena en Telegram (error-classification.ts):
+//   rojo   our_errors      → fallo real de ToolSnap. ES LO UNICO QUE PAGINA.
+//   ambar  upstream_errors → el sitio destino fallo (4xx/5xx, SPA, redirects).
+//   gris   caller_errors   → el agente llamo mal a la tool (falta un argumento).
+// Solo el segmento rojo pide arreglo inmediato; un tramo gris que se come una
+// barra entera dice otra cosa distinta y tambien util: la tool se esta
+// explicando mal a los agentes.
 function errorRateChart(items) {
   if (!items || items.length === 0) return '<div style="color:var(--muted);font-size:12px">no errors yet</div>';
   return items.map(item => {
+    const caller = item.caller_errors || 0;
     const ourPct = item.total > 0 ? Math.round((item.our_errors / item.total) * 100) : 0;
     const upstreamPct = item.total > 0 ? Math.round((item.upstream_errors / item.total) * 100) : 0;
+    const callerPct = item.total > 0 ? Math.round((caller / item.total) * 100) : 0;
     return \`<div class="bar-row">
     <div class="bar-label" title="\${esc(item.tool)}">\${esc(item.tool)}</div>
     <div class="bar-track">
-      <div class="bar-fill" style="width:\${ourPct}%;background:#f85149" title="our_errors: \${item.our_errors}"></div>
+      <div class="bar-fill" style="width:\${ourPct}%;background:#f85149" title="our_errors (pagina): \${item.our_errors}"></div>
       <div class="bar-fill" style="width:\${upstreamPct}%;background:#d29922" title="upstream_errors: \${item.upstream_errors}"></div>
+      <div class="bar-fill" style="width:\${callerPct}%;background:#6e7681" title="caller_errors: \${caller}"></div>
     </div>
-    <div class="bar-count" title="our: \${item.our_errors} · upstream: \${item.upstream_errors}">\${item.errors}/\${item.total}</div>
+    <div class="bar-count" title="ours: \${item.our_errors} · upstream: \${item.upstream_errors} · caller: \${caller}">\${item.errors}/\${item.total}</div>
   </div>\`;
   }).join('');
 }

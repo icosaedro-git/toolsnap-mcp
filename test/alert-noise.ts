@@ -22,8 +22,9 @@
  * Run: npx tsx test/alert-noise.ts
  */
 import { isProbeClient } from "../src/analytics/surface.js";
-import { isUpstreamError } from "../src/alerts/error-classification.js";
+import { isUpstreamError, classifyToolError } from "../src/alerts/error-classification.js";
 import { maybeAlertError } from "../src/alerts/error-alerts.js";
+import { findBrokenTools, type WindowRow } from "../src/alerts/health.js";
 
 let passed = 0;
 let failed = 0;
@@ -38,7 +39,7 @@ function assert(name: string, condition: boolean, detail: string): void {
   }
 }
 
-console.log("=== Fase 25.4 alert-noise tests ===\n");
+console.log("=== Fase 25.4 / 25.9 alert-noise tests ===\n");
 
 // ---------------------------------------------------------------------------
 // isProbeClient — must agree with IS_PROBE_SQL (queries.ts)
@@ -188,7 +189,10 @@ async function sentMessages(
 }
 
 {
-  // Same error shape, real caller (python-script is deliberately NOT a probe).
+  // Fase 25.9 — INVERSION. El mismo error de validacion, de un llamante REAL
+  // (python-script no es probe a proposito): ya no pagina. El mensaje es la
+  // respuesta util para el agente, no un fallo de ToolSnap. 9 de las 14
+  // alertas de los 5 dias previos al 2026-09-17 eran exactamente esto.
   const sent = await sentMessages([
     {
       toolName: "json_query",
@@ -198,12 +202,97 @@ async function sentMessages(
       clientName: "python-script",
       detail: "`query` is required.",
     },
+    {
+      toolName: "csv_query",
+      paymentType: "tool_error",
+      payer: "anon:06663e5bb470",
+      client: "python-httpx/0.28.1",
+      clientName: "python-script",
+      detail: "Provide either `url` or `csv`.",
+    },
+    {
+      toolName: "fetch_extract",
+      paymentType: "tool_error",
+      payer: "anon:06663e5bb470",
+      client: "python-httpx/0.28.1",
+      clientName: "python-script",
+      detail: "`url` must be a string starting with http:// or https://. Received nothing.",
+    },
+    {
+      toolName: "fetch_extract",
+      paymentType: "tool_error",
+      payer: "anon:06663e5bb470",
+      client: "python-httpx/0.28.1",
+      clientName: "python-script",
+      detail: '`headers` key "User-Agent" is not allowed. Allowed keys: authorization, cookie, x-api-key.',
+    },
   ]);
-  assert("a real caller's validation error still pages", sent.length === 1, `sent ${sent.length}`);
+  assert("los errores de argumentos de un llamante real ya NO paginan", sent.length === 0, `sent ${sent.length}`);
 }
 
 {
-  // Unknown-tool probing: 3 different random names, one alert.
+  // Fase 25.9 — el destino portandose mal tampoco pagina. El bucle de
+  // redirects y el muro de bots eran las otras 5 alertas de esos 5 dias.
+  const sent = await sentMessages([
+    {
+      toolName: "fetch_html",
+      paymentType: "tool_error",
+      payer: "anon:1c04c4c8b1d7",
+      clientName: "mcp",
+      detail: "Failed to fetch URL: Too many redirects (max 5).",
+    },
+    {
+      toolName: "fetch_extract",
+      paymentType: "tool_error",
+      payer: "anon:1c04c4c8b1d7",
+      clientName: "mcp",
+      detail:
+        "This URL returned very little extractable text despite a sizeable response (likely a bot wall).",
+    },
+    {
+      toolName: "rss_parse",
+      paymentType: "tool_error",
+      payer: "anon:1c04c4c8b1d7",
+      clientName: "mcp",
+      detail: "No response body.",
+    },
+  ]);
+  assert("los fallos del sitio destino ya NO paginan", sent.length === 0, `sent ${sent.length}`);
+}
+
+{
+  // Fase 25.9 — lo que SI tiene que seguir sonando: COGS, config y cableado.
+  // Cada uno con su propia tool para no chocar con el throttle por tool.
+  const cases: Array<[string, string]> = [
+    ["screenshot_url", "ScreenshotOne: capture timed out after 30s"],
+    ["image_generate", "fal.ai: request timed out after 60s"],
+    ["keyword_research", "DataForSEO: gateway timeout"],
+    ["text_to_speech", "fal.ai API key is not configured (FAL_API_KEY)."],
+    ["pdf_text_extract", "pdf_text_extract is env-aware and must be called via runWithEnv"],
+    ["remove_background", "fal.ai rembg returned an unexpected response (no image URL)"],
+    ["upload_file", "R2 bucket is not configured (SCREENSHOTS_BUCKET)."],
+    ["count_tokens", "Cannot read properties of undefined (reading 'length')"],
+  ];
+  const sent = await sentMessages(
+    cases.map(([toolName, detail]) => ({
+      toolName,
+      paymentType: "tool_error",
+      payer: "anon:06663e5bb470",
+      clientName: "claude-code",
+      detail,
+    }))
+  );
+  assert(
+    "COGS, config, cableado y excepciones desconocidas siguen paginando",
+    sent.length === cases.length,
+    `sent ${sent.length} de ${cases.length}`
+  );
+}
+
+{
+  // Fase 25.9 — sondeos de tools inexistentes: el nombre nunca es uno que
+  // anunciemos (tools/list y callTool salen del mismo registro), asi que es
+  // siempre el llamante inventandoselo. Silencio total, no "uno por hora".
   const names = [
     "__verifymcp_auth_probe_b15947786f222090__",
     "__verifymcp_auth_probe_14255d48f6276645__",
@@ -219,11 +308,7 @@ async function sentMessages(
       detail: `Tool not found: ${toolName}`,
     }))
   );
-  assert(
-    "three random unknown-tool names collapse onto one throttle key",
-    sent.length === 1,
-    `sent ${sent.length} (throttle key must not include the tool name)`
-  );
+  assert("los sondeos de tools inexistentes no mandan nada", sent.length === 0, `sent ${sent.length}`);
 }
 
 {
@@ -295,7 +380,132 @@ async function sentMessages(
   );
 }
 
-console.log(`\n${passed}/${passed + failed} tests passed`);
-if (failed > 0) {
-  process.exit(1);
+// ---------------------------------------------------------------------------
+// Fase 25.9 — convencion de crawler en el UA crudo
+// ---------------------------------------------------------------------------
+console.log("\nisProbeClient — convencion de crawler en el UA (Fase 25.9)");
+{
+  assert(
+    "BrickBlueBot se declara bot en su propio UA",
+    isProbeClient("brick.blue", "BrickBlueBot/0.1 (+https://brick.blue/bot; agentic web index)"),
+    "expected true"
+  );
+  assert(
+    "cualquier crawler futuro con la misma convencion",
+    isProbeClient("algo-nuevo", "AlgoNuevo/2.0 (+https://algonuevo.example/bot)"),
+    "expected true"
+  );
+  assert(
+    "un agente real con parentesis en el UA NO casa",
+    !isProbeClient("claude-code", "claude-cli/2.1.0 (external, cli)"),
+    "expected false"
+  );
+  assert(
+    "un UA que menciona http sin la convencion NO casa",
+    !isProbeClient("mcp", "python-httpx/0.28.1"),
+    "expected false"
+  );
 }
+
+// ---------------------------------------------------------------------------
+// Fase 25.9 — clasificador de tres clases
+// ---------------------------------------------------------------------------
+console.log("\nclassifyToolError");
+{
+  const cases: Array<[string, string]> = [
+    ["Provide either `url` or `csv`.", "caller"],
+    ["`url` is required.", "caller"],
+    ["count must be an integer between 1 and 100.", "caller"],
+    ['`headers` key "User-Agent" is not allowed. Allowed keys: authorization.', "caller"],
+    ["text too long — max 2000 characters per call", "caller"],
+    ["Tool not found: __probe_1234__", "caller"],
+    ["Fetch failed: HTTP 404 Not Found for https://example.com", "upstream"],
+    ["Failed to fetch URL: Too many redirects (max 5).", "upstream"],
+    ["Failed to fetch sitemap: The operation was aborted", "upstream"],
+    ["This URL returned very little extractable text despite a sizeable response.", "upstream"],
+    ["No response body.", "upstream"],
+    ["rate_limited", "upstream"],
+    ["fal.ai: request timed out after 60s", "internal"],
+    ["ScreenshotOne: capture timed out", "internal"],
+    ["Settle timed out on-chain", "internal"],
+    ["R2 bucket is not configured (SCREENSHOTS_BUCKET).", "internal"],
+    ["csv_query is env-aware and must be called via runWithEnv", "internal"],
+    ["Tool foo requires env but none was provided.", "internal"],
+    ["fal.ai kokoro returned an unexpected response (no audio URL)", "internal"],
+    ['Failed to fetch URL: URL host "10.0.0.1" is not allowed (private/reserved IP address).', "internal"],
+    ["Cannot read properties of undefined (reading 'map')", "internal"],
+  ];
+  for (const [detail, expected] of cases) {
+    const got = classifyToolError(detail);
+    assert(`${expected.padEnd(8)} ← ${detail.slice(0, 52)}`, got === expected, `got "${got}"`);
+  }
+  assert("sin detail no se puede afirmar que sea ruido", classifyToolError(null) === "internal", "expected internal");
+}
+
+// ---------------------------------------------------------------------------
+// Fase 25.9 — deteccion agregada de tools rotas (health.ts)
+// ---------------------------------------------------------------------------
+console.log("\nfindBrokenTools");
+{
+  const row = (over: Partial<WindowRow>): WindowRow => ({
+    tool_name: "fetch_extract",
+    payment_type: "free_tool",
+    detail: null,
+    client_name: "claude-code",
+    client: "claude-cli/2.1.0",
+    ...over,
+  });
+
+  assert(
+    "por debajo del minimo de llamadas no hay tasa que valga",
+    findBrokenTools([
+      row({ payment_type: "tool_error", detail: "boom" }),
+      row({ payment_type: "tool_error", detail: "boom" }),
+    ]).length === 0,
+    "expected 0"
+  );
+
+  const broken = findBrokenTools(
+    Array.from({ length: 6 }, () => row({ payment_type: "tool_error", detail: "boom" }))
+  );
+  assert("6/6 fallos en una tool la marcan como rota", broken.length === 1 && broken[0].pct === 100, JSON.stringify(broken));
+  assert("la alerta lleva el detail mas repetido", broken[0]?.topDetail === "boom", JSON.stringify(broken[0]));
+
+  assert(
+    "una tool con mayoria de exitos no salta",
+    findBrokenTools([
+      ...Array.from({ length: 5 }, () => row({})),
+      row({ payment_type: "tool_error", detail: "boom" }),
+    ]).length === 0,
+    "expected 0"
+  );
+
+  assert(
+    "los escaneres no cuentan para la tasa",
+    findBrokenTools(
+      Array.from({ length: 8 }, () =>
+        row({
+          payment_type: "tool_error",
+          detail: "Provide either `url` or `csv`.",
+          client_name: "brick.blue",
+          client: "BrickBlueBot/0.1 (+https://brick.blue/bot)",
+        })
+      )
+    ).length === 0,
+    "expected 0"
+  );
+
+  const schemaProblem = findBrokenTools(
+    Array.from({ length: 6 }, () =>
+      row({ payment_type: "tool_error", detail: "Provide either `url` or `csv`." })
+    )
+  );
+  assert(
+    "100% de errores de argumentos de llamantes reales = el esquema confunde",
+    schemaProblem.length === 1 && schemaProblem[0].kinds === "caller",
+    JSON.stringify(schemaProblem)
+  );
+}
+
+console.log(`\n${passed}/${passed + failed} tests passed`);
+if (failed > 0) process.exit(1);
