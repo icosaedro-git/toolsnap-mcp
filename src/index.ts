@@ -6,6 +6,8 @@ import { getDashboardData } from "./analytics/queries.js";
 import { PANEL_HTML } from "./analytics/panel.js";
 import { checkUsageAlerts } from "./alerts/usage-alerts.js";
 import { checkSurfaceDigest } from "./alerts/surface-digest.js";
+import { checkServerHealth } from "./alerts/health.js";
+import { sendTelegram } from "./alerts/telegram.js";
 import { looksLikeApiKey, issueKey, revokeKey, accountExists, accountAddress, verifyApiKey, touchKey } from "./fiat/keys.js";
 import { debitBalance, refundDebit, getBalanceMicro, microToUsdc, usdcToMicro } from "./x402/prepaid.js";
 import { handleCmsAuthStart, handleCmsAuthCallback } from "./cms-auth.js";
@@ -1254,40 +1256,50 @@ export default {
   //                            surface digest (Fase 24.3, Mondays only) +
   //                            X Agent engagement metrics fetch (Fase 22.3).
   //   "*/5 * * * *" (5-min)  — X Agent publisher (Fase 22.1): publishes any
-  //                            due `scheduled` row respecting depends_on order.
+  //                            due `scheduled` row respecting depends_on order,
+  //                            + vigilancia de salud (Fase 25.9): tools rotas
+  //                            y silencio total del servidor.
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    if (event.cron === "*/5 * * * *") {
-      ctx.waitUntil(
-        runXPublisher(env).catch((err) =>
-          console.error("x-agent publisher cron failed:", err instanceof Error ? err.message : err)
-        )
+    // Fase 25.9 — un cron que revienta en silencio es de las pocas cosas que
+    // SI requieren atencion y que hasta ahora solo dejaban un console.error
+    // que nadie lee: sin el diario se paran la retencion de analitica, los
+    // digests y las metricas; sin el de 5 minutos deja de publicar X Agent y
+    // deja de vigilarse la salud del servidor. Throttle de 6h por tarea para
+    // que un fallo persistente no se convierta en el ruido que esta fase
+    // acaba de quitar.
+    const CRON_FAIL_TTL_SEC = 6 * 60 * 60;
+    const runTask = (name: string, task: Promise<unknown>): Promise<void> =>
+      task.then(
+        () => undefined,
+        async (err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`${name} cron failed:`, msg);
+          try {
+            const key = `alert:cron:${name}`;
+            if (!(await env.X402_NONCES.get(key))) {
+              await env.X402_NONCES.put(key, "1", { expirationTtl: CRON_FAIL_TTL_SEC });
+              await sendTelegram(env, [`🔴 *cron fallando* · \`${name}\``, `error: ${msg}`].join("\n"));
+            }
+          } catch {
+            // El aviso nunca puede tumbar el handler.
+          }
+        }
       );
+
+    if (event.cron === "*/5 * * * *") {
+      ctx.waitUntil(runTask("x-agent-publisher", runXPublisher(env)));
+      // Vigilancia agregada: tools rotas y silencio total (src/alerts/health.ts).
+      ctx.waitUntil(runTask("health", checkServerHealth(env)));
       return;
     }
 
-    ctx.waitUntil(
-      checkUsageAlerts(env).catch((err) =>
-        console.error("usage-alerts cron failed:", err instanceof Error ? err.message : err)
-      )
-    );
-    ctx.waitUntil(
-      checkSurfaceDigest(env).catch((err) =>
-        console.error("surface-digest cron failed:", err instanceof Error ? err.message : err)
-      )
-    );
+    ctx.waitUntil(runTask("usage-alerts", checkUsageAlerts(env)));
+    ctx.waitUntil(runTask("surface-digest", checkSurfaceDigest(env)));
     // Fase 22.3 — daily engagement metrics fetch (x_metrics), piggybacking on
     // this existing daily trigger rather than adding a third Cron Trigger.
-    ctx.waitUntil(
-      fetchXMetrics(env).catch((err) =>
-        console.error("x-agent metrics cron failed:", err instanceof Error ? err.message : err)
-      )
-    );
+    ctx.waitUntil(runTask("x-agent-metrics", fetchXMetrics(env)));
     // Fase 25.3 — daily directory-listing snapshot (Smithery useCount, Glama
     // listing), same piggyback pattern as the metrics fetch above.
-    ctx.waitUntil(
-      snapshotDirectoryStats(env).catch((err) =>
-        console.error("directory-stats cron failed:", err instanceof Error ? err.message : err)
-      )
-    );
+    ctx.waitUntil(runTask("directory-stats", snapshotDirectoryStats(env)));
   },
 };

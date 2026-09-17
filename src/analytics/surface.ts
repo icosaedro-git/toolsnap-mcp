@@ -136,6 +136,11 @@ export const PROBE_CLIENTS: ReadonlySet<string> = new Set([
   "chiark-prober",
   "glama-mcp-inspector",
   "DeltaForsch",
+  // Refrescado 2026-09-17 (Fase 25.9). BrickBlueBot se anuncia como bot en su
+  // propio User-Agent ("BrickBlueBot/0.1 (+https://brick.blue/bot; ...)") y su
+  // patron es el de siempre: conectar, listar y llamar a las tools sin
+  // argumentos. 54 connects y 7 de las 14 alertas de Telegram en 5 dias.
+  "brick.blue",
 ]);
 
 /**
@@ -157,6 +162,20 @@ export const PROBE_NAME_PATTERNS: readonly string[] = [
 ];
 
 /**
+ * Fase 25.9 — patrones sobre el User-Agent CRUDO (columna `client`), no sobre
+ * el client_name del `initialize`. Persiguen la convencion, no el nombre: un
+ * crawler que se identifica con la formula clasica de robots.txt
+ * ("MiBot/0.1 (+https://mibot.example/bot)") esta declarando por escrito que
+ * es un rastreador. Ningun agente MCP real escribe eso en su UA.
+ *
+ * Es la unica regla de esta familia que NO envejece: cubre al siguiente
+ * escaner antes de que aparezca en la lista de nombres. Se aplica igual en
+ * `isProbeClient` (pager) y en `IS_PROBE_SQL` (panel) para que los dos sigan
+ * contando lo mismo.
+ */
+export const PROBE_UA_PATTERNS: readonly string[] = ["%(+http%"];
+
+/**
  * Fase 25.4 — the TypeScript twin of `IS_PROBE_SQL` (queries.ts), for callers
  * that classify a single live event instead of querying the table: the
  * Telegram error alerts. Same reasoning as `isUpstreamError` in Fase 24.6 —
@@ -171,28 +190,38 @@ export const PROBE_NAME_PATTERNS: readonly string[] = [
  * Keep in sync with PROBE_CLIENTS / PROBE_NAME_PATTERNS above — those SQL
  * `LIKE` patterns are the source of truth and this mirrors them.
  */
+/**
+ * Mirror en TS de un `LIKE` de SQLite con comodines solo en los extremos
+ * (`%x`, `x%`, `%x%`), insensible a mayusculas como lo es LIKE para ASCII.
+ * Un patron con un `%` interior falla ruidosamente en vez de casar mal en
+ * silencio: si hace falta uno, se arregla aqui, no se deja pasar.
+ */
+function matchesAnyLike(value: string, patterns: readonly string[]): boolean {
+  const haystack = value.toLowerCase();
+  for (const pattern of patterns) {
+    if (pattern.replace(/^%|%$/g, "").includes("%")) {
+      throw new Error(
+        `isProbeClient: unsupported LIKE pattern "${pattern}" — only edge wildcards are mirrored; update the matcher or the pattern`
+      );
+    }
+    const body = pattern.replaceAll("%", "").toLowerCase();
+    const matches = pattern.startsWith("%")
+      ? pattern.endsWith("%")
+        ? haystack.includes(body)
+        : haystack.endsWith(body)
+      : haystack.startsWith(body);
+    if (matches) return true;
+  }
+  return false;
+}
+
 export function isProbeClient(clientName?: string | null, userAgent?: string | null): boolean {
   if (clientName && PROBE_CLIENTS.has(clientName)) return true;
+  // Fase 25.9 — convencion de crawler en el UA crudo (ver PROBE_UA_PATTERNS).
+  if (userAgent && matchesAnyLike(userAgent, PROBE_UA_PATTERNS)) return true;
   for (const candidate of [clientName, userAgent]) {
     if (!candidate) continue;
-    const value = candidate.toLowerCase();
-    for (const pattern of PROBE_NAME_PATTERNS) {
-      const body = pattern.replaceAll("%", "");
-      // Only edge wildcards (`%x`, `x%`, `%x%`) are mirrored here. A pattern
-      // with an interior `%` (e.g. `foo%bar`) would silently match wrong under
-      // this logic instead of failing loudly — catch it at the source instead.
-      if (pattern.replace(/^%|%$/g, "").includes("%")) {
-        throw new Error(
-          `isProbeClient: unsupported LIKE pattern "${pattern}" — only edge wildcards are mirrored; update the matcher or the pattern`
-        );
-      }
-      const matches = pattern.startsWith("%")
-        ? pattern.endsWith("%")
-          ? value.includes(body)
-          : value.endsWith(body)
-        : value.startsWith(body);
-      if (matches) return true;
-    }
+    if (matchesAnyLike(candidate, PROBE_NAME_PATTERNS)) return true;
   }
   return false;
 }

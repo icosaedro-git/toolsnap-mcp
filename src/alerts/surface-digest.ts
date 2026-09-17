@@ -73,6 +73,14 @@ export async function checkSurfaceDigest(env: Env, now: Date = new Date()): Prom
         .join("\n")
     : "  (sin snapshots de directorios todavía)";
 
+  // Fase 25.9 — el ruido que el pager ya no manda, resumido aqui una vez por
+  // semana. `internal` es la unica cifra que deberia ser cero: es lo que SI
+  // pagina, y si no lo es hubo alertas reales esta semana que conviene repasar
+  // en el panel. Un `caller` alto concentrado en una tool no es culpa de los
+  // agentes: es su esquema explicandose mal.
+  const sup = d.suppressed_errors_this_week;
+  const supTotal = sup.caller + sup.upstream + sup.internal + sup.probe;
+
   const msg = [
     `📊 *ToolSnap — resumen semanal de superficie* (${month}, semana ${weekOfMonth(now)})`,
     ``,
@@ -90,6 +98,12 @@ export async function checkSurfaceDigest(env: Env, now: Date = new Date()): Prom
     ``,
     `*Directorios:*`,
     directoryLines,
+    ``,
+    `*Errores de la semana* (${supTotal} en total, silenciados salvo los internos):`,
+    `  • del llamante (mal uso de la tool): ${sup.caller}`,
+    `  • del sitio destino: ${sup.upstream}`,
+    `  • de escaneres de directorios: ${sup.probe}`,
+    `  • *de ToolSnap: ${sup.internal}*${sup.internal > 0 ? " ← estos si avisaron" : " ✅"}`,
   ].join("\n");
 
   await sendTelegram(env, msg);
