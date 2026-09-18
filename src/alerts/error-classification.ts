@@ -28,6 +28,15 @@
  * como ruido. Un error interno nuevo sigue llegando a Telegram (cae en
  * "internal" por descarte), pero un mensaje de validacion nuevo ya no.
  *
+ * Fase 25.10 amplia las listas sin tocar esa forma. El default "internal por
+ * descarte" cumplio su funcion — hizo visible lo que faltaba — pero se llevaba
+ * por delante casos que claramente no son nuestros: un `json_query` apuntado a
+ * una pagina HTML ("Invalid JSON: Unexpected token '<'") pagino el 2026-09-18
+ * como si fuese un fallo del servidor. Se anaden los mensajes de valor
+ * invalido del llamante (Invalid query/filter/regex/base64, Unknown model,
+ * Column(s) not found...) y los de "el destino sirvio otro formato" (HTML
+ * donde se pedia JSON/CSV/PDF, pagina sin <table>, render sin texto).
+ *
  * Consumidores: el pager (error-alerts.ts) y el panel (queries.ts,
  * error_rate_by_tool). Comparten este modulo justamente para que no vuelvan a
  * divergir — lo que el panel pinta en rojo es EXACTAMENTE lo que pagina.
@@ -80,6 +89,30 @@ const CALLER_PATTERNS: readonly RegExp[] = [
   // un escaner probando (`__verifymcp_auth_probe_<hash>__`). No hay deriva de
   // catalogo posible por esta via.
   /^Tool not found: /,
+  // Fase 25.10 — el llamante paso un valor que no podemos interpretar. Todos
+  // salen de un `throw` nuestro cuyo texto ES la respuesta util para el agente
+  // (src/tools/json-query.ts, regex-extract.ts, base64.ts, url.ts,
+  // extract-structured.ts, upload-file.ts, timestamp.ts).
+  //
+  // `Invalid JSON: ` es el JSON *inline* (`json:`), que solo puede haber
+  // escrito el llamante. El JSON que llega de una URL lanza
+  // `Invalid JSON from the URL: ` y vive en UPSTREAM_PATTERNS: el destino
+  // sirvio otra cosa. Esa distincion la introduce json-query.ts en esta misma
+  // fase precisamente para poder clasificarlos distinto — no fusionar los dos
+  // prefijos en un solo patron.
+  /^Invalid (?:JSON|query|filter|base64 input|percent-encoded input|regex pattern)\b/,
+  /\bis not valid (?:base64|JSON)\b/,
+  // "Unknown model \"x\". Allowed: ...", "Unknown image_size \"...\"",
+  // "Unknown video_generate model \"...\"".
+  /^Unknown \w+ /,
+  // "Maximum 100 keywords per call; got 140", "Maximum 50 URLs per call; ..."
+  /^Maximum \d+ /,
+  // "Column(s) not found: precio. Available: price, qty" (csv_query).
+  /^Column\(s\) not found: /,
+  // "No job found for job_id \"abc\"" — id inventado o de otra cuenta.
+  /^No job found for job_id\b/,
+  // "Cannot parse \"ayer\" as a date.", "Cannot interpret \"x\" as a Unix timestamp."
+  /^Cannot (?:parse|interpret) "/,
 ];
 
 /**
@@ -133,6 +166,26 @@ const UPSTREAM_PATTERNS: readonly RegExp[] = [
   /returned very little extractable text/,
   // El destino contesto sin cuerpo.
   /^No response body\.?$/,
+  /^Response had no readable body\.?$/,
+  // Fase 25.10 — el destino contesto 200 pero con OTRO formato del que se le
+  // pidio: una landing, un muro de cookies, un 404 servido con status 200. La
+  // tool lo detecta y lo nombra (json-query.ts, pdf-text-extract.ts,
+  // csv-query.ts, html-table-extract.ts, fetch-rendered.ts). Es informacion
+  // para el llamante, nunca un fallo de ToolSnap.
+  //
+  // Esto es lo que disparo la falsa alarma del 2026-09-18: un `json_query`
+  // apuntado a una pagina HTML lanzaba "Invalid JSON: Unexpected token '<'",
+  // que no casaba con ningun patron y caia en "internal" por descarte.
+  /^Invalid JSON from the URL: /,
+  /^Not a valid PDF/,
+  /^Response does not look like CSV/,
+  /^CSV is empty or has no header row\.?$/,
+  /^No <table> elements found\.?$/,
+  /^Rendered page produced no extractable text\b/,
+  // fal/client.ts descargando el media que aporto el llamante. ANCLADO a
+  // "source": "Failed to download result from fal.ai CDN" y "Failed to
+  // download Microlink capture" son el proveedor fallando y siguen paginando.
+  /^Failed to fetch source: /,
 ];
 
 /** A que clase pertenece este `detail`. Sin detail no podemos afirmar ruido: "internal". */

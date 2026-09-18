@@ -427,7 +427,27 @@ async function runJsonQuery(args: Record<string, unknown>, opts: JsonQueryEngine
   try {
     data = JSON.parse(rawJson) as JSONValue;
   } catch (err) {
-    throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
+    const message = err instanceof Error ? err.message : String(err);
+    // Fase 25.10 — mismo tratamiento que pdf_text_extract (Fase 25.6): decir
+    // QUE llego, no solo que no era JSON. "Invalid JSON: Unexpected token
+    // '<', \"<!DOCTYPE \"..." dejaba al agente sin siguiente paso, y el caso
+    // es siempre el mismo: la URL sirve una pagina HTML (landing, muro de
+    // cookies/login, o un 404 con status 200), no el endpoint JSON.
+    //
+    // El prefijo tambien es semantico, no cosmetico: `Invalid JSON from the
+    // URL:` lo clasifica como "upstream" y `Invalid JSON:` (el `json` inline,
+    // que solo pudo escribir el llamante) como "caller". Ver
+    // src/alerts/error-classification.ts — cambiar estos textos sin tocar
+    // alli devuelve el fallo al pager.
+    if (!hasUrl) throw new Error(`Invalid JSON: ${message}`);
+    const head = rawJson.trimStart().slice(0, 200).toLowerCase();
+    const looksHtml =
+      head.startsWith("<!doctype html") || head.startsWith("<html") || head.startsWith("<?xml");
+    throw new Error(
+      looksHtml
+        ? "Invalid JSON from the URL: the server returned an HTML page, not JSON (often a landing page, a cookie/login wall, or an error page served with status 200). Use `fetch_extract` to read it as text, `html_table_extract` if the data is in a <table>, or check that the URL points at the JSON endpoint itself."
+        : `Invalid JSON from the URL: ${message}. The response is not parseable JSON — check the URL returns raw JSON (not JSONP, NDJSON or an HTML wrapper).`
+    );
   }
 
   // Parse and evaluate the path
