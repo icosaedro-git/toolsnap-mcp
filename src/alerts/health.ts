@@ -15,6 +15,10 @@ import { isProbeClient } from "../analytics/surface.js";
  *     los agentes llama mal a una tool, el problema es nuestro esquema o
  *     nuestra descripcion, no ellos.
  *
+ *     Fase 25.10 anade lo que faltaba para que "todo el mundo" signifique algo:
+ *     un minimo de agentes distintos (BREAKAGE_MIN_PAYERS). Una tasa alta
+ *     construida por un solo payer no es una tool rota, es una sesion.
+ *
  *  2. Silencio. Nada falla porque no llega nada. Un Worker caido, una ruta
  *     rota o el rail de OAuth fuera de servicio no generan ni un evento de
  *     error — generan un vacio, y un vacio no dispara ningun pager por evento.
@@ -36,6 +40,26 @@ const BREAKAGE_WINDOW_MS = 6 * HOUR_MS;
 const BREAKAGE_MIN_CALLS = 5;
 const BREAKAGE_PCT = 80;
 const BREAKAGE_DEDUPE_SEC = 12 * 60 * 60;
+/**
+ * Fase 25.10 — "para TODO el mundo" hay que medirlo, no suponerlo.
+ *
+ * El 2026-09-18 esta alerta sonó por `fetch_metadata`: 12/15 llamadas reales
+ * fallidas en 6h, todas `Fetch failed: HTTP 404 Not Found`... y las 15 del
+ * MISMO payer (`anon:1bde233d85ac`, python-httpx). No era la tool rota: era un
+ * agente recorriendo URLs que no existen. La tool respondia perfectamente al
+ * resto — de hecho 4 de esas 15 llamadas suyas fueron un exito.
+ *
+ * Con un solo agente en la ventana no hay nada que distinga "la tool esta
+ * rota" de "este agente esta pidiendo cosas que no existen", asi que un unico
+ * payer no paga el precio de despertar a nadie: queda registrado en el panel.
+ *
+ * EXCEPCION deliberada: si entre los errores hay alguno de clase "internal"
+ * (fallo nuestro — proveedor de COGS caido, binding sin configurar, excepcion
+ * inesperada) se alerta igual aunque lo haya visto un solo agente. Con el
+ * volumen actual del servidor, esperar a un segundo testigo de un fallo propio
+ * es exactamente como se pierden 9 dias de CMS roto.
+ */
+const BREAKAGE_MIN_PAYERS = 2;
 
 /**
  * Silencio total. En los 14 dias previos al 2026-09-17 NO hubo ni una sola
@@ -54,6 +78,8 @@ export interface WindowRow {
   detail: string | null;
   client_name: string | null;
   client: string | null;
+  /** Quien llamo. Distintos payers = distintos agentes (ver BREAKAGE_MIN_PAYERS). */
+  payer: string | null;
 }
 
 /** Deja alertar una sola vez por ventana TTL. Sin KV alerta igualmente (best effort). */
@@ -74,12 +100,19 @@ export function findBrokenTools(rows: WindowRow[]): Array<{
   total: number;
   errors: number;
   pct: number;
+  payers: number;
   topDetail: string | null;
   kinds: string;
 }> {
   const byTool = new Map<
     string,
-    { total: number; errors: number; details: Map<string, number>; kinds: Set<string> }
+    {
+      total: number;
+      errors: number;
+      details: Map<string, number>;
+      kinds: Set<string>;
+      errorPayers: Set<string>;
+    }
   >();
 
   for (const row of rows) {
@@ -91,11 +124,15 @@ export function findBrokenTools(rows: WindowRow[]): Array<{
       errors: 0,
       details: new Map<string, number>(),
       kinds: new Set<string>(),
+      errorPayers: new Set<string>(),
     };
     agg.total += 1;
     if (row.payment_type === "tool_error") {
       agg.errors += 1;
       agg.kinds.add(classifyToolError(row.detail));
+      // Sin payer (no deberia pasar: la columna es NOT NULL) cada fila cuenta
+      // como un agente distinto — no callar una alerta por un dato ausente.
+      agg.errorPayers.add(row.payer ?? `(desconocido:${agg.errors})`);
       const d = row.detail ?? "(sin detalle)";
       agg.details.set(d, (agg.details.get(d) ?? 0) + 1);
     }
@@ -107,6 +144,7 @@ export function findBrokenTools(rows: WindowRow[]): Array<{
     if (agg.total < BREAKAGE_MIN_CALLS) continue;
     const pct = Math.round((agg.errors / agg.total) * 100);
     if (pct < BREAKAGE_PCT) continue;
+    if (agg.errorPayers.size < BREAKAGE_MIN_PAYERS && !agg.kinds.has("internal")) continue;
     const topDetail =
       Array.from(agg.details.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
     broken.push({
@@ -114,6 +152,7 @@ export function findBrokenTools(rows: WindowRow[]): Array<{
       total: agg.total,
       errors: agg.errors,
       pct,
+      payers: agg.errorPayers.size,
       topDetail,
       kinds: Array.from(agg.kinds).sort().join("+") || "—",
     });
@@ -126,7 +165,7 @@ export async function checkServerHealth(env: Env, now: Date = new Date()): Promi
 
   const [windowRows, silence] = await Promise.all([
     env.PREPAID_DB.prepare(
-      `SELECT tool_name, payment_type, detail, client_name, client
+      `SELECT tool_name, payment_type, detail, client_name, client, payer
          FROM analytics_events
         WHERE ts >= ? AND payment_type <> 'connect' AND internal = 0
         LIMIT 5000`
@@ -169,6 +208,7 @@ export async function checkServerHealth(env: Env, now: Date = new Date()): Promi
       [
         `🔴 *tool fallando para todo el mundo* · \`${b.tool}\``,
         `${b.errors}/${b.total} llamadas reales fallidas en ${BREAKAGE_WINDOW_MS / HOUR_MS}h (*${b.pct}%*)`,
+        `agentes afectados: ${b.payers}`,
         `clase: ${b.kinds}`,
         b.topDetail ? `detail mas comun: ${b.topDetail}` : null,
         b.kinds === "caller"

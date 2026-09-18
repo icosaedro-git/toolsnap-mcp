@@ -434,6 +434,33 @@ console.log("\nclassifyToolError");
     ["fal.ai kokoro returned an unexpected response (no audio URL)", "internal"],
     ['Failed to fetch URL: URL host "10.0.0.1" is not allowed (private/reserved IP address).', "internal"],
     ["Cannot read properties of undefined (reading 'map')", "internal"],
+    // Fase 25.10 — valores invalidos que escribio el llamante.
+    ["Invalid JSON: Unexpected token 'x', \"xyz\" is not valid JSON", "caller"],
+    ["Invalid query: Expected ] at position 7. This is JSONPath-lite: ...", "caller"],
+    ['Invalid filter "@.price": no comparison found.', "caller"],
+    ["Invalid regex pattern: Unterminated group", "caller"],
+    ["Invalid base64 input: could not decode.", "caller"],
+    ["`schema` is not valid JSON.", "caller"],
+    ['Unknown model "sdxl". Allowed: ltx-fast, kling-pro', "caller"],
+    ["Maximum 100 keywords per call; got 140", "caller"],
+    ["Column(s) not found: precio. Available: price, qty", "caller"],
+    ['No job found for job_id "nope"', "caller"],
+    ['Cannot parse "ayer" as a date.', "caller"],
+    // Fase 25.10 — el destino sirvio otro formato del que se le pidio. Esta
+    // primera es EXACTAMENTE la falsa alarma del 2026-09-18.
+    [
+      "Invalid JSON from the URL: the server returned an HTML page, not JSON (often a landing page, a cookie/login wall, or an error page served with status 200). Use `fetch_extract` to read it as text, `html_table_extract` if the data is in a <table>, or check that the URL points at the JSON endpoint itself.",
+      "upstream",
+    ],
+    ["Not a valid PDF file: the URL returned an HTML page, not a PDF", "upstream"],
+    ['Response does not look like CSV (first line: "<!doctype html>").', "upstream"],
+    ["No <table> elements found.", "upstream"],
+    ["Rendered page produced no extractable text (it may require login, or block automation).", "upstream"],
+    ["Response had no readable body.", "upstream"],
+    ["Failed to fetch source: HTTP 404", "upstream"],
+    // ... pero bajar el resultado del proveedor SI es cosa nuestra.
+    ["Failed to download result from fal.ai CDN: HTTP 500", "internal"],
+    ["Failed to download Microlink capture: HTTP 502", "internal"],
   ];
   for (const [detail, expected] of cases) {
     const got = classifyToolError(detail);
@@ -453,8 +480,13 @@ console.log("\nfindBrokenTools");
     detail: null,
     client_name: "claude-code",
     client: "claude-cli/2.1.0",
+    payer: "anon:aaaa",
     ...over,
   });
+
+  /** n filas identicas, cada una de un payer distinto (el caso "tool rota"). */
+  const rowsFromDistinctPayers = (n: number, over: Partial<WindowRow>): WindowRow[] =>
+    Array.from({ length: n }, (_, i) => row({ ...over, payer: `anon:p${i}` }));
 
   assert(
     "por debajo del minimo de llamadas no hay tasa que valga",
@@ -466,10 +498,11 @@ console.log("\nfindBrokenTools");
   );
 
   const broken = findBrokenTools(
-    Array.from({ length: 6 }, () => row({ payment_type: "tool_error", detail: "boom" }))
+    rowsFromDistinctPayers(6, { payment_type: "tool_error", detail: "boom" })
   );
   assert("6/6 fallos en una tool la marcan como rota", broken.length === 1 && broken[0].pct === 100, JSON.stringify(broken));
   assert("la alerta lleva el detail mas repetido", broken[0]?.topDetail === "boom", JSON.stringify(broken[0]));
+  assert("la alerta cuenta los agentes afectados", broken[0]?.payers === 6, JSON.stringify(broken[0]));
 
   assert(
     "una tool con mayoria de exitos no salta",
@@ -496,14 +529,61 @@ console.log("\nfindBrokenTools");
   );
 
   const schemaProblem = findBrokenTools(
-    Array.from({ length: 6 }, () =>
-      row({ payment_type: "tool_error", detail: "Provide either `url` or `csv`." })
-    )
+    rowsFromDistinctPayers(6, { payment_type: "tool_error", detail: "Provide either `url` or `csv`." })
   );
   assert(
     "100% de errores de argumentos de llamantes reales = el esquema confunde",
     schemaProblem.length === 1 && schemaProblem[0].kinds === "caller",
     JSON.stringify(schemaProblem)
+  );
+
+  // -------------------------------------------------------------------------
+  // Fase 25.10 — un solo agente no es "todo el mundo". Reproduce la falsa
+  // alarma del 2026-09-18: fetch_metadata, 12/15 fallidas, un unico payer.
+  // -------------------------------------------------------------------------
+  assert(
+    "un unico agente con 404s del destino no marca la tool como rota",
+    findBrokenTools([
+      ...Array.from({ length: 12 }, () =>
+        row({
+          tool_name: "fetch_metadata",
+          payment_type: "tool_error",
+          detail: "Fetch failed: HTTP 404 Not Found",
+          payer: "anon:1bde233d85ac",
+        })
+      ),
+      ...Array.from({ length: 3 }, () =>
+        row({ tool_name: "fetch_metadata", payer: "anon:1bde233d85ac" })
+      ),
+    ]).length === 0,
+    "expected 0"
+  );
+
+  assert(
+    "los mismos 404s repartidos entre dos agentes SI marcan la tool como rota",
+    findBrokenTools(
+      rowsFromDistinctPayers(6, {
+        tool_name: "fetch_metadata",
+        payment_type: "tool_error",
+        detail: "Fetch failed: HTTP 404 Not Found",
+      }).map((r, i) => ({ ...r, payer: i < 3 ? "anon:uno" : "anon:dos" }))
+    ).length === 1,
+    "expected 1"
+  );
+
+  assert(
+    "un fallo NUESTRO pagina aunque solo lo haya visto un agente",
+    findBrokenTools(
+      Array.from({ length: 6 }, () =>
+        row({
+          tool_name: "image_generate",
+          payment_type: "tool_error",
+          detail: "fal.ai API key is not configured (FAL_API_KEY).",
+          payer: "anon:solo",
+        })
+      )
+    ).length === 1,
+    "expected 1"
   );
 }
 
