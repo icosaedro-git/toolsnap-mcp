@@ -112,7 +112,10 @@ const CALLER_PATTERNS: readonly RegExp[] = [
   // "No job found for job_id \"abc\"" — id inventado o de otra cuenta.
   /^No job found for job_id\b/,
   // "Cannot parse \"ayer\" as a date.", "Cannot interpret \"x\" as a Unix timestamp."
-  /^Cannot (?:parse|interpret) "/,
+  // SIN exigir la comilla: el valor citado lo borra redactDetail (privacidad,
+  // ver src/analytics/redact.ts) y el patron se evalua sobre el detail ya
+  // saneado. La invariante "sanear no cambia la clase" tiene test propio.
+  /^Cannot (?:parse|interpret) /,
 ];
 
 /**
