@@ -25,6 +25,7 @@ import { isProbeClient } from "../src/analytics/surface.js";
 import { isUpstreamError, classifyToolError } from "../src/alerts/error-classification.js";
 import { maybeAlertError } from "../src/alerts/error-alerts.js";
 import { findBrokenTools, type WindowRow } from "../src/alerts/health.js";
+import { redactDetail } from "../src/analytics/redact.js";
 
 let passed = 0;
 let failed = 0;
@@ -410,6 +411,7 @@ console.log("\nisProbeClient — convencion de crawler en el UA (Fase 25.9)");
 // ---------------------------------------------------------------------------
 // Fase 25.9 — clasificador de tres clases
 // ---------------------------------------------------------------------------
+let classificationCases: Array<[string, string]> = [];
 console.log("\nclassifyToolError");
 {
   const cases: Array<[string, string]> = [
@@ -466,6 +468,7 @@ console.log("\nclassifyToolError");
     ["Failed to download result from fal.ai CDN: HTTP 500", "internal"],
     ["Failed to download Microlink capture: HTTP 502", "internal"],
   ];
+  classificationCases = cases;
   for (const [detail, expected] of cases) {
     const got = classifyToolError(detail);
     assert(`${expected.padEnd(8)} ← ${detail.slice(0, 52)}`, got === expected, `got "${got}"`);
@@ -588,6 +591,64 @@ console.log("\nfindBrokenTools");
       )
     ).length === 1,
     "expected 1"
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Saneado del detail (privacidad) — src/analytics/redact.ts
+// ---------------------------------------------------------------------------
+console.log("\nredactDetail");
+{
+  const cases: Array<[string, string]> = [
+    // La URL de destino, por las dos vias: interpolada a proposito (retirada
+    // el 2026-09-18, pero las filas viejas de D1 la llevan) y dentro del
+    // mensaje del fetch de Workers.
+    ["Fetch failed: HTTP 404 Not Found for https://cliente.example/p?token=abc", "Fetch failed: HTTP 404 Not Found for [url]"],
+    ["Failed to fetch URL: connection refused (https://interno.example:8080)", "Failed to fetch URL: connection refused ([url])"],
+    // Fragmentos del cuerpo que llego.
+    [
+      'Response does not look like CSV (first line: "<!doctype html><title>Panel de Ana</title>").',
+      "Response does not look like CSV (first line: [redacted]).",
+    ],
+    [
+      "Invalid JSON: Unexpected token '<', \"<!DOCTYPE html><h1>Factura 4021\"... is not valid JSON",
+      "Invalid JSON: Unexpected token '<', [redacted]... is not valid JSON",
+    ],
+    // Valores del llamante.
+    ['Unknown model "modelo-secreto". Allowed: ltx-fast, kling-pro', "Unknown model [redacted]. Allowed: ltx-fast, kling-pro"],
+    ['No job found for job_id "job_abc123"', "No job found for job_id [redacted]"],
+    ['URL host "10.0.0.1" is not allowed (private/reserved IP address).', "URL host [redacted] is not allowed (private/reserved IP address)."],
+    // La unica enumeracion copiada del fichero del llamante.
+    ["Column(s) not found: precio. Available: nombre, dni, salario", "Column(s) not found: [redacted]"],
+    // V8 devuelve el patron entero, sin comillas, cuando no compila.
+    [
+      "Invalid regex pattern: Invalid regular expression: /(?<dni_cliente>[/: Unterminated character class",
+      "Invalid regex pattern: Invalid regular expression: [redacted]: Unterminated character class",
+    ],
+    // Lo que NO debe tocar: nombres de argumentos nuestros y apostrofos.
+    ["`url` is required.", "`url` is required."],
+    ["Cannot read properties of undefined (reading 'map')", "Cannot read properties of undefined (reading 'map')"],
+  ];
+  for (const [raw, expected] of cases) {
+    const got = redactDetail(raw);
+    assert(`${raw.slice(0, 46)}…`, got === expected, `got "${got}"`);
+  }
+
+  // LA invariante: sanear no puede cambiar la clase de un error. Si alguien
+  // ajusta un patron de clasificacion apoyandose en un fragmento que el
+  // saneado borra, esto lo caza aqui y no en produccion (silenciando un fallo
+  // real, o paginando por uno ajeno).
+  let drifted = 0;
+  for (const [detail, expected] of classificationCases) {
+    if (classifyToolError(redactDetail(detail)) !== expected) {
+      console.log(`     ↳ deriva: "${detail.slice(0, 60)}" → ${classifyToolError(redactDetail(detail))}, esperaba ${expected}`);
+      drifted++;
+    }
+  }
+  assert(
+    `sanear no cambia la clase en ninguno de los ${classificationCases.length} casos`,
+    drifted === 0,
+    `${drifted} casos derivan`
   );
 }
 

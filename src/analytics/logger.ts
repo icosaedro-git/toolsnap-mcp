@@ -6,6 +6,7 @@
  */
 
 import { maybeAlertError, maybeAlertBusinessSignal } from "../alerts/error-alerts.js";
+import { redactDetail } from "./redact.js";
 
 export type PaymentType =
   // Fase 24 — one per successful MCP `initialize` (a new connection/session).
@@ -99,7 +100,11 @@ export function writeEvent(
   event: AnalyticsEvent,
   ctx: ExecutionContext
 ): void {
-  const detail = event.detail ? event.detail.slice(0, MAX_DETAIL_LEN) : null;
+  // Saneado ANTES de cualquier salida (D1, console.error y Telegram beben de
+  // esta misma variable): el llamante ya tiene el mensaje completo, lo que se
+  // guarda es su forma. Ver src/analytics/redact.ts para por que va aqui y no
+  // en cada `throw` de src/tools/.
+  const detail = event.detail ? redactDetail(event.detail).slice(0, MAX_DETAIL_LEN) : null;
 
   if (ERROR_PAYMENT_TYPES.has(event.paymentType)) {
     console.error(
