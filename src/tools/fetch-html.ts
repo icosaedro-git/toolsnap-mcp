@@ -91,7 +91,13 @@ export const fetchHtmlTool: McpTool = {
     }
 
     if (!response.ok) {
-      throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText} for ${url}`);
+      // Sin la URL a proposito (2026-09-18): `detail` se persiste en
+      // analytics_events durante 730 dias, y la URL de destino es dato del
+      // llamante, no metadato nuestro. No aporta nada al diagnostico — ni el
+      // clasificador ni el monitor la leen (se apoyan en este prefijo y en
+      // tool_name) — y el agente ya sabe que URL paso. Las otras ~14 tools
+      // que hacen fetch nunca la incluyeron.
+      throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
     }
 
     let html: string;

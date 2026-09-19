@@ -140,7 +140,8 @@ const SECURITY_PATTERNS: readonly RegExp[] = [/URL host .* is not allowed \(/];
  * El destino fallo o se porto mal. La tool hizo su trabajo.
  */
 const UPSTREAM_PATTERNS: readonly RegExp[] = [
-  // "Fetch failed: HTTP 404 Not Found for https://..."
+  // "Fetch failed: HTTP 404 Not Found" (hasta el 2026-09-18, fetch_html y
+  // fetch_extract anadian " for <url>"; las filas viejas de D1 la conservan).
   /^Fetch failed: HTTP \d/,
   // Pagina renderizada en cliente que no podemos parsear sin navegador.
   /client-side rendered \(SPA\)/,
