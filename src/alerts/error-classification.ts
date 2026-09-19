@@ -215,3 +215,28 @@ export function isCallerError(detail?: string | null): boolean {
 export function isOurError(detail?: string | null): boolean {
   return classifyToolError(detail) === "internal";
 }
+
+/**
+ * Igual que `classifyToolError`, pero además dice si la clase salió de un
+ * patrón anclado o del DEFAULT POR DESCARTE.
+ *
+ * Esa distinción no existía porque hasta ahora nadie la necesitaba: el pager
+ * solo mira la clase. La necesita quien quiera tratar distinto el descarte —
+ * que es exactamente donde han nacido todas las falsas alarmas (2026-09-18: un
+ * `json_query` apuntado a HTML paginó por no casar con nada). Ver
+ * `needsTypeSafeTriage` en src/typesafe/questions.ts y docs/typesafe-ai.md.
+ *
+ * No cambia ninguna clasificación: `matched` es información añadida.
+ */
+export function classifyToolErrorDetailed(detail?: string | null): {
+  cls: ToolErrorClass;
+  /** false ⇒ "internal" solo porque no casó con ninguna lista. */
+  matched: boolean;
+} {
+  if (!detail) return { cls: "internal", matched: false };
+  if (INTERNAL_PATTERNS.some((re) => re.test(detail))) return { cls: "internal", matched: true };
+  if (SECURITY_PATTERNS.some((re) => re.test(detail))) return { cls: "internal", matched: true };
+  if (UPSTREAM_PATTERNS.some((re) => re.test(detail))) return { cls: "upstream", matched: true };
+  if (CALLER_PATTERNS.some((re) => re.test(detail))) return { cls: "caller", matched: true };
+  return { cls: "internal", matched: false };
+}

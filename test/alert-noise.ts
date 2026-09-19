@@ -23,6 +23,7 @@
  */
 import { isProbeClient } from "../src/analytics/surface.js";
 import { isUpstreamError, classifyToolError } from "../src/alerts/error-classification.js";
+import { TOOL_ERROR_CASES } from "./fixtures/tool-errors.js";
 import { maybeAlertError } from "../src/alerts/error-alerts.js";
 import { findBrokenTools, type WindowRow } from "../src/alerts/health.js";
 
@@ -263,16 +264,7 @@ async function sentMessages(
 {
   // Fase 25.9 — lo que SI tiene que seguir sonando: COGS, config y cableado.
   // Cada uno con su propia tool para no chocar con el throttle por tool.
-  const cases: Array<[string, string]> = [
-    ["screenshot_url", "ScreenshotOne: capture timed out after 30s"],
-    ["image_generate", "fal.ai: request timed out after 60s"],
-    ["keyword_research", "DataForSEO: gateway timeout"],
-    ["text_to_speech", "fal.ai API key is not configured (FAL_API_KEY)."],
-    ["pdf_text_extract", "pdf_text_extract is env-aware and must be called via runWithEnv"],
-    ["remove_background", "fal.ai rembg returned an unexpected response (no image URL)"],
-    ["upload_file", "R2 bucket is not configured (SCREENSHOTS_BUCKET)."],
-    ["count_tokens", "Cannot read properties of undefined (reading 'length')"],
-  ];
+  const cases = TOOL_ERROR_CASES;
   const sent = await sentMessages(
     cases.map(([toolName, detail]) => ({
       toolName,

@@ -48,3 +48,15 @@ TELEGRAM_CHAT_ID=123456789
 # seconds. Production uses the wrangler.jsonc defaults (14400/1800 = 4h/30min).
 X_VETO_NOTICE_S=14400
 X_VETO_MIN_S=6
+
+# TypeSafe AI (System One / jev) — juicios tipados para el triaje del pager, el
+# encaminado del catálogo y el filtro de candidatos del x-agent. Ver
+# docs/typesafe-ai.md. Clave en https://console.typesafe.ai/keys
+#
+# HOY NO LA USA NINGUNA RUTA: sirve para correr el experimento de validación
+# (npx tsx scripts/typesafe-experiment.mts) antes de cablear nada. Todo
+# consumidor futuro debe degradar al camino determinista si falta
+# (src/typesafe/client.ts: hasTypeSafe()).
+#
+# En producción: wrangler secret put TYPESAFE_API_KEY
+TYPESAFE_API_KEY=your-typesafe-api-key-here
