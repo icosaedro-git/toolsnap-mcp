@@ -135,9 +135,8 @@ export const fetchExtractTool: McpTool = {
     }
 
     if (!response.ok) {
-      throw new Error(
-        `Fetch failed: HTTP ${response.status} ${response.statusText} for ${url}`
-      );
+      // Sin la URL a proposito — ver la nota en fetch-html.ts.
+      throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
     }
 
     let html: string;

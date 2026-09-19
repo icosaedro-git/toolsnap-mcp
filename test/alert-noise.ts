@@ -419,7 +419,11 @@ console.log("\nclassifyToolError");
     ['`headers` key "User-Agent" is not allowed. Allowed keys: authorization.', "caller"],
     ["text too long — max 2000 characters per call", "caller"],
     ["Tool not found: __probe_1234__", "caller"],
+    // Con URL: forma historica de fetch_html/fetch_extract, retirada el
+    // 2026-09-18 (la URL de destino no se persiste ya en `detail`). Las
+    // filas viejas de D1 siguen teniendola, asi que el caso se mantiene.
     ["Fetch failed: HTTP 404 Not Found for https://example.com", "upstream"],
+    ["Fetch failed: HTTP 404 Not Found", "upstream"],
     ["Failed to fetch URL: Too many redirects (max 5).", "upstream"],
     ["Failed to fetch sitemap: The operation was aborted", "upstream"],
     ["This URL returned very little extractable text despite a sizeable response.", "upstream"],
