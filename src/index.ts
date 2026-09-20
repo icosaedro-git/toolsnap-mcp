@@ -1213,6 +1213,11 @@ export default {
       return jsonResponse(await getWebhookInfo(env));
     }
 
+    // REST tool endpoint (ADR-003) — any method reaches the handler, which answers 405.
+    if (url.pathname.startsWith("/v1/tools/")) {
+      return handleRestTool(request, env, ctx);
+    }
+
     // File upload — POST /upload (generalized: out-of-band upload for file tools)
     //
     // The out-of-band counterpart to inline tool args: a harness with shell
@@ -1231,11 +1236,6 @@ export default {
     //     100 MB upload doesn't blow the Worker's ~128 MB memory ceiling.
     //
     // Returns { url, key, content_type, file_size_bytes, tier, expires }.
-    // REST tool endpoint (ADR-003) — any method reaches the handler, which answers 405.
-    if (url.pathname.startsWith("/v1/tools/")) {
-      return handleRestTool(request, env, ctx);
-    }
-
     if (method === "POST" && url.pathname === "/upload") {
       return handleFileUpload(request, env, ctx);
     }
