@@ -13,6 +13,7 @@ import { debitBalance, refundDebit, getBalanceMicro, microToUsdc, usdcToMicro } 
 import { handleCmsAuthStart, handleCmsAuthCallback } from "./cms-auth.js";
 import { verifyPolarSignature, debugPolarSignature, getOrCreateAccountByEmail, creditOrder } from "./fiat/polar.js";
 import { writeEvent } from "./analytics/logger.js";
+import { handleRestTool } from "./rest-tools.js";
 import { looksLikeOAuthToken, verifyOAuthToken, touchOAuthToken } from "./oauth/tokens.js";
 import { runXPublisher } from "./x-agent/publisher.js";
 import { handleTelegramUpdate, type TelegramUpdate } from "./x-agent/telegram-approval.js";
@@ -110,6 +111,10 @@ export interface Env {
   // Marks our own dev/testing traffic in analytics (Fase 19).
   // Clients send X-ToolSnap-Internal: <token>; set via: wrangler secret put TOOLSNAP_INTERNAL_TOKEN.
   TOOLSNAP_INTERNAL_TOKEN?: string;
+
+  // Dedicated bearer secret for POST /v1/tools/<name> (src/rest-tools.ts).
+  // Set via: wrangler secret put REST_API_TOKEN. Never reuse the internal/admin keys.
+  REST_API_TOKEN?: string;
 
   // Comma-separated EVM addresses of our own wallets — their paid calls are marked internal.
   INTERNAL_WALLETS?: string;
@@ -1206,6 +1211,11 @@ export default {
         return jsonResponse({ error: "Unauthorized" }, 401);
       }
       return jsonResponse(await getWebhookInfo(env));
+    }
+
+    // REST tool endpoint (ADR-003) — any method reaches the handler, which answers 405.
+    if (url.pathname.startsWith("/v1/tools/")) {
+      return handleRestTool(request, env, ctx);
     }
 
     // File upload — POST /upload (generalized: out-of-band upload for file tools)
