@@ -16,5 +16,14 @@
    malos de un cliente; el detalle queda como `rest_error: ...` (saneado por writeEvent).
 5. Antes de desplegar: `wrangler secret put REST_API_TOKEN`. Sin el secreto la ruta
    responde 401 a todo (falla cerrada).
-6. No se ejecuto la verificacion con `wrangler dev` (129 llamadas seguidas, fila en
-   analytics_events, 200 real en fetch_extract): solo tests con mocks. Pendiente.
+6. Verificado en local con wrangler dev el 2026-09-20: todos los casos de la lista
+   del plan pasan (200 real en fetch_extract, 404 en screenshot_url / keyword_research /
+   image_generate / csv_query_xl / inventada, 401 sin token y con token alterado, 405,
+   400 con no-JSON y con args malos, 120 x 400 y luego 429 en la llamada 121, fila
+   free_tool con revenue 0 y latencia real en analytics_events).
+7. `wrangler dev` NO arranca en main tal cual: src/index.ts exporta constantes
+   (FREE_UPLOAD_MAX_BYTES, etc.) y el runtime local da "Incorrect type for map entry".
+   Se rodeo con un entry temporal que solo reexporta el default. Ya existia antes de
+   esta rama; conviene mover esos exports (los usa test/upload-endpoint.ts).
+8. La D1 local estaba sin migrar (faltaba cogs_usdc) y writeEvent traga el error en
+   silencio: no se guardaba ningun evento en local. Se aplicaron las migraciones locales.

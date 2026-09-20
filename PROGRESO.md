@@ -7,4 +7,5 @@
 - Diff: https://github.com/icosaedro-git/toolsnap-mcp/compare/main...feat/rest-tools-endpoint
 - Tests: `npx tsx test/rest-tools.ts` y `npm run typecheck` en verde. Test de
   disjuntos comprobado rompiendolo a mano (screenshot_url en REST_ALLOWED -> falla).
-- Pendiente: verificacion con wrangler dev (ver HALLAZGOS.md #6).
+- Verificacion local con wrangler dev: lista del plan entera OK (HALLAZGOS.md #6-8).
+- Pendiente: revision (fase 3), merge y deploy. REST_API_TOKEN ya puesto en Cloudflare.
