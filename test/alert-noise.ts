@@ -578,6 +578,106 @@ console.log("\nfindBrokenTools");
     "expected 1"
   );
 
+  // -------------------------------------------------------------------------
+  // Fase 25.11 — contar agentes distintos no basta cuando uno acapara el
+  // trafico. Reproduce las dos falsas alarmas del 2026-09-21.
+  // -------------------------------------------------------------------------
+  assert(
+    "un agente dominante mas otro con un error suelto no marcan la tool como rota",
+    findBrokenTools([
+      // csv_query real del 2026-09-21: 7 errores de anon:1bde... y 2 de otro.
+      ...Array.from({ length: 7 }, () =>
+        row({
+          tool_name: "csv_query",
+          payment_type: "tool_error",
+          detail: "Fetch failed: HTTP 404 Not Found",
+          payer: "anon:1bde233d85ac",
+        })
+      ),
+      ...Array.from({ length: 2 }, () =>
+        row({
+          tool_name: "csv_query",
+          payment_type: "tool_error",
+          detail: "Fetch failed: HTTP 404 Not Found",
+          payer: "anon:fc8c4578c711",
+        })
+      ),
+      row({ tool_name: "csv_query", payer: "anon:1bde233d85ac" }),
+    ]).length === 0,
+    "expected 0"
+  );
+
+  assert(
+    "31 errores de un agente y uno de cada uno de otros dos tampoco",
+    findBrokenTools([
+      // fetch_metadata del 2026-09-18, la forma exacta que ya colo una vez.
+      ...Array.from({ length: 31 }, () =>
+        row({
+          tool_name: "fetch_metadata",
+          payment_type: "tool_error",
+          detail: "Fetch failed: HTTP 530 ",
+          payer: "anon:1bde233d85ac",
+        })
+      ),
+      ...Array.from({ length: 4 }, () =>
+        row({ tool_name: "fetch_metadata", payer: "anon:1bde233d85ac" })
+      ),
+      row({
+        tool_name: "fetch_metadata",
+        payment_type: "tool_error",
+        detail: "Fetch failed: HTTP 530 ",
+        payer: "anon:2096ba19c9bf",
+      }),
+      row({
+        tool_name: "fetch_metadata",
+        payment_type: "tool_error",
+        detail: "Fetch failed: HTTP 530 ",
+        payer: "anon:75976450afa9",
+      }),
+      ...Array.from({ length: 4 }, (_, i) =>
+        row({ tool_name: "fetch_metadata", payer: `anon:otro${i}` })
+      ),
+    ]).length === 0,
+    "expected 0"
+  );
+
+  // Lo que NO se puede silenciar: una caida real repartida entre agentes, aun
+  // cuando cada uno solo la vea una vez (apartar al peor deja 4 llamadas).
+  assert(
+    "una caida repartida entre 5 agentes con una llamada cada uno SI pagina",
+    findBrokenTools(
+      rowsFromDistinctPayers(5, {
+        tool_name: "sitemap_parse",
+        payment_type: "tool_error",
+        detail: "Fetch failed: HTTP 500 ",
+      })
+    ).length === 1,
+    "expected 1"
+  );
+
+  assert(
+    "un agente dominante no tapa una caida que los demas tambien sufren",
+    findBrokenTools([
+      ...Array.from({ length: 20 }, () =>
+        row({
+          tool_name: "fetch_html",
+          payment_type: "tool_error",
+          detail: "Fetch failed: HTTP 500 ",
+          payer: "anon:dominante",
+        })
+      ),
+      ...Array.from({ length: 4 }, (_, i) =>
+        row({
+          tool_name: "fetch_html",
+          payment_type: "tool_error",
+          detail: "Fetch failed: HTTP 500 ",
+          payer: `anon:otro${i}`,
+        })
+      ),
+    ]).length === 1,
+    "expected 1"
+  );
+
   assert(
     "un fallo NUESTRO pagina aunque solo lo haya visto un agente",
     findBrokenTools(

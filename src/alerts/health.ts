@@ -58,8 +58,29 @@ const BREAKAGE_DEDUPE_SEC = 12 * 60 * 60;
  * inesperada) se alerta igual aunque lo haya visto un solo agente. Con el
  * volumen actual del servidor, esperar a un segundo testigo de un fallo propio
  * es exactamente como se pierden 9 dias de CMS roto.
+ *
+ * Fase 25.11 — contar agentes distintos no bastaba. El 2026-09-21 un unico
+ * agente automatizado (`anon:1bde233d85ac`, python-httpx, 838 llamadas en 24h
+ * recorriendo URLs inventadas) genero el 80% del trafico del servidor, y con
+ * el cualquier segundo agente que rozase la misma tool con UN error abria la
+ * puerta: sonaron `csv_query` (7 errores suyos + 2 de otro) y `sitemap_parse`
+ * (2 + 2), ambas falsas alarmas de 403/404 del destino. El mismo patron
+ * aparece en las cuatro alertas de la ventana: 31+1+1, 4+1, 4+1, 141+1.
+ *
+ * El arreglo no es otro umbral de agentes sino medir lo que la alerta dice:
+ * QUITA AL AGENTE QUE MAS ERRORES APORTA Y VUELVE A MIRAR. Si la tool sigue
+ * rota sin el, esta rota para todo el mundo; si se arregla sola, era esa
+ * sesion. Sobrevive a un agente que acapare el trafico, que es justo lo que
+ * un umbral sobre la tasa agregada no puede hacer.
  */
 const BREAKAGE_MIN_PAYERS = 2;
+/**
+ * Llamadas que deben quedar tras apartar al peor agente para que la tasa
+ * restante signifique algo. Mas bajo que BREAKAGE_MIN_CALLS a proposito: una
+ * caida real repartida entre 5 agentes con una llamada cada uno deja 4, y esa
+ * si tiene que sonar.
+ */
+const BREAKAGE_MIN_CALLS_WITHOUT_TOP = 3;
 
 /**
  * Silencio total. En los 14 dias previos al 2026-09-17 NO hubo ni una sola
@@ -112,6 +133,8 @@ export function findBrokenTools(rows: WindowRow[]): Array<{
       details: Map<string, number>;
       kinds: Set<string>;
       errorPayers: Set<string>;
+      /** Llamadas y errores de cada agente: el reparto que pide Fase 25.11. */
+      byPayer: Map<string, { calls: number; errors: number }>;
     }
   >();
 
@@ -125,17 +148,23 @@ export function findBrokenTools(rows: WindowRow[]): Array<{
       details: new Map<string, number>(),
       kinds: new Set<string>(),
       errorPayers: new Set<string>(),
+      byPayer: new Map(),
     };
     agg.total += 1;
+    // Sin payer (no deberia pasar: la columna es NOT NULL) cada fila cuenta
+    // como un agente distinto — no callar una alerta por un dato ausente.
+    const who = row.payer ?? `(desconocido:${agg.total})`;
+    const mine = agg.byPayer.get(who) ?? { calls: 0, errors: 0 };
+    mine.calls += 1;
     if (row.payment_type === "tool_error") {
       agg.errors += 1;
+      mine.errors += 1;
       agg.kinds.add(classifyToolError(row.detail));
-      // Sin payer (no deberia pasar: la columna es NOT NULL) cada fila cuenta
-      // como un agente distinto — no callar una alerta por un dato ausente.
-      agg.errorPayers.add(row.payer ?? `(desconocido:${agg.errors})`);
+      agg.errorPayers.add(who);
       const d = row.detail ?? "(sin detalle)";
       agg.details.set(d, (agg.details.get(d) ?? 0) + 1);
     }
+    agg.byPayer.set(who, mine);
     byTool.set(row.tool_name, agg);
   }
 
@@ -144,7 +173,16 @@ export function findBrokenTools(rows: WindowRow[]): Array<{
     if (agg.total < BREAKAGE_MIN_CALLS) continue;
     const pct = Math.round((agg.errors / agg.total) * 100);
     if (pct < BREAKAGE_PCT) continue;
-    if (agg.errorPayers.size < BREAKAGE_MIN_PAYERS && !agg.kinds.has("internal")) continue;
+    if (!agg.kinds.has("internal")) {
+      if (agg.errorPayers.size < BREAKAGE_MIN_PAYERS) continue;
+      // Fase 25.11: aparta al agente que mas errores aporta y vuelve a mirar.
+      // Si la tool deja de parecer rota sin el, no estaba rota: era su sesion.
+      const worst = Array.from(agg.byPayer.values()).sort((a, b) => b.errors - a.errors)[0];
+      const restCalls = agg.total - (worst?.calls ?? 0);
+      const restErrors = agg.errors - (worst?.errors ?? 0);
+      if (restCalls < BREAKAGE_MIN_CALLS_WITHOUT_TOP) continue;
+      if ((restErrors / restCalls) * 100 < BREAKAGE_PCT) continue;
+    }
     const topDetail =
       Array.from(agg.details.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
     broken.push({
