@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, type FilesEnv } from "./safe-fetch.js";
+import { safeFetch, httpStatusError, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, type FilesEnv } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 15_000;
 const MAX_PDF_BYTES = 20_000_000; // 20 MB — URL fetch cap
@@ -786,7 +786,7 @@ export const pdfTextExtractTool: McpTool = {
       }
 
       if (!response.ok) {
-        throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
+        throw httpStatusError(response);
       }
 
       buf = await response.arrayBuffer();

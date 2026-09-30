@@ -1,6 +1,6 @@
 import type { McpTool } from "../mcp/types.js";
 import type { Env } from "../index.js";
-import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, type FilesEnv } from "./safe-fetch.js";
+import { safeFetch, httpStatusError, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, type FilesEnv } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_CSV_BYTES = 5_000_000; // 5 MB — free tier
@@ -459,7 +459,7 @@ async function runCsvQuery(
     }
     if (!response.ok) {
       clearTimeout(timer);
-      throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
+      throw httpStatusError(response);
     }
     if (!response.body) {
       clearTimeout(timer);

@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
+import { safeFetch, httpStatusError, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 10_000;
 
@@ -153,7 +153,7 @@ export const webpageMetadataTool: McpTool = {
     }
 
     if (!response.ok) {
-      throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
+      throw httpStatusError(response);
     }
 
     // Only read up to 512 KB — metadata is always in <head>

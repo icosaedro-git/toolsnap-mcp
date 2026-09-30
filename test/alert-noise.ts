@@ -25,6 +25,7 @@ import { isProbeClient } from "../src/analytics/surface.js";
 import { isUpstreamError, classifyToolError } from "../src/alerts/error-classification.js";
 import { maybeAlertError } from "../src/alerts/error-alerts.js";
 import { findBrokenTools, type WindowRow } from "../src/alerts/health.js";
+import { httpStatusError } from "../src/tools/safe-fetch.js";
 import { redactDetail } from "../src/analytics/redact.js";
 
 let passed = 0;
@@ -493,7 +494,9 @@ console.log("\nfindBrokenTools");
 
   /** n filas identicas, cada una de un payer distinto (el caso "tool rota"). */
   const rowsFromDistinctPayers = (n: number, over: Partial<WindowRow>): WindowRow[] =>
-    Array.from({ length: n }, (_, i) => row({ ...over, payer: `anon:p${i}` }));
+    Array.from({ length: n }, (_, i) =>
+      row({ ...over, payer: `anon:p${i}`, client_name: `cliente-${i}`, client: `cliente-${i}/1.0` })
+    );
 
   assert(
     "por debajo del minimo de llamadas no hay tasa que valga",
@@ -573,7 +576,7 @@ console.log("\nfindBrokenTools");
         tool_name: "fetch_metadata",
         payment_type: "tool_error",
         detail: "Fetch failed: HTTP 404 Not Found",
-      }).map((r, i) => ({ ...r, payer: i < 3 ? "anon:uno" : "anon:dos" }))
+      }).map((r, i) => ({ ...r, payer: i < 3 ? "anon:uno" : "anon:dos", client_name: i < 3 ? "uno" : "dos" }))
     ).length === 1,
     "expected 1"
   );
@@ -600,6 +603,7 @@ console.log("\nfindBrokenTools");
           payment_type: "tool_error",
           detail: "Fetch failed: HTTP 404 Not Found",
           payer: "anon:fc8c4578c711",
+          client_name: "otro-cliente",
         })
       ),
       row({ tool_name: "csv_query", payer: "anon:1bde233d85ac" }),
@@ -672,10 +676,79 @@ console.log("\nfindBrokenTools");
           payment_type: "tool_error",
           detail: "Fetch failed: HTTP 500 ",
           payer: `anon:otro${i}`,
+          client_name: `otro-${i}`,
         })
       ),
     ]).length === 1,
     "expected 1"
+  );
+
+  // -------------------------------------------------------------------------
+  // Fase 25.12 — un payer anonimo es una IP, no un agente. Reproduce la falsa
+  // alarma del 2026-09-24: fetch_metadata 10/10 en HTTP 530, cinco payers,
+  // un unico cliente python-httpx saliendo por una IP distinta cada vez.
+  // -------------------------------------------------------------------------
+  assert(
+    "un mismo cliente anonimo rotando de IP no es 'todo el mundo'",
+    findBrokenTools(
+      Array.from({ length: 10 }, (_, i) =>
+        row({
+          tool_name: "fetch_metadata",
+          payment_type: "tool_error",
+          detail: "Fetch failed: HTTP 530 ",
+          payer: `anon:ip${i % 5}`,
+          client_name: "python-script",
+          client: "python-httpx/0.28.1",
+        })
+      )
+    ).length === 0,
+    "expected 0"
+  );
+
+  assert(
+    "ese cliente rotando mas un error suelto de otro tampoco",
+    findBrokenTools([
+      ...Array.from({ length: 10 }, (_, i) =>
+        row({
+          tool_name: "fetch_metadata",
+          payment_type: "tool_error",
+          detail: "Fetch failed: HTTP 530 ",
+          payer: `anon:ip${i}`,
+          client_name: "python-script",
+          client: "python-httpx/0.28.1",
+        })
+      ),
+      row({ tool_name: "fetch_metadata", payment_type: "tool_error", detail: "Fetch failed: HTTP 530 ", payer: "anon:x", client_name: "mcp", client: "mcp/1.0.0" }),
+    ]).length === 0,
+    "expected 0"
+  );
+
+  assert(
+    "payers identificados con el mismo cliente siguen siendo agentes distintos",
+    findBrokenTools(
+      Array.from({ length: 5 }, (_, i) =>
+        row({ payment_type: "tool_error", detail: "Fetch failed: HTTP 500 ", payer: `acct:${i}` })
+      )
+    ).length === 1,
+    "expected 1"
+  );
+
+  assert(
+    "un fallo NUESTRO rotando de IP sigue paginando",
+    findBrokenTools(
+      Array.from({ length: 6 }, (_, i) =>
+        row({ payment_type: "tool_error", detail: "boom", payer: `anon:ip${i}`, client_name: "python-script", client: "python-httpx/0.28.1" })
+      )
+    ).length === 1,
+    "expected 1"
+  );
+
+  assert(
+    "el 530 explica que el dominio no existe y sigue siendo upstream",
+    classifyToolError(httpStatusError({ status: 530, statusText: "" }).message) === "upstream" &&
+      /does not exist/.test(httpStatusError({ status: 530, statusText: "" }).message) &&
+      httpStatusError({ status: 404, statusText: "Not Found" }).message === "Fetch failed: HTTP 404 Not Found",
+    httpStatusError({ status: 530, statusText: "" }).message
   );
 
   assert(

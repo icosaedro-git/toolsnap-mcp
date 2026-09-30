@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
+import { safeFetch, httpStatusError, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 12_000;
 const READ_LIMIT = 2 * 1024 * 1024;
@@ -146,7 +146,7 @@ export const pageLinksTool: McpTool = {
     }
 
     if (!response.ok) {
-      throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
+      throw httpStatusError(response);
     }
 
     const reader = response.body?.getReader();

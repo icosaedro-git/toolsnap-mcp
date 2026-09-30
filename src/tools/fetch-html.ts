@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, httpUrlArgError } from "./safe-fetch.js";
+import { safeFetch, httpStatusError, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, httpUrlArgError } from "./safe-fetch.js";
 
 const DEFAULT_MAX_CHARS = 16_000;
 const HARD_MAX_CHARS = 64_000;
@@ -97,7 +97,7 @@ export const fetchHtmlTool: McpTool = {
       // clasificador ni el monitor la leen (se apoyan en este prefijo y en
       // tool_name) — y el agente ya sabe que URL paso. Las otras ~14 tools
       // que hacen fetch nunca la incluyeron.
-      throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
+      throw httpStatusError(response);
     }
 
     let html: string;

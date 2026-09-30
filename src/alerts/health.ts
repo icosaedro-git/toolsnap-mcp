@@ -72,8 +72,32 @@ const BREAKAGE_DEDUPE_SEC = 12 * 60 * 60;
  * rota sin el, esta rota para todo el mundo; si se arregla sola, era esa
  * sesion. Sobrevive a un agente que acapare el trafico, que es justo lo que
  * un umbral sobre la tasa agregada no puede hacer.
+ *
+ * Fase 25.12 — y un payer no es un agente. `payer` anonimo es un hash de la
+ * IP, y el mismo cliente automatizado de 25.11 (python-httpx, `python-script`)
+ * paso a salir por una IP nueva en cada llamada: 769 llamadas en 10 dias
+ * repartidas entre 93 payers, casi todos con una sola. Apartar "al peor payer"
+ * quitaba UNA de sus llamadas y el resto seguian pareciendo agentes distintos.
+ * Sonaron cuatro alertas mas (23, 24 x2 y 30 de septiembre), todas `HTTP 530`
+ * — el destino no resuelve en DNS — y todas suyas al 100%.
+ *
+ * Un agente anonimo se identifica por lo que declara ser (client_name + UA),
+ * no por la IP desde la que llega. "Todo el mundo" pasa a significar clientes
+ * DISTINTOS, no IPs distintas. Lo que se pierde a sabiendas: varios usuarios
+ * anonimos del mismo cliente y version cuentan como uno, asi que una caida
+ * que solo vea un tipo de cliente y que no sea de clase "internal" no suena.
+ * Los payers identificados (wallet, cuenta) conservan su identidad propia.
  */
 const BREAKAGE_MIN_PAYERS = 2;
+
+/** Quien es el agente de una fila. Ver la nota de Fase 25.12 arriba. */
+function agentKey(row: WindowRow, fallback: string): string {
+  if (!row.payer) return fallback;
+  if (!row.payer.startsWith("anon:")) return row.payer;
+  // Sin nada declarado no hay con que agruparlo: se queda con su payer.
+  if (!row.client_name && !row.client) return row.payer;
+  return `anon|${row.client_name ?? ""}|${row.client ?? ""}`;
+}
 /**
  * Llamadas que deben quedar tras apartar al peor agente para que la tasa
  * restante signifique algo. Mas bajo que BREAKAGE_MIN_CALLS a proposito: una
@@ -99,7 +123,7 @@ export interface WindowRow {
   detail: string | null;
   client_name: string | null;
   client: string | null;
-  /** Quien llamo. Distintos payers = distintos agentes (ver BREAKAGE_MIN_PAYERS). */
+  /** Quien llamo. El agente sale de aqui y del cliente declarado (ver agentKey). */
   payer: string | null;
 }
 
@@ -153,7 +177,7 @@ export function findBrokenTools(rows: WindowRow[]): Array<{
     agg.total += 1;
     // Sin payer (no deberia pasar: la columna es NOT NULL) cada fila cuenta
     // como un agente distinto — no callar una alerta por un dato ausente.
-    const who = row.payer ?? `(desconocido:${agg.total})`;
+    const who = agentKey(row, `(desconocido:${agg.total})`);
     const mine = agg.byPayer.get(who) ?? { calls: 0, errors: 0 };
     mine.calls += 1;
     if (row.payment_type === "tool_error") {
