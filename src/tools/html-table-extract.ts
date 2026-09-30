@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch } from "./safe-fetch.js";
+import { safeFetch, httpStatusError } from "./safe-fetch.js";
 
 /**
  * html_table_extract (Fase 18.1) — <table> → JSON/CSV.
@@ -162,7 +162,7 @@ async function fetchHtmlLimited(url: string): Promise<string> {
     clearTimeout(timer);
   }
   if (!response.ok) {
-    throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
+    throw httpStatusError(response);
   }
   const buf = await response.arrayBuffer();
   if (buf.byteLength > READ_LIMIT) {

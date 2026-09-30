@@ -1,6 +1,6 @@
 import type { McpTool } from "../mcp/types.js";
 import type { Env } from "../index.js";
-import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, type FilesEnv } from "./safe-fetch.js";
+import { safeFetch, httpStatusError, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, type FilesEnv } from "./safe-fetch.js";
 
 const DEFAULT_MAX_CHARS = 12_000;
 const HARD_MAX_CHARS = 50_000;
@@ -183,7 +183,7 @@ async function fetchHtml(
     clearTimeout(timer);
   }
   if (!response.ok) {
-    throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
+    throw httpStatusError(response);
   }
   return response.text();
 }

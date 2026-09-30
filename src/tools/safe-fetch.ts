@@ -120,6 +120,28 @@ function isPrivateIPv6(host: string): boolean {
  * Throws a caller-facing Error with a clear reason on rejection.
  */
 /**
+ * Fase 25.12 — the caller-facing message for a non-2xx response from the
+ * destination, shared by every tool that fetches a URL.
+ *
+ * HTTP 530 is what a Worker's fetch() returns when the hostname does not
+ * resolve (Cloudflare error 1016). The bare "HTTP 530" told the caller nothing:
+ * in the 10 days before 2026-09-30 agents hit it 220 times, retrying and
+ * moving on to the next tool with the same dead domain. Say what it means.
+ *
+ * The "Fetch failed: HTTP <status>" prefix is load-bearing: the alert
+ * classifier anchors on it to file these as `upstream` (error-classification.ts).
+ */
+export function httpStatusError(response: { status: number; statusText: string }): Error {
+  const base = `Fetch failed: HTTP ${response.status} ${response.statusText}`;
+  if (response.status === 530) {
+    return new Error(
+      `${base.trimEnd()} (the hostname could not be resolved or its origin is unreachable: the domain most likely does not exist. Check the URL; retrying or using another tool on the same URL will fail the same way.)`
+    );
+  }
+  return new Error(base);
+}
+
+/**
  * Fase 25.6 — the caller-facing message for a `url` ARGUMENT that isn't an
  * http(s) string, shared by every tool that pre-checks its argument before
  * fetching (fetch_extract, fetch_html, screenshot_url, extract_structured).

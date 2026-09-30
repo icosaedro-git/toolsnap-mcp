@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, httpUrlArgError } from "./safe-fetch.js";
+import { safeFetch, httpStatusError, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, httpUrlArgError } from "./safe-fetch.js";
 
 const DEFAULT_MAX_CHARS = 8_000;
 const HARD_MAX_CHARS = 32_000;
@@ -136,7 +136,7 @@ export const fetchExtractTool: McpTool = {
 
     if (!response.ok) {
       // Sin la URL a proposito — ver la nota en fetch-html.ts.
-      throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
+      throw httpStatusError(response);
     }
 
     let html: string;

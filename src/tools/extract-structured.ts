@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, httpUrlArgError } from "./safe-fetch.js";
+import { safeFetch, httpStatusError, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, httpUrlArgError } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 10_000;
 
@@ -352,7 +352,7 @@ export const extractStructuredTool: McpTool = {
     }
 
     if (!response.ok) {
-      throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
+      throw httpStatusError(response);
     }
 
     const html = await response.text();

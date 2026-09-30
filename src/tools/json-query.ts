@@ -1,6 +1,6 @@
 import type { McpTool } from "../mcp/types.js";
 import type { Env } from "../index.js";
-import { safeFetch, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, type FilesEnv } from "./safe-fetch.js";
+import { safeFetch, httpStatusError, parseForwardHeaders, HEADERS_SCHEMA_PROPERTY, type FilesEnv } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_JSON_BYTES = 5_000_000; // 5 MB
@@ -413,7 +413,7 @@ async function runJsonQuery(args: Record<string, unknown>, opts: JsonQueryEngine
     } finally {
       clearTimeout(timer);
     }
-    if (!response.ok) throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
+    if (!response.ok) throw httpStatusError(response);
     const buf = await response.arrayBuffer();
     if (buf.byteLength > opts.maxBytes) {
       throw new Error(`JSON too large for ${opts.toolName}: ${buf.byteLength} bytes (max ${opts.maxBytes}). ${opts.tooLargeHint}`);

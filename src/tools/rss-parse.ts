@@ -1,5 +1,5 @@
 import type { McpTool } from "../mcp/types.js";
-import { safeFetch } from "./safe-fetch.js";
+import { safeFetch, httpStatusError } from "./safe-fetch.js";
 
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_ITEMS = 200;
@@ -188,7 +188,7 @@ async function fetchFeed(url: string): Promise<string> {
     clearTimeout(timer);
   }
   if (!response.ok) {
-    throw new Error(`Fetch failed: HTTP ${response.status} ${response.statusText}`);
+    throw httpStatusError(response);
   }
   return response.text();
 }
