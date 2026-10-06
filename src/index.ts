@@ -1278,17 +1278,34 @@ export default {
     // que un fallo persistente no se convierta en el ruido que esta fase
     // acaba de quitar.
     const CRON_FAIL_TTL_SEC = 6 * 60 * 60;
+    const CRON_X_CREDITS_TTL_SEC = 7 * 24 * 60 * 60;
     const runTask = (name: string, task: Promise<unknown>): Promise<void> =>
       task.then(
         () => undefined,
         async (err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
           console.error(`${name} cron failed:`, msg);
+          // Fase 25.13 — sin creditos en la API de X la tarea diaria de
+          // metricas falla igual cada dia hasta que alguien recarga. Repetir
+          // el aviso a diario no anade nada: una vez por semana, diciendo
+          // que hacer. Publicar no consume esos creditos y sigue funcionando.
+          const xCredits = /\(402\).*credits-depleted/.test(msg);
           try {
             const key = `alert:cron:${name}`;
             if (!(await env.X402_NONCES.get(key))) {
-              await env.X402_NONCES.put(key, "1", { expirationTtl: CRON_FAIL_TTL_SEC });
-              await sendTelegram(env, [`🔴 *cron fallando* · \`${name}\``, `error: ${msg}`].join("\n"));
+              await env.X402_NONCES.put(key, "1", {
+                expirationTtl: xCredits ? CRON_X_CREDITS_TTL_SEC : CRON_FAIL_TTL_SEC,
+              });
+              await sendTelegram(
+                env,
+                xCredits
+                  ? [
+                      `🟠 *API de X sin creditos* · \`${name}\``,
+                      `Las metricas de engagement no se actualizan. Publicar sigue funcionando.`,
+                      `Recarga en console.x.com o baja X_METRICS_WINDOW_D. Este aviso se repite cada 7 dias.`,
+                    ].join("\n")
+                  : [`🔴 *cron fallando* · \`${name}\``, `error: ${msg}`].join("\n")
+              );
             }
           } catch {
             // El aviso nunca puede tumbar el handler.
